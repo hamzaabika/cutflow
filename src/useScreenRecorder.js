@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 // Screen recording: the chosen screen or window (with the PC's sound and / or the microphone). The camera is
 // recorded as its own file: the bubble on the screen is only a preview (hidden from the capture),
 // and its place and shape tell where the camera clip goes on the overlay track. The WebM data is streamed to
-// the main process, which saves MP4s in Videos\ClipCraft.
+// the main process, which saves MP4s in Videos\Cutflow.
 // onDone({ screen, camera, camShape, camStyle, camGeom }, at) gets the media items; `at` is the playhead.
 // camStyle: { stroke, strokeColor, glow, glowColor } for the camera's outline and glow.
 const MIME = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];

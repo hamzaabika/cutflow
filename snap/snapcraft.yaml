@@ -1,7 +1,7 @@
-# ClipCraft — Snap packaging for the Snap Store (Ubuntu App Center)
+# Cutflow — Snap packaging for the Snap Store (Ubuntu App Center)
 # ---------------------------------------------------------------------------
 # Placement in the repo:  snap/snapcraft.yaml   (this file)
-#                         snap/gui/clipcraft.desktop
+#                         snap/gui/cutflow.desktop
 #                         snap/gui/icon.png        (512x512, from build/icon.png)
 #                         snap/local/launcher.sh
 #
@@ -14,10 +14,10 @@
 #
 # BEFORE FIRST UPLOAD — 3 things only Hamza can do/decide:
 #   1. Create the developer account on snapcraft.io and register the name
-#      `clipcraft` (see ../PUBLISH-GUIDE.md). If the name is taken, change
+#      `cutflow` (see ../PUBLISH-GUIDE.md). If the name is taken, change
 #      `name:` below AND the desktop file name stays the same.
 #   2. Apply the updater gate patch (SNAP-UPDATER-PATCH.md): inside a Snap,
-#      updates are delivered by snapd — ClipCraft's own "download a .deb and
+#      updates are delivered by snapd — Cutflow's own "download a .deb and
 #      pkexec-install it" flow can never work under confinement and must
 #      answer "updates come from the Snap Store" instead.
 #   3. Run the test checklist in PUBLISH-GUIDE.md on a real Ubuntu machine
@@ -25,12 +25,12 @@
 #      the stable channel. Upload to beta/edge first.
 # ---------------------------------------------------------------------------
 
-name: clipcraft
-title: ClipCraft
+name: cutflow
+title: Cutflow
 version: '1.1.6'
 summary: Free desktop video editor — no watermark, no account, no subscription
 description: |
-  ClipCraft is a free, open-source desktop video editor and covers what
+  Cutflow is a free, open-source desktop video editor and covers what
   people actually open an editor for: multi-track cutting, transitions and
   effects, animated titles, auto-captions, templates, stock media and clean
   4K export. With none of the catches: no watermark, no account, no
@@ -50,7 +50,7 @@ source-code: https://github.com/hamzaabika/clipcraft
 issues: https://github.com/hamzaabika/clipcraft/issues
 
 # core24 = Ubuntu 24.04 base, pairs with the GNOME 46 runtime that the
-# gnome extension below pulls in — the same generation ClipCraft 1.1.6
+# gnome extension below pulls in — the same generation Cutflow 1.1.6
 # is developed and tested against.
 base: core24
 confinement: strict
@@ -65,14 +65,14 @@ architectures:
     build-for: [amd64]
 
 apps:
-  clipcraft:
+  cutflow:
     # Direct binary launch (the linux-unpacked executable is named
-    # `clipcraft`, verified from the shipped .deb payload). No wrapper
+    # `cutflow`, verified from the shipped .deb payload). No wrapper
     # script: the repo is synced to GitHub as text snapshots, which do not
     # preserve executable file modes — the environment fixes a wrapper
     # would set live in the `environment:` stanza below instead.
-    command: clipcraft
-    desktop: snap/gui/clipcraft.desktop
+    command: cutflow
+    desktop: snap/gui/cutflow.desktop
     common-id: com.clipcraft.app
     # The gnome extension supplies the desktop plugs (desktop, wayland, x11,
     # opengl, gsettings, ...) and the GTK/chromium runtime libraries.
@@ -103,13 +103,13 @@ apps:
       # and the Snap sandbox is the boundary.
       ELECTRON_DISABLE_SANDBOX: '1'
       # Keep Electron's userData inside the Snap's writable area
-      # ($SNAP_USER_DATA = ~/snap/clipcraft/current), never the real
+      # ($SNAP_USER_DATA = ~/snap/cutflow/current), never the real
       # ~/.config — snapd sets HOME there already; this is belt-and-braces
       # for the XDG-based paths Electron derives config dirs from.
       XDG_CONFIG_HOME: $SNAP_USER_DATA/.config
 
 parts:
-  clipcraft:
+  cutflow:
     plugin: nil
     source: .
     source-type: local
@@ -142,13 +142,13 @@ parts:
       npx electron-builder --linux dir --x64 --config electron-builder.release.json
 
       cp -a release/linux-unpacked/. "$CRAFT_PART_INSTALL"/
-      # Normalise the launcher binary name to lowercase `clipcraft`
+      # Normalise the launcher binary name to lowercase `cutflow`
       # (electron-builder names it after the package in most configs, but
       # do not depend on the capitalisation).
-      if [ -f "$CRAFT_PART_INSTALL/ClipCraft" ]; then
-        mv "$CRAFT_PART_INSTALL/ClipCraft" "$CRAFT_PART_INSTALL/clipcraft"
+      if [ -f "$CRAFT_PART_INSTALL/Cutflow" ]; then
+        mv "$CRAFT_PART_INSTALL/Cutflow" "$CRAFT_PART_INSTALL/cutflow"
       fi
-      test -x "$CRAFT_PART_INSTALL/clipcraft"
+      test -x "$CRAFT_PART_INSTALL/cutflow"
     # Runtime libraries Electron links against that the GNOME platform
     # snap does not guarantee. Confirmed by the ldd step of the test
     # checklist on first build — trim or extend from that evidence, not

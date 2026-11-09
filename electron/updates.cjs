@@ -1,6 +1,6 @@
-// "Is there a newer ClipCraft?" — the user asks, the app answers. A check happens ONLY when the
+// "Is there a newer Cutflow?" — the user asks, the app answers. A check happens ONLY when the
 // user clicks "Check for updates" in About (nothing runs automatically at startup). The app asks
-// the update feed — a small JSON file published on the ClipCraft site (clipcrafts.pages.dev) —
+// the update feed — a small JSON file published on the Cutflow site (clipcrafts.pages.dev) —
 // and compares versions. Nothing is sent but the request. When a newer version exists, About
 // offers an IN-APP download with progress (downloadInstaller below, streamed to the user's
 // Downloads folder). When the download finishes, the same card offers "Install & restart":
@@ -26,7 +26,7 @@ try {
 
 const SITE = 'https://clipcrafts.pages.dev';
 const ENDPOINT = process.env.CLIPCRAFT_UPDATE_URL || process.env.FVE_UPDATE_URL || `${SITE}/version.json`;
-// Hosts a feed link may point at: the ClipCraft site, Hamza's own site, or GitHub (release
+// Hosts a feed link may point at: the Cutflow site, Hamza's own site, or GitHub (release
 // downloads / notes). A local CLIPCRAFT_UPDATE_URL override (development/testing only) also
 // trusts localhost.
 const LINK_HOSTS = ['clipcrafts.pages.dev', 'hamzaabika.com', 'www.hamzaabika.com', 'github.com'];
@@ -46,7 +46,7 @@ async function downloadInstaller(url, { fetchImpl = net.fetch, destDir, onProgre
   const safe = safeLink(url, LINK_HOSTS);
   if (!safe) return { error: 'The download link is not on an allowed host.' };
   if (!destDir) return { error: 'No download folder available.' };
-  let base = 'ClipCraft-update';
+  let base = 'Cutflow-update';
   try { base = decodeURIComponent(new URL(safe).pathname.split('/').pop() || base) || base; } catch { /* keep default */ }
   base = base.replace(/[^\w.\- ]+/g, '_');
   if (!/\.(deb|appimage|zip|tar\.gz|exe|msi|dmg)$/i.test(base)) base += '.download';

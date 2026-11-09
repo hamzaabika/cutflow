@@ -5,11 +5,11 @@ import { Clock3, Film, FolderOpen, Import, Instagram, Monitor, Play, Plus, Searc
 // The developer's Instagram — shown in the home footer and the About dialog.
 export const DEV_INSTAGRAM_URL = 'https://www.instagram.com/hamza_abika/';
 
-// Support ClipCraft's development — the developer's PayPal.me page, opened in the
+// Support Cutflow's development — the developer's PayPal.me page, opened in the
 // system browser (app:openHelp allowlist) from the Home quick tools and the top bar.
 export const SUPPORT_URL = 'https://paypal.me/hamzaAbika';
 
-// ClipCraft home / start screen (pass 3) — ClipCraft's own layout: a slim brand header with a
+// Cutflow home / start screen (pass 3) — Cutflow's own layout: a slim brand header with a
 // time-aware greeting, a "stage" hero whose five format frames carry real photography (the
 // bundled preview photos) and launch a project on click, a quick-tools row where every tile
 // does something real, a "Jump back in" continue card for the latest project, and the
@@ -125,7 +125,7 @@ export default function HomeScreen({ recents, onNew, onOpen, onOpenRecent, onRem
           <span className="home-name">Clip<b>Craft</b></span>
           <span className="home-greet">{greeting()} — ready when you are.</span>
         </div>
-        <span className="home-ver">{version ? `Version ${version}` : 'ClipCraft'}</span>
+        <span className="home-ver">{version ? `Version ${version}` : 'Cutflow'}</span>
       </header>
 
       <main className="home-body">
@@ -185,7 +185,7 @@ export default function HomeScreen({ recents, onNew, onOpen, onOpenRecent, onRem
             <span className="home-action-icon"><Monitor size={18} /></span>
             <span className="home-action-text"><b>Record screen</b><span>Capture your screen straight onto a new timeline.</span></span>
           </button>
-          <button className="home-action" onClick={() => window.api.openHelp(SUPPORT_URL)} aria-label="Support ClipCraft on PayPal">
+          <button className="home-action" onClick={() => window.api.openHelp(SUPPORT_URL)} aria-label="Support Cutflow on PayPal">
             <span className="home-action-icon"><img src="./paypal.svg" alt="" className="home-paypal-mark" draggable={false} /></span>
             <span className="home-action-text"><b>Support the project</b><span>Support its development via PayPal.</span></span>
           </button>
@@ -254,7 +254,7 @@ export default function HomeScreen({ recents, onNew, onOpen, onOpenRecent, onRem
       </main>
 
       <footer className="home-foot">
-        <span>ClipCraft 1.0</span>
+        <span>Cutflow 1.0</span>
         <button className="home-dev" onClick={() => window.api.openHelp(DEV_INSTAGRAM_URL)} title="Developer on Instagram">
           Developed by <b>Hamza Abika</b> <Instagram size={13} /> @hamza_abika
         </button>

@@ -37,7 +37,7 @@ function write(state) {
 
 // Sending is possible from the installed app, or from a dev/test run that names its own server.
 // UI tests never send.
-const canSend = () => false; // ClipCraft: telemetry to the original project's server is disabled.
+const canSend = () => false; // Cutflow: telemetry to the original project's server is disabled.
 
 const utcDay = () => new Date().toISOString().slice(0, 10);
 

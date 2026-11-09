@@ -1,6 +1,6 @@
 // Export dialog: cover + settings form, then the encoding view, then the done card.
 // Structure is the classic export sheet (cover left, form right, footer with duration + size),
-// drawn entirely in ClipCraft's own design system. Every number on it comes from the SAME
+// drawn entirely in Cutflow's own design system. Every number on it comes from the SAME
 // resolved settings object the encoder consumes (src/exportQuality.js) — the form writes the
 // stored settings, App re-resolves, and the summary below is that object, never display text.
 // Durations likewise come from the encoder's own basis, exportDuration() in src/store.js —

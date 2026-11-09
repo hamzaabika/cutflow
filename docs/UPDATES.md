@@ -1,10 +1,10 @@
-# ClipCraft updates — how a release reaches users
+# Cutflow updates — how a release reaches users
 
-ClipCraft never checks in the background. In **About**, the user clicks
-**Check for updates**; the app fetches one small JSON file from the ClipCraft site and,
+Cutflow never checks in the background. In **About**, the user clicks
+**Check for updates**; the app fetches one small JSON file from the Cutflow site and,
 if it names a newer version, shows the release notes with a **Download & install** button.
 The installer downloads inside the app (with progress); when it finishes, **Install &
-restart** installs it and reopens ClipCraft in the new version. The install itself is done
+restart** installs it and reopens Cutflow in the new version. The install itself is done
 by the system: on Linux the package manager applies the .deb after the standard password
 prompt (pkexec), on Windows the installer runs silently, and on macOS the downloaded .dmg
 is opened for the normal manual install. A dismissed password prompt or a failed install
@@ -30,7 +30,7 @@ after a successful check whose latest version is not newer than the installed on
 1. Bump `version` in `package.json`; the release is built by GitHub Actions from the
    `release/vX.Y.Z` branch.
 2. Publish the GitHub release with the installers (.deb / .exe / .dmg).
-3. Update `version.json` on the ClipCraft site (new version + installer URL).
+3. Update `version.json` on the Cutflow site (new version + installer URL).
 4. Users who click **Check for updates** now see the new version, its notes, and the
    in-app download.
 

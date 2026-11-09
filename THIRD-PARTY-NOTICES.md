@@ -1,7 +1,7 @@
 # Third-Party Notices
 
-ClipCraft is free and open-source software (MIT — see `LICENSE`; the
-ClipCraft name and logo are the author's brand and are **not** part of the
+Cutflow is free and open-source software (MIT — see `LICENSE`; the
+Cutflow name and logo are the author's brand and are **not** part of the
 MIT grant). It builds on the open-source components below. Their licenses
 remain in force for their respective parts.
 
@@ -10,7 +10,7 @@ remain in force for their respective parts.
 ### Transition Studio — MIT
 A subset of the transition expressions in `src/fx/catalog.js`
 (`STUDIO_TRANSITIONS`) adapts WebGL shaders from **Transition Studio**
-(https://github.com/Rhitottam/transition-studio), rewritten into ClipCraft's
+(https://github.com/Rhitottam/transition-studio), rewritten into Cutflow's
 expression language with documented changes. MIT License, Copyright (c) 2025
 rhitottaM:
 
@@ -42,14 +42,14 @@ Files are unchanged. Credit: "LUTs: slay (CC BY 4.0)".
 ## Tools and libraries
 
 ### FFmpeg — GPLv3 / LGPL
-ClipCraft ships the `ffmpeg` and `ffprobe` executables (via the npm packages
+Cutflow ships the `ffmpeg` and `ffprobe` executables (via the npm packages
 `ffmpeg-static` and `ffprobe-static`) as standalone programs it invokes.
 FFmpeg is licensed under the GNU General Public License v3 (some builds
 LGPL v2.1+); the exact license text ships with the binary inside the app
 package. **Source offer:** the corresponding FFmpeg source is available from
 https://ffmpeg.org/download.html, and the exact build configuration from the
 `ffmpeg-static` project (https://github.com/eugeneware/ffmpeg-static). The
-ClipCraft application itself is not a derivative work of FFmpeg and remains
+Cutflow application itself is not a derivative work of FFmpeg and remains
 MIT-licensed.
 
 ### Runtime and UI

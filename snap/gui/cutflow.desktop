@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Cutflow
+Comment=Free desktop video editor — no watermark, no account, no subscription
+Exec=cutflow %F
+Terminal=false
+Type=Application
+Icon=${SNAP}/meta/gui/icon.png
+Categories=AudioVideo;Video;AudioVideoEditing;
+Keywords=video;editor;timeline;captions;ffmpeg;reels;shorts;
+MimeType=video/mp4;video/x-matroska;video/quicktime;video/webm;audio/mpeg;audio/wav;
+StartupWMClass=ClipCraft

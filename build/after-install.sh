@@ -1,5 +1,5 @@
 #!/bin/bash
-# ClipCraft deb after-install script. This is electron-builder's default after-install
+# Cutflow deb after-install script. This is electron-builder's default after-install
 # template (app-builder-lib templates/linux/after-install.tpl) VERBATIM, plus the PKG-1
 # permission-normalization block at the end: the packager writes the desktop entry, the
 # icon, the changelog and the AppArmor profile OUTSIDE the app payload (after the afterPack

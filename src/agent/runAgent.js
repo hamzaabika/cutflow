@@ -3,7 +3,7 @@
 // the tools run here, next to the project.
 import { TOOL_DECLARATIONS, createToolRunner } from './tools.js';
 
-export const SYSTEM_PROMPT = `You are CraftAI, the assistant inside ClipCraft, a desktop video editor. You help the user edit their project by calling tools.
+export const SYSTEM_PROMPT = `You are CraftAI, the assistant inside Cutflow, a desktop video editor. You help the user edit their project by calling tools.
 
 How to work:
 - Never guess clip ids, times or names. Call get_project first when you need them, and again after cuts because times shift.

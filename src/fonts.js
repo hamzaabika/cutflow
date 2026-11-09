@@ -201,7 +201,7 @@ const faces = {};
 async function loadCustom(list) {
   const next = [];
   for (const { id, name } of list) {
-    const family = `ClipCraft ${id}`;
+    const family = `Cutflow ${id}`;
     if (!faces[id]) {
       try {
         const data = await window.api.fontData(id);

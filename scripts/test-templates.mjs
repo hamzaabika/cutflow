@@ -134,7 +134,7 @@ const fake2 = async (url, opts = {}) => {
   if (files2[name]) return { ok: true, status: 200, body: stream(files2[name]) };
   return { ok: false, status: 404 };
 };
-await assert.rejects(tpl.download(fake2, path.join(tmp, 'cache2'), ID2), /newer ClipCraft/, 'an unaccepted format id is refused');
+await assert.rejects(tpl.download(fake2, path.join(tmp, 'cache2'), ID2), /newer Cutflow/, 'an unaccepted format id is refused');
 // The store feed answering 404 (not published yet) lists as empty instead of throwing.
 const gone = async () => ({ ok: false, status: 404 });
 assert.deepEqual(await tpl.list(gone, {}), { templates: [], categories: [], page: 1, pages: 1, total: 0 }, 'a 404 store feed is an empty store');

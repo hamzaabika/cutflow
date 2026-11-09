@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 
-// A yes / no question in ClipCraft's style. Enter confirms, Escape or a click outside cancels.
+// A yes / no question in Cutflow's style. Enter confirms, Escape or a click outside cancels.
 export default function ConfirmDialog({ icon: Icon, title, text, confirmLabel = 'OK', cancelLabel = 'Cancel', onConfirm, onCancel, extra }) {
   const ok = useRef(null);
   useEffect(() => {

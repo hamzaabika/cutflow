@@ -9,7 +9,7 @@ export const DEFAULT_CHROMA = { on: false, color: '#00ff00', intensity: 20, feat
 // fit / transform, in the preview and the export alike. A static per-clip property (no keyframes).
 export const DEFAULT_CROP = { l: 0, t: 0, r: 0, b: 0 };
 export const DEFAULT_MASK = {
-  type: 'none', x: 0, y: 0, rot: 0, w: 0.5, h: 0.5, feather: 0, invert: false, round: 0, text: 'CLIPCRAFT',
+  type: 'none', x: 0, y: 0, rot: 0, w: 0.5, h: 0.5, feather: 0, invert: false, round: 0, text: 'CUTFLOW',
   // Outline of the shape and a glow around it (sizes in pixels of a 720p frame, 0 = off).
   stroke: 0, strokeColor: '#ffffff', glow: 0, glowColor: '#825cfb', glowStrength: 60,
 };

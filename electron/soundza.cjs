@@ -117,7 +117,7 @@ async function search(fetchImpl, key, { q = '', goodFor = '', category = '', sty
   });
   if (!res.ok) throw await apiError(res);
   const d = await res.json().catch(() => null);
-  if (!d || !Array.isArray(d.sounds)) throw new Error('Soundza sent an answer ClipCraft could not read.');
+  if (!d || !Array.isArray(d.sounds)) throw new Error('Soundza sent an answer Cutflow could not read.');
   const results = d.sounds.filter((s) => s && s.id && /^[\w-]{1,100}$/.test(String(s.id))).map(mapSound);
   const p = Number(d.page) || page;
   // next_page is a full URL on every page but the last: pages = "one more" while it is set,

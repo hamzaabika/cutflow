@@ -152,14 +152,14 @@ const PACK_ITEMS = [
 export const COLLECTION_ITEMS = [
   ...CATALOG135.map((e) => ({ ...e, collection: collectionFor(e) })),
   ...EXTRA.map(([name, engineId, status, collection]) => ({
-    slug: `xa-${slugify(name)}`, name, family: 'ClipCraft collections', collection, engineId, status,
+    slug: `xa-${slugify(name)}`, name, family: 'Cutflow collections', collection, engineId, status,
     engineName: engineName(engineId), duration: engineDuration(engineId),
     behavior: status === 'implemented' ? `Runs the engine's ${engineName(engineId)} transition.`
       : `Adapted: runs the engine's ${engineName(engineId)} transition, the closest real match.`,
     bestFor: '', extra: true,
   })),
   ...PACK_ITEMS.map(([name, engineId, pack, collection]) => ({
-    slug: `pk-${slugify(name)}`, name, family: 'ClipCraft packs', collection, pack, engineId, status: 'implemented',
+    slug: `pk-${slugify(name)}`, name, family: 'Cutflow packs', collection, pack, engineId, status: 'implemented',
     engineName: engineName(engineId), duration: engineDuration(engineId),
     behavior: `Runs the engine's ${engineName(engineId)} transition.`,
     bestFor: '', extra: true,

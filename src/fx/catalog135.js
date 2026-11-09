@@ -1,5 +1,5 @@
 // The 135-name transition catalog (reference: transition_catalog.json, generated into
-// catalog135.json) mapped onto ClipCraft's real transition engine.
+// catalog135.json) mapped onto Cutflow's real transition engine.
 //
 // Every catalog entry resolves to an engine transition id that actually exists in
 // src/effects.js TRANSITIONS (the classic FFmpeg transitions + the WebGL/expression

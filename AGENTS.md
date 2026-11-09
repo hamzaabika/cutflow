@@ -1,4 +1,4 @@
-# AGENTS.md — working on ClipCraft
+# AGENTS.md — working on Cutflow
 
 Guidance for AI coding agents (and humans) contributing to this repository.
 
@@ -6,10 +6,10 @@ Guidance for AI coding agents (and humans) contributing to this repository.
 
 **Never copy another application's code, assets, icons, wording, or layout.**
 Concept-level inspiration from other editors is allowed; every implementation,
-asset, and text must be original work created for ClipCraft. If a change would
+asset, and text must be original work created for Cutflow. If a change would
 not be defensible as written-from-scratch, do not ship it.
 
-The ClipCraft name and logo are the author's brand — they are not covered by
+The Cutflow name and logo are the author's brand — they are not covered by
 the MIT license grant and may not be used to brand another product.
 
 ## Working conventions

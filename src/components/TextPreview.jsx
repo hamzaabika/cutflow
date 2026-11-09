@@ -20,7 +20,7 @@ export default function TextPreview({ style, text, hover, width = 150, height = 
     cv.height = Math.round(height * dpr);
     const ctx = cv.getContext('2d');
     // The standard preview line across the template set (Hamza's pick, 2026-11-01).
-    const sample = text || style.text || 'Made with ClipCraft';
+    const sample = text || style.text || 'Made with Cutflow';
     const clip = {
       ...style,
       text: sample,

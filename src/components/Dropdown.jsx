@@ -4,7 +4,7 @@ import { Check, ChevronDown } from 'lucide-react';
 // Dropdown — the app's in-app select. Native <select> popups are drawn by the OS toolkit
 // (on Linux/GTK they render pale-on-white and unreadable against the dark UI), so every
 // dropdown that matters gets this instead: same values in and out as the <select> it
-// replaces (numbers stay numbers), drawn in ClipCraft's own dark design language.
+// replaces (numbers stay numbers), drawn in Cutflow's own dark design language.
 // Keyboard: Enter/Space/ArrowDown opens; ArrowUp/Down move; Enter/Space choose; Esc closes.
 export default function Dropdown({ value, options, onChange, ariaLabel, className = '', disabled = false }) {
   const [open, setOpen] = useState(false);

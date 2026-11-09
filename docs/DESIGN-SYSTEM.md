@@ -1,4 +1,4 @@
-# ClipCraft Design System — proposed official tokens
+# Cutflow Design System — proposed official tokens
 
 Derived from the two preserved surfaces (Home Screen + icon dock), the pass-2 floating-deck
 shell, and the logo palette. Values are the ones those surfaces actually use today; where

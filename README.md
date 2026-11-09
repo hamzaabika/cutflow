@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="https://clipcrafts.pages.dev/assets/logo.png" width="110" alt="ClipCraft logo" />
+  <img src="https://clipcrafts.pages.dev/assets/logo.png" width="110" alt="Cutflow logo" />
 </p>
 
-<h1 align="center">ClipCraft</h1>
+<h1 align="center">Cutflow</h1>
 
 <p align="center">
   <b>A free desktop video editor for creators who want pro results without a subscription.</b>
@@ -23,7 +23,7 @@
 </p>
 
 <p align="center">
-  💜 <b>Support the project:</b> <a href="https://paypal.me/hamzaAbika">paypal.me/hamzaAbika</a> — if ClipCraft saves you time, a small tip keeps it free for everyone.
+  💜 <b>Support the project:</b> <a href="https://paypal.me/hamzaAbika">paypal.me/hamzaAbika</a> — if Cutflow saves you time, a small tip keeps it free for everyone.
 </p>
 
 <p align="center">
@@ -35,7 +35,7 @@
 <br>
 
 <p align="center">
-  <img src="https://clipcrafts.pages.dev/assets/editor.png" alt="The ClipCraft editor: media bin with project clips on the left, the live player in the centre, project settings on the right, and a multi-track timeline below" width="100%">
+  <img src="https://clipcrafts.pages.dev/assets/editor.png" alt="The Cutflow editor: media bin with project clips on the left, the live player in the centre, project settings on the right, and a multi-track timeline below" width="100%">
 </p>
 
 <p align="center"><sub><i>The editor.</i> Media bin, live player and a multi-track timeline — effects, captions and overlays stacked over the picture, with project settings one click away. What the player shows is what the export renders.</sub></p>
@@ -59,17 +59,17 @@
 
 ## About
 
-ClipCraft is a free, open-source desktop video editor and covers what people actually open an editor for: multi-track cutting, transitions and effects, animated titles, auto-captions, templates, stock media and clean 4K export. With none of the catches: **no watermark, no account, no subscription, no upload.** Your projects and footage stay on your computer, and everything — including the template library — works offline.
+Cutflow is a free, open-source desktop video editor and covers what people actually open an editor for: multi-track cutting, transitions and effects, animated titles, auto-captions, templates, stock media and clean 4K export. With none of the catches: **no watermark, no account, no subscription, no upload.** Your projects and footage stay on your computer, and everything — including the template library — works offline.
 
 **Good for:** TikTok, Reels and Shorts, YouTube videos, tutorials and screen recordings, podcast clips.
 
 ## Demo
 
 <p align="center"><b>▶ <a href="https://clipcrafts.pages.dev/assets/demo.mp4">Watch the screen recording</a></b> — home, timeline, transitions, effects and live playback, in under a minute.<br>
-<sub>Sample output: <a href="https://clipcrafts.pages.dev/assets/caption-sample.mp4">word-by-word caption animation</a>, exported from ClipCraft.</sub></p>
+<sub>Sample output: <a href="https://clipcrafts.pages.dev/assets/caption-sample.mp4">word-by-word caption animation</a>, exported from Cutflow.</sub></p>
 
 <p align="center">
-  <img src="https://clipcrafts.pages.dev/assets/home.png" alt="The ClipCraft home screen: start a project in 16:9, 9:16, 1:1, 4:5 or 21:9 at 24, 30 or 60 fps, or jump back into a recent project" width="100%">
+  <img src="https://clipcrafts.pages.dev/assets/home.png" alt="The Cutflow home screen: start a project in 16:9, 9:16, 1:1, 4:5 or 21:9 at 24, 30 or 60 fps, or jump back into a recent project" width="100%">
 </p>
 
 <p align="center"><sub><i>Start in the frame your video lives in</i> — landscape, vertical, square, portrait or cinematic, at 24, 30 or 60 fps. Reshape later, any time, in the editor. Recent projects return with real poster frames, and the Home screen carries the Support spot.</sub></p>
@@ -93,7 +93,7 @@ ClipCraft is a free, open-source desktop video editor and covers what people act
 
 - **Color grading** — curves, HSL, wheels and .cube LUTs.
 - **Subtitles as clips** — import an SRT, restyle one caption or all of them, timing untouched.
-- **Sequence guard** — if your footage doesn't match the project, ClipCraft asks before changing anything.
+- **Sequence guard** — if your footage doesn't match the project, Cutflow asks before changing anything.
 
 <p align="center">
   <img src="https://clipcrafts.pages.dev/assets/crop.png" alt="Crop mode: the frame hugs the rendered picture with edge and centre handles, a thirds grid, alignment guides and a rotation slider" width="100%">
@@ -111,13 +111,13 @@ Glitch & digital, film looks, light leaks and more — stack effects on any clip
 
 ## Text templates
 
-**54 original templates** in browsable rows — Basics, Captions, the **Craft** set, the **Motion** row of slide templates (Slide Up, Smooth Slide, Slide Blur, Rise & Fade…), and an Arabic row whose previews read «صُنع بواسطة ClipCraft». One click applies; favorites and search are built in.
+**54 original templates** in browsable rows — Basics, Captions, the **Craft** set, the **Motion** row of slide templates (Slide Up, Smooth Slide, Slide Blur, Rise & Fade…), and an Arabic row whose previews read «صُنع بواسطة Cutflow». One click applies; favorites and search are built in.
 
 <p align="center">
-  <img src="https://clipcrafts.pages.dev/assets/templates.png" alt="Text templates in ClipCraft: browsable rows of original designs with live previews" width="60%">
+  <img src="https://clipcrafts.pages.dev/assets/templates.png" alt="Text templates in Cutflow: browsable rows of original designs with live previews" width="60%">
 </p>
 
-<p align="center"><sub>The Craft and Motion template rows, the Arabic row, and the one-card Welcome that greets a first project — no tour, no steps — are all pictured on the <a href="https://clipcrafts.pages.dev">ClipCraft site</a>.</sub></p>
+<p align="center"><sub>The Craft and Motion template rows, the Arabic row, and the one-card Welcome that greets a first project — no tour, no steps — are all pictured on the <a href="https://clipcrafts.pages.dev">Cutflow site</a>.</sub></p>
 
 ## CraftAI
 
@@ -133,7 +133,7 @@ CraftAI is an AI editing assistant inside the editor: one-click looks, or just s
 
 ## Download
 
-Get **ClipCraft 1.1.0** from the [GitHub Release](https://github.com/hamzaabika/clipcraft/releases/tag/v1.1.0):
+Get **Cutflow 1.1.0** from the [GitHub Release](https://github.com/hamzaabika/clipcraft/releases/tag/v1.1.0):
 
 - **Linux (.deb)** — `clipcraft_1.1.0_amd64.deb`, then:
 
@@ -141,8 +141,8 @@ Get **ClipCraft 1.1.0** from the [GitHub Release](https://github.com/hamzaabika/
 sudo apt install ./clipcraft_1.1.0_amd64.deb
 ```
 
-- **Windows (.exe)** — `ClipCraft-Setup-1.1.0.exe` (NSIS installer).
-- **macOS (.dmg)** — `ClipCraft-1.1.0.dmg` (Apple silicon & Intel).
+- **Windows (.exe)** — `Cutflow-Setup-1.1.0.exe` (NSIS installer).
+- **macOS (.dmg)** — `Cutflow-1.1.0.dmg` (Apple silicon & Intel).
 
 SHA-256 checksums for every installer are printed in the release notes.
 
@@ -169,24 +169,24 @@ Public release builds are produced by GitHub Actions (`.github/workflows/release
 
 ## Updates
 
-ClipCraft checks for updates manually from **About → Check for updates** and downloads new versions in-app. Nothing auto-installs and nothing phones home.
+Cutflow checks for updates manually from **About → Check for updates** and downloads new versions in-app. Nothing auto-installs and nothing phones home.
 
 ## Originality
 
-ClipCraft is an original application, designed and built from scratch. It is not a fork, port, or copy of any other editor's code. Contributions are welcome — and everything contributed must be original work: no code, assets, icons, text, or designs taken from any other application.
+Cutflow is an original application, designed and built from scratch. It is not a fork, port, or copy of any other editor's code. Contributions are welcome — and everything contributed must be original work: no code, assets, icons, text, or designs taken from any other application.
 
 ## Support the project
 
-ClipCraft is free and stays free. If it helps you, you can:
+Cutflow is free and stays free. If it helps you, you can:
 
 - ⭐ **Star the repo** and share it with a creator who'd use it.
 - 💜 **Tip via PayPal:** [paypal.me/hamzaAbika](https://paypal.me/hamzaAbika) — the same Support spot lives in the app (top bar and Home screen).
 
 ## Ownership & License
 
-ClipCraft is an original application created by Hamza Abika, and it is open source under the MIT License.
+Cutflow is an original application created by Hamza Abika, and it is open source under the MIT License.
 You may use, copy, modify, and distribute the code under the MIT terms — the license and copyright notice must be preserved in all copies. Presenting this project as your own work (including removing the copyright notice) violates the license.
-The ClipCraft name and logo are not covered by the MIT grant: they remain the author's brand and may not be used to brand another product.
+The Cutflow name and logo are not covered by the MIT grant: they remain the author's brand and may not be used to brand another product.
 
 See [LICENSE](LICENSE) for the full MIT text.
 

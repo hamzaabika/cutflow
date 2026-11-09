@@ -12,9 +12,9 @@ const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
 const cfg = JSON.parse(JSON.stringify(pkg.build || {}));
 delete cfg.extraResources;
 // Deterministic installer names (the download links and release notes depend on them).
-// The .deb keeps electron-builder's Debian-policy default (clipcraft_<version>_amd64.deb).
-if (cfg.win) cfg.win.artifactName = 'ClipCraft-Setup-${version}.${ext}';
-if (cfg.mac) cfg.mac.artifactName = 'ClipCraft-${version}.${ext}';
+// The .deb keeps electron-builder's Debian-policy default (cutflow_<version>_amd64.deb).
+if (cfg.win) cfg.win.artifactName = 'Cutflow-Setup-${version}.${ext}';
+if (cfg.mac) cfg.mac.artifactName = 'Cutflow-${version}.${ext}';
 // Universal merge rule: the unpacked native binaries (ffmpeg / ffprobe /
 // onnxruntime) are byte-identical in the x64 and arm64 trees — one installed
 // copy serves both — so the merger must be told to take them from the x64

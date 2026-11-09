@@ -1,4 +1,4 @@
-// Forge — ClipCraft's own AI generation for photos and short videos. Two providers behind one
+// Forge — Cutflow's own AI generation for photos and short videos. Two providers behind one
 // interface, both running on the USER's accounts (nothing is generated locally and Forge never
 // implies otherwise):
 //   · Pollinations (photo only) — free, no key: the out-of-the-box path.

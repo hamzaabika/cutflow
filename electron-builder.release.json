@@ -1,7 +1,7 @@
 {
   "appId": "com.clipcraft.app",
   "afterPack": "build/after-pack.cjs",
-  "productName": "ClipCraft",
+  "productName": "Cutflow",
   "directories": {
     "output": "release"
   },
@@ -28,7 +28,7 @@
     ],
     "category": "AudioVideo",
     "maintainer": "Hamza Abika",
-    "description": "ClipCraft - free desktop video editor by Hamza Abika",
+    "description": "Cutflow - free desktop video editor by Hamza Abika",
     "icon": "build/icon.png",
     "syncDesktopName": true
   },
@@ -37,7 +37,7 @@
       "nsis"
     ],
     "icon": "build/icon.png",
-    "artifactName": "ClipCraft-Setup-${version}.${ext}"
+    "artifactName": "Cutflow-Setup-${version}.${ext}"
   },
   "mac": {
     "target": [
@@ -45,7 +45,7 @@
     ],
     "icon": "build/icon.png",
     "category": "public.app-category.video",
-    "artifactName": "ClipCraft-${version}.${ext}",
+    "artifactName": "Cutflow-${version}.${ext}",
     "x64ArchFiles": "**/app.asar.unpacked/node_modules/**"
   },
   "deb": {

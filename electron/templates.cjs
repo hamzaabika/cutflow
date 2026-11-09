@@ -1,4 +1,4 @@
-// Templates: ClipCraft projects whose marked clips ("replaceable", clip.slot) people swap for their own videos.
+// Templates: Cutflow projects whose marked clips ("replaceable", clip.slot) people swap for their own videos.
 // They are published on Hamza's site (hamzaabika.com/clipcraft) and listed in the Templates tab.
 //   pack()     writes the folder the admin uploads: template.json, the media it uses and thumb.jpg.
 //   list() / detail() / download() / thumb() / preview() / use()  talk to the store's /api/v1/templates.
@@ -175,7 +175,7 @@ async function download(fetchImpl, cacheDir, id, onProgress) {
     throw new Error('This template is damaged.');
   }
   // Only the current format id is accepted on read.
-  if (doc.format !== 'clipcraft-template' || doc.version !== 1 || !doc.project) throw new Error('This template needs a newer ClipCraft.');
+  if (doc.format !== 'clipcraft-template' || doc.version !== 1 || !doc.project) throw new Error('This template needs a newer Cutflow.');
   const media = (doc.project.media || []).map((m) => {
     if (!NAME.test(String(m.path)) || !fs.existsSync(path.join(dir, m.path))) throw new Error('This template is incomplete.');
     return { ...m, path: path.join(dir, m.path) };

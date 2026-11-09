@@ -1,9 +1,9 @@
 {
-  "name": "clipcraft",
-  "productName": "ClipCraft",
+  "name": "cutflow",
+  "productName": "Cutflow",
   "version": "1.1.6",
   "homepage": "https://hamzaabika.com",
-  "description": "ClipCraft - free, open-source desktop video editor (Electron + React + FFmpeg)",
+  "description": "Cutflow - free, open-source desktop video editor (Electron + React + FFmpeg)",
   "main": "electron/main.cjs",
   "private": true,
   "license": "MIT",
@@ -91,7 +91,7 @@
   "build": {
     "appId": "com.clipcraft.app",
     "afterPack": "build/after-pack.cjs",
-    "productName": "ClipCraft",
+    "productName": "Cutflow",
     "directories": {
       "output": "release"
     },
@@ -127,7 +127,7 @@
       ],
       "category": "AudioVideo",
       "maintainer": "Hamza Abika",
-      "description": "ClipCraft - free desktop video editor by Hamza Abika",
+      "description": "Cutflow - free desktop video editor by Hamza Abika",
       "icon": "build/icon.png",
       "syncDesktopName": true
     },
@@ -148,5 +148,5 @@
       "afterInstall": "build/after-install.sh"
     }
   },
-  "desktopName": "ClipCraft"
+  "desktopName": "Cutflow"
 }

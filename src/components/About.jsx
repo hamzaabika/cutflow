@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { CheckCircle2, Compass, Download, Globe, Instagram, RefreshCw, Sparkles, WifiOff, X } from 'lucide-react';
 import { DEV_INSTAGRAM_URL } from './HomeScreen.jsx';
 
-// About ClipCraft — version, the developer (Hamza Abika), his links, and a manual update
+// About Cutflow — version, the developer (Hamza Abika), his links, and a manual update
 // check: nothing is checked automatically; the user clicks "Check for updates" and decides.
 // The check asks the update feed on clipcrafts.pages.dev (see electron/updates.cjs). A failed
 // check shows its reason as an error — "You're up to date" appears only after a successful
@@ -79,7 +79,7 @@ export function AboutDialog({ onClose, onWelcome }) {
           {check === 'checking' && <span className="about-status"><RefreshCw size={14} className="spin" /> Checking for updates…</span>}
           {check && check.newer && (
             <div className="about-update">
-              <b>ClipCraft {check.latest} is available</b>
+              <b>Cutflow {check.latest} is available</b>
               {(check.releaseDate || check.size) && <span className="muted small">{[check.releaseDate, check.size].filter(Boolean).join(' · ')}</span>}
               {check.notes && <span className="about-notes">{check.notes}</span>}
               {!dl && (
@@ -88,7 +88,7 @@ export function AboutDialog({ onClose, onWelcome }) {
                     <button className="btn btn-primary btn-sm" onClick={startDownload}><Download size={13} /> Download &amp; install</button>
                     {check.notesUrl && <button className="btn btn-sm" onClick={() => window.api.openHelp(check.notesUrl)}>What's new</button>}
                   </div>
-                  <span className="muted small">You have {check.current}. The installer downloads inside the app — after that, one click installs it and restarts ClipCraft into the new version. <button className="linklike" onClick={() => window.api.openHelp(check.downloadUrl)}>Or open the download in your browser</button></span>
+                  <span className="muted small">You have {check.current}. The installer downloads inside the app — after that, one click installs it and restarts Cutflow into the new version. <button className="linklike" onClick={() => window.api.openHelp(check.downloadUrl)}>Or open the download in your browser</button></span>
                 </>
               )}
               {dl?.phase === 'downloading' && (
@@ -104,19 +104,19 @@ export function AboutDialog({ onClose, onWelcome }) {
                     <button className="btn btn-primary btn-sm" onClick={startInstall}><Download size={13} /> Install &amp; restart</button>
                     <button className="btn btn-sm" onClick={openInstaller}>Open installer</button>
                   </div>
-                  <span className="muted small">Install &amp; restart applies the update and reopens ClipCraft — on Linux your system asks for its password once. Your projects and settings stay exactly as they are.</span>
+                  <span className="muted small">Install &amp; restart applies the update and reopens Cutflow — on Linux your system asks for its password once. Your projects and settings stay exactly as they are.</span>
                 </>
               )}
               {dl?.phase === 'installing' && (
                 <span className="about-status"><RefreshCw size={14} className="spin" /> Installing… if your system asks for a password, that's the install being approved.</span>
               )}
               {dl?.phase === 'restarting' && (
-                <span className="about-status ok"><CheckCircle2 size={15} /> Installed — ClipCraft is restarting into the new version…</span>
+                <span className="about-status ok"><CheckCircle2 size={15} /> Installed — Cutflow is restarting into the new version…</span>
               )}
               {dl?.phase === 'opened' && (
                 <>
                   <span className="about-status ok"><CheckCircle2 size={15} /> Downloaded{dl.fileName ? `: ${dl.fileName}` : ''} (in your Downloads folder)</span>
-                  <span className="muted small">The installer is open — finish the install there, then reopen ClipCraft. Your projects and settings stay exactly as they are.</span>
+                  <span className="muted small">The installer is open — finish the install there, then reopen Cutflow. Your projects and settings stay exactly as they are.</span>
                 </>
               )}
               {dl?.phase === 'install-error' && (
@@ -156,7 +156,7 @@ export function UpdateNotice({ update, onDismiss, onAbout }) {
     <div className="stats-note update-note" role="dialog" aria-labelledby="update-note-title">
       <Sparkles size={18} />
       <div className="stats-note-body">
-        <b id="update-note-title">ClipCraft {update.latest} is available</b>
+        <b id="update-note-title">Cutflow {update.latest} is available</b>
         <span>You have version {update.current}. Download the new installer and run it: your projects and settings stay.</span>
         <div className="stats-note-actions">
           <button className="btn btn-sm btn-primary" onClick={() => { window.api.openHelp(update.downloadUrl); onDismiss(); }}><Download size={13} /> Download</button>

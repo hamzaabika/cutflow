@@ -2,7 +2,7 @@
 // - sources(): screens and windows with thumbnails for the picker.
 // - choose(): the source the next getDisplayMedia() call of the interface gets (with Windows system sound).
 // - begin / chunk / finish: the interface streams the WebM recording here; finish() converts it to MP4 in the
-//   user's Videos\ClipCraft folder.
+//   user's Videos\Cutflow folder.
 // - A small "Stop" bar stays on top while recording. It is hidden from screen capture, so it never shows in videos.
 const { BrowserWindow, desktopCapturer, ipcMain, screen, session } = require('electron');
 const fs = require('fs');
@@ -74,7 +74,7 @@ function install({ app, getWin, ffmpegPath, probeAll }) {
   });
 
   const outDir = () => {
-    const dir = process.env.FVE_SMOKE ? path.join(process.env.FVE_SMOKE, 'recordings') : path.join(app.getPath('videos'), 'ClipCraft');
+    const dir = process.env.FVE_SMOKE ? path.join(process.env.FVE_SMOKE, 'recordings') : path.join(app.getPath('videos'), 'Cutflow');
     fs.mkdirSync(dir, { recursive: true });
     return dir;
   };

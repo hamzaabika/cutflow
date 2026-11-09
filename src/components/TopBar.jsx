@@ -42,13 +42,13 @@ export default function TopBar({ project, dispatch, onOpen, onSave, saveState = 
             {saveState === 'saved' ? <Check size={13} /> : saveState === 'error' ? <CircleAlert size={13} /> : null} {SAVE_STATES[saveState][0]}
           </span>
         )}
-        <button className="btn btn-ghost about-btn" onClick={onAbout} aria-label={updateReady ? 'About ClipCraft (an update is available)' : 'About ClipCraft'}
-          title={updateReady ? 'A new version is available' : 'About ClipCraft: version and updates'}>
+        <button className="btn btn-ghost about-btn" onClick={onAbout} aria-label={updateReady ? 'About Cutflow (an update is available)' : 'About Cutflow'}
+          title={updateReady ? 'A new version is available' : 'About Cutflow: version and updates'}>
           <Info size={15} /> <span>About</span>{updateReady && <i className="update-dot" aria-hidden="true" />}
         </button>
         <button className="icon-btn" onClick={onSettings} aria-label="Settings" title="Settings"><Settings size={17} /></button>
-        <button className="btn btn-ghost support-btn" onClick={() => window.api.openHelp(SUPPORT_URL)} aria-label="Support ClipCraft on PayPal"
-          title="Support ClipCraft's development on PayPal">
+        <button className="btn btn-ghost support-btn" onClick={() => window.api.openHelp(SUPPORT_URL)} aria-label="Support Cutflow on PayPal"
+          title="Support Cutflow's development on PayPal">
           <img src="./paypal.svg" alt="" className="paypal-mark" draggable={false} /> <span className="support-word-full">Support the project</span><span className="support-word-short">Support</span>
         </button>
         <button className="btn btn-ghost" onClick={onReframe} aria-label="Make vertical copy"

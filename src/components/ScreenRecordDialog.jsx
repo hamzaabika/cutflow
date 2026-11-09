@@ -73,7 +73,7 @@ export default function ScreenRecordDialog({ rec, at, onClose }) {
             <>
               <Loader2 size={30} className="spin" />
               <h3>Saving the recording…</h3>
-              <p className="muted">It is converted to MP4 in Videos\ClipCraft, then added to the timeline.</p>
+              <p className="muted">It is converted to MP4 in Videos\Cutflow, then added to the timeline.</p>
             </>
           ) : (
             <>
@@ -117,7 +117,7 @@ export default function ScreenRecordDialog({ rec, at, onClose }) {
         </div>
         <div className="rec-opts">
           <label><input type="checkbox" checked={opts.systemAudio} onChange={set('systemAudio')} /> <Volume2 size={14} /> Computer sound</label>
-          <label><input type="checkbox" checked={opts.hideApp} onChange={set('hideApp')} /> Hide ClipCraft while recording</label>
+          <label><input type="checkbox" checked={opts.hideApp} onChange={set('hideApp')} /> Hide Cutflow while recording</label>
         </div>
         <div className="rec-devices">
           <div className="rec-device">
@@ -178,7 +178,7 @@ export default function ScreenRecordDialog({ rec, at, onClose }) {
           )}
         </div>
         {rec.error && <p className="error-text">{rec.error}</p>}
-        <p className="muted small">Saved as MP4 in Videos\ClipCraft and added at the playhead. A small Stop bar stays on top; it does not appear in the video, and you can fold it into a tab at the top of the screen.</p>
+        <p className="muted small">Saved as MP4 in Videos\Cutflow and added at the playhead. A small Stop bar stays on top; it does not appear in the video, and you can fold it into a tab at the top of the screen.</p>
         <div className="modal-actions">
           <button className="btn" onClick={close}>Cancel</button>
           <button className="btn btn-primary" disabled={!pick} onClick={() => rec.start({ ...opts, sourceId: pick, at })}>
