@@ -60,9 +60,12 @@ grade: stable
 # ship per-arch binaries and the arm64 path is untested (same class of
 # problem as the known Intel-Mac ffmpeg caveat). Add arm64 only after a
 # real arm64 test pass.
-architectures:
-  - build-on: [amd64]
-    build-for: [amd64]
+# NOTE (2026-11-09): snapcraft 9 rejects the old `architectures:` key for
+# base core24 — core24 uses `platforms:` instead (Snap #1 run 42538120883
+# failed on exactly this: "'architectures' key is not supported for base
+# 'core24'. Use 'platforms' key instead.").
+platforms:
+  amd64:
 
 apps:
   cutflow:
