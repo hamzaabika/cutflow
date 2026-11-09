@@ -1,7 +1,7 @@
 {
   "name": "cutflow",
   "productName": "Cutflow",
-  "version": "1.2.0",
+  "version": "1.0.0",
   "homepage": "https://hamzaabika.com",
   "description": "Cutflow - free, open-source desktop video editor (Electron + React + FFmpeg)",
   "main": "electron/main.cjs",
