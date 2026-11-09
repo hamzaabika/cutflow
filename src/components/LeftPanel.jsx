@@ -163,7 +163,7 @@ function MediaCard({ m, onAdd, onRemove, onOverlay, onPeek, peeking }) {
           <span className="asset-opt proxy" title="Plays from a scaled proxy copy at the current playback quality. Export uses the original at full quality.">Proxy</span>
         )}
         {!m.optimizing && m.proxyFailed && (
-          <button className="asset-opt failed as-btn" title="ClipCraft could not make the playable preview copy for this file, so it cannot be shown in the player. Export still uses the original file. Click to try again."
+          <button className="asset-opt failed as-btn" title="Cutflow could not make the playable preview copy for this file, so it cannot be shown in the player. Export still uses the original file. Click to try again."
             onClick={(e) => { e.stopPropagation(); window.api.ensureVisuals([{ path: m.path, type: m.type, duration: m.duration, hasAudio: m.hasAudio, width: m.width, height: m.height, proxy: m.proxy, lightProxy: m.lightProxy, proxies: m.proxies }], { force: true }); }}>
             Preview failed — retry
           </button>

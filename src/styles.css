@@ -1,4 +1,4 @@
-/* ClipCraft — dark pro editor theme.
+/* Cutflow — dark pro editor theme.
    Design tokens first; components only use the semantic variables below. */
 :root {
   /* Surfaces (darkest → lightest) */
@@ -1174,7 +1174,7 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 }
 .proxy-btn:hover { color: var(--text); }
 .proxy-btn.on { color: #86efac; background: rgba(34, 197, 94, 0.12); border-color: rgba(34, 197, 94, 0.45); }
-/* Playback-quality and zoom menus in the transport bar (ClipCraft dark/violet language). */
+/* Playback-quality and zoom menus in the transport bar (Cutflow dark/violet language). */
 .quality-btn.on { color: #c4b5fd; background: rgba(130, 92, 251, 0.14); border-color: rgba(130, 92, 251, 0.5); }
 .quality-btn, .zoom-btn { display: inline-flex; align-items: center; gap: 4px; }
 .transport-menu-wrap { position: relative; display: inline-flex; }
@@ -1200,7 +1200,7 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 .stage-wrap.zoomed { overflow: hidden; cursor: grab; }
 .stage-wrap.zoomed:active { cursor: grabbing; }
 
-/* Settings redesign (v2): left rail + pane, ClipCraft floating-card language. All rules are
+/* Settings redesign (v2): left rail + pane, Cutflow floating-card language. All rules are
    scoped under .settings2 so nothing leaks into other dialogs. */
 .modal.settings.settings2 {
   width: 800px; padding: 0; gap: 0; overflow: hidden; text-align: left; align-items: stretch;
@@ -1234,7 +1234,7 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 .settings2 .btn-primary:hover:not(:disabled) { filter: brightness(1.1); }
 .settings2 .settings-section { background: #181826; border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 14px; padding: 16px; }
 
-/* CraftAI redesign (pilot2): a ClipCraft command deck — gradient wordmark, model pill,
+/* CraftAI redesign (pilot2): a Cutflow command deck — gradient wordmark, model pill,
    grouped quick-action cards, visual style tiles, card messages, floating pill composer.
    Scoped under .pilot2; panel position/size and all behaviour are unchanged. */
 .pilot-panel.pilot2 {
@@ -1747,7 +1747,7 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 .stab-levels button { font-size: 11.5px; padding: 0 4px; }
 
 /* =====================================================================================
-   ClipCraft redesign pass (home screen, catalog 135, sequence dialog, panel polish).
+   Cutflow redesign pass (home screen, catalog 135, sequence dialog, panel polish).
    Appended rules only: every existing class keeps its behaviour; these refine spacing,
    hierarchy and state emphasis, and style the new screens.
    ===================================================================================== */
@@ -1887,7 +1887,7 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 .scopes-canvas { width: 100%; height: auto; display: block; border-radius: 6px; margin-top: 6px; background: #0c0c14; }
 
 /* =====================================================================================
-   ClipCraft redesign pass 2 — STRUCTURAL shell redesign + real-photo previews + home.
+   Cutflow redesign pass 2 — STRUCTURAL shell redesign + real-photo previews + home.
    The editor is now a "floating deck": rounded cards over a deep-navy canvas with a
    violet ambience; the left library gets a vertical icon dock instead of the top tab
    row; the player transport is a floating pill; the timeline is its own bottom deck.
@@ -1978,7 +1978,7 @@ input[type='range']:not(.grade-range)::-moz-range-thumb { width: 12px; height: 1
   box-shadow: 0 6px 18px rgba(130, 92, 251, 0.5); }
 .play-btn:hover { background: linear-gradient(135deg, #8f6dfc, #7c3aed); }
 
-/* ---------- Inspector: ClipCraft section labels ---------- */
+/* ---------- Inspector: Cutflow section labels ---------- */
 .inspector .field > span { text-transform: uppercase; letter-spacing: 0.7px; font-size: 10.5px; font-weight: 700; color: var(--text-3); }
 .inspector .field > span b { text-transform: none; letter-spacing: 0; font-size: 12px; color: var(--text); }
 
@@ -2056,7 +2056,7 @@ input[type='range']:not(.grade-range)::-moz-range-thumb { width: 12px; height: 1
 }
 
 /* =====================================================================================
-   ClipCraft redesign pass 3 — HOME only: living photo stage frames, a "Jump back in"
+   Cutflow redesign pass 3 — HOME only: living photo stage frames, a "Jump back in"
    continue card, a four-tile quick-tools row (all wired to real actions), bigger gallery
    cards, an enriched stage empty state, a greeting in the header and a slim footer.
    Overrides/appends only; no editor-shell rules change.
@@ -2174,7 +2174,7 @@ input[type='range']:not(.grade-range)::-moz-range-thumb { width: 12px; height: 1
 .about-dev { margin: 2px 0 0; font-size: 13px; color: var(--text-2); }
 .about-dev b { color: var(--text-1); }
 
-/* About page v1 — ClipCraft's own design (halo logo, version pill, developer card) */
+/* About page v1 — Cutflow's own design (halo logo, version pill, developer card) */
 .modal.about2 { width: 400px; max-height: calc(100vh - 40px); overflow-y: auto; padding: 30px 28px 24px; text-align: center;
   background: radial-gradient(120% 90% at 50% 0%, #1b1b2e 0%, var(--surface-1) 55%);
   border: 1px solid var(--border-2, #2b2b3d); border-radius: 20px;
@@ -2231,7 +2231,7 @@ input[type='range']:not(.grade-range)::-moz-range-thumb { width: 12px; height: 1
 
 
 /* =====================================================================================
-   ClipCraft identity pass (v12) — Phase 3 structural surfaces + token alignment.
+   Cutflow identity pass (v12) — Phase 3 structural surfaces + token alignment.
    Appended overrides: panel source switchers replace the old second rail; inspector
    sections speak the .insp-card language; the timeline toolbar groups into pill
    clusters; dialogs gain their purpose-built pieces.

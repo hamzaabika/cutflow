@@ -45,7 +45,7 @@ function createWindow() {
     minWidth: 1000,
     minHeight: 640,
     backgroundColor: '#0b0d12',
-    title: 'ClipCraft',
+    title: 'Cutflow',
     // The .ico carries 16-256 px versions, so the title bar and taskbar stay sharp on Windows.
     icon: path.join(__dirname, '..', 'assets', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
     autoHideMenuBar: true,
@@ -1020,7 +1020,7 @@ ipcMain.handle('gen:run', async (_e, jobId, kind, opts = {}) => {
 });
 ipcMain.handle('gen:stop', (_e, jobId) => genJobs.get(jobId)?.abort());
 
-// ---- Forge: ClipCraft's own AI generation (photos + short videos). Pollinations (free, no key)
+// ---- Forge: Cutflow's own AI generation (photos + short videos). Pollinations (free, no key)
 // for photos; Gemini — the AI assistant's existing key, no second key field — for Gemini photos
 // and Veo videos. Jobs live in the forge module, so they survive panel switches. ----
 const forge = require('./forge.cjs');

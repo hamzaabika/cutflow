@@ -1592,7 +1592,7 @@ export default function App() {
     if (res.error) return setTplNote({ title: 'Could not write the package', text: res.error });
     setTplNote({
       title: 'Template package ready',
-      text: 'Last step: export this video into the same folder with the name “preview.mp4” (Export > Video). The folder is the finished template package — keep it or share it as files; anyone can open it from their own copy of ClipCraft. (Online template publishing is not part of ClipCraft 1.0.)',
+      text: 'Last step: export this video into the same folder with the name “preview.mp4” (Export > Video). The folder is the finished template package — keep it or share it as files; anyone can open it from their own copy of Cutflow. (Online template publishing is not part of Cutflow 1.0.)',
       dir: res.dir,
     });
   };
@@ -1925,7 +1925,7 @@ export default function App() {
       {(screenOpen || screenRec.active) && <ScreenRecordDialog rec={screenRec} at={time} onClose={() => setScreenOpen(false)} />}
       {recoveredNote && (
         <div className="recovered-note" role="status">
-          <b>ClipCraft had a problem and restarted its window.</b> Your project was restored as it was a second before.
+          <b>Cutflow had a problem and restarted its window.</b> Your project was restored as it was a second before.
           <button className="btn btn-sm" onClick={() => window.api.openCrashLog()}>Show crash log</button>
           <button className="icon-btn" aria-label="Close" onClick={() => setRecoveredNote(false)}>×</button>
         </div>

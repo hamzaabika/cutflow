@@ -126,7 +126,7 @@ function ProxySettings({ onCleared }) {
   return (
     <section className="settings-section">
       <div className="settings-title"><Gauge size={16} /> Playback quality (smooth editing on slower PCs)</div>
-      <p className="muted">At High, Medium or Low, ClipCraft makes a scaled copy of every video and plays that while you edit, so even a
+      <p className="muted">At High, Medium or Low, Cutflow makes a scaled copy of every video and plays that while you edit, so even a
         weak PC stays smooth. Each copy is made once per video, in the background; until it is ready the original plays.
         Export always uses the original files, at full quality.</p>
       <div className="seg-tabs small" role="radiogroup" aria-label="Playback quality">
@@ -146,7 +146,7 @@ function ProxySettings({ onCleared }) {
       </div>
       <div className="settings-title" style={{ marginTop: 22 }}><Gauge size={16} /> Performance mode</div>
       <p className="muted">Modes trade background work against responsiveness: how many thumbnails, waveforms and copies
-        ClipCraft builds at once, which playback quality it defaults to, and whether an export yields the PC's
+        Cutflow builds at once, which playback quality it defaults to, and whether an export yields the PC's
         processor to everything else. A mode never changes export quality — exports always render from the
         original files at your chosen quality settings.</p>
       <div className="seg-tabs small" role="radiogroup" aria-label="Performance mode">
