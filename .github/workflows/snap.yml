@@ -1,11 +1,11 @@
-# ClipCraft — Snap Store pipeline.
+# Cutflow — Snap Store pipeline.
 #
 # Builds the .snap with Snapcraft (the snapcraft.yaml at snap/snapcraft.yaml
 # itself runs the light release build — see its override-build) and, when
 # run manually with publish=true, uploads it to the Snap Store.
 #
 # One-time setup (Hamza, see PUBLISH-GUIDE.md):
-#   1. Snapcraft developer account + the name `clipcraft` registered.
+#   1. Snapcraft developer account + the name `cutflow` registered.
 #   2. Repo secret SNAPCRAFT_STORE_CREDENTIALS = output of
 #      `snapcraft export-login snapcraft-login.txt` on a machine where
 #      `snapcraft login` succeeded. The secret is a login token for the
@@ -65,7 +65,7 @@ jobs:
       - name: Keep the snap as a run artifact
         uses: actions/upload-artifact@v4
         with:
-          name: clipcraft-snap
+          name: cutflow-snap
           path: ${{ steps.build.outputs.snap }}
           retention-days: 7
 
