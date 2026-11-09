@@ -1,0 +1,81 @@
+# ClipCraft — Snap Store pipeline.
+#
+# Builds the .snap with Snapcraft (the snapcraft.yaml at snap/snapcraft.yaml
+# itself runs the light release build — see its override-build) and, when
+# run manually with publish=true, uploads it to the Snap Store.
+#
+# One-time setup (Hamza, see PUBLISH-GUIDE.md):
+#   1. Snapcraft developer account + the name `clipcraft` registered.
+#   2. Repo secret SNAPCRAFT_STORE_CREDENTIALS = output of
+#      `snapcraft export-login snapcraft-login.txt` on a machine where
+#      `snapcraft login` succeeded. The secret is a login token for the
+#      store ONLY — it never appears in logs or artifacts.
+#
+# Triggers: manual only (workflow_dispatch). Snap releases follow the same
+# batching rule as the other installers: no new store release for every
+# small change — dispatch this for a version that is already the public
+# release (package.json version must match snapcraft.yaml version).
+
+name: Snap
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Upload the built snap to the Snap Store (beta channel)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  snap:
+    name: Build Snap
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # Same bootstrap as the release workflow: brand files + template seed
+      # media travel as ci-assets on release branches. On a branch without
+      # ci-assets, the on-disk bundled-templates are used as-is.
+      - name: Decode ci-assets (when present)
+        shell: bash
+        run: |
+          if [ -d ci-assets ]; then
+            set -euo pipefail
+            cat ci-assets/part-* | base64 -d | tar -xzf -
+            sha256sum -c ci-assets.sha256
+          else
+            echo "no ci-assets on this branch — using bundled-templates from the tree"
+          fi
+
+      - name: Version guard (package.json must match snapcraft.yaml)
+        shell: bash
+        run: |
+          set -euo pipefail
+          v=$(node -p "require('./package.json').version")
+          grep -q "^version: '$v'" snap/snapcraft.yaml || {
+            echo "snapcraft.yaml version does not match package.json ($v)"; exit 1; }
+
+      - name: Build the snap
+        id: build
+        uses: snapcore/action-build@v1
+
+      - name: Keep the snap as a run artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: clipcraft-snap
+          path: ${{ steps.build.outputs.snap }}
+          retention-days: 7
+
+      # First publish goes to beta, never straight to stable — promote the
+      # same revision from the store dashboard after the test checklist.
+      - name: Publish to Snap Store (beta)
+        if: inputs.publish
+        uses: snapcore/action-publish@v1
+        with:
+          snap: ${{ steps.build.outputs.snap }}
+          release: beta
+        env:
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
