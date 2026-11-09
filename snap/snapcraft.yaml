@@ -6,7 +6,7 @@
 #                         snap/local/launcher.sh
 #
 # Verified against the source tree on 2026-11-09:
-#   package.json version 1.1.6, Electron 33, React + Vite, ffmpeg-static,
+#   package.json version 1.2.0, Electron 33, React + Vite, ffmpeg-static,
 #   ffprobe-static, onnxruntime-node (all asar-unpacked, same as the .deb).
 # The release difference is reused, not reinvented: the build runs
 # scripts/prepare-release-config.cjs, so the Snap is the LIGHT build
@@ -27,7 +27,7 @@
 
 name: cutflow
 title: Cutflow
-version: '1.1.6'
+version: '1.2.0'
 summary: Free desktop video editor — no watermark, no account, no subscription
 description: |
   Cutflow is a free, open-source desktop video editor and covers what
@@ -50,7 +50,7 @@ source-code: https://github.com/hamzaabika/clipcraft
 issues: https://github.com/hamzaabika/clipcraft/issues
 
 # core24 = Ubuntu 24.04 base, pairs with the GNOME 46 runtime that the
-# gnome extension below pulls in — the same generation Cutflow 1.1.6
+# gnome extension below pulls in — the same generation Cutflow 1.2.0
 # is developed and tested against.
 base: core24
 confinement: strict
@@ -75,7 +75,15 @@ apps:
     # preserve executable file modes — the environment fixes a wrapper
     # would set live in the `environment:` stanza below instead.
     command: cutflow
-    desktop: snap/gui/cutflow.desktop
+    # NOTE (2026-11-09): NO `desktop:` key here on purpose. Snap #2
+    # (run 42540741602) failed at prime time because
+    # `desktop: snap/gui/cutflow.desktop` is resolved by snapcraft
+    # relative to the prime directory / the snapcraft.yaml folder, so it
+    # looked for snap/snap/gui/cutflow.desktop, which does not exist.
+    # The desktop file already lives at snap/gui/cutflow.desktop and
+    # snapcraft auto-discovers it there (named after the snap) and copies
+    # the whole snap/gui/ folder into meta/gui/ — that is the documented
+    # method, so no key is needed.
     common-id: com.clipcraft.app
     # The gnome extension supplies the desktop plugs (desktop, wayland, x11,
     # opengl, gsettings, ...) and the GTK/chromium runtime libraries.
