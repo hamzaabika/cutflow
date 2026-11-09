@@ -133,7 +133,10 @@ export function AboutDialog({ onClose, onWelcome }) {
               )}
             </div>
           )}
-          {check && !check.newer && !check.error && (
+          {check && check.storeManaged && (
+            <span className="about-status ok"><CheckCircle2 size={15} /> Snap install — updates arrive automatically through the Snap Store.</span>
+          )}
+          {check && !check.newer && !check.error && !check.storeManaged && (
             <span className="about-status ok"><CheckCircle2 size={15} /> You're up to date — {check.latest} is the latest version.</span>
           )}
           {check && check.error && (

@@ -15,7 +15,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { FxJobs } = require('./fxjobs.cjs');
-const { probe, runExport, exportAudio, toM4a, renderTimelineAudio, detectSilences, makeVisuals, needsProxy, usableCopyFile, makeProxy, makeLightProxy, makeQualityProxy, hasLibx265 } = require('./ffmpeg.cjs');
+const { probe, runExport, exportAudio, toM4a, renderTimelineAudio, detectSilences, makeVisuals, needsProxy, usableCopyFile, makeProxy, makeLightProxy, makeQualityProxy, hasLibx265, pickEncoder } = require('./ffmpeg.cjs');
 const { qualityTargetSize, pruneDeadCopies } = require('./quality.cjs');
 const whisper = require('./whisper.cjs');
 const cloudCaptions = require('./cloudCaptions.cjs');
@@ -687,7 +687,9 @@ app.on('will-quit', () => fxJobs.clear());
 // stated fallback). Cached: the encoder list does not change at runtime.
 let exportCapsCache = null;
 ipcMain.handle('export:caps', async () => {
-  exportCapsCache ||= { libx265: hasLibx265() };
+  // encoder: the probed pick (v1.1.12) — a GPU encoder when one truly works
+  // on this machine, libx264 otherwise; the Export summary names it.
+  exportCapsCache ||= { libx265: hasLibx265(), encoder: await pickEncoder().catch(() => 'libx264') };
   return exportCapsCache;
 });
 
@@ -859,11 +861,21 @@ ipcMain.handle('settings:clearServiceKey', (_e, name) => settings.clearServiceKe
 const updates = require('./updates.cjs');
 ipcMain.handle('app:version', () => app.getVersion());
 // Manual checks only (the About dialog); nothing checks automatically at startup.
-ipcMain.handle('updates:check', async () => { lastCheck = await updates.check(); return lastCheck; });
+ipcMain.handle('updates:check', async () => {
+  // Snap installs are updated by snapd, never by the in-app .deb flow
+  // (a confined, read-only app cannot download and pkexec-install a package).
+  if (process.env.SNAP) {
+    lastCheck = { current: app.getVersion(), storeManaged: true, newer: false };
+    return lastCheck;
+  }
+  lastCheck = await updates.check();
+  return lastCheck;
+});
 let lastCheck = null;
 // In-app installer download (progress streamed to the requesting window). Uses ONLY the
 // download URL from the last check — the renderer never supplies a URL.
 ipcMain.handle('updates:download', async (e) => {
+  if (process.env.SNAP) return { error: 'This install updates through the Snap Store.' };
   if (!lastCheck?.newer || !lastCheck.downloadUrl) return { error: 'Check for updates first.' };
   return updates.downloadInstaller(lastCheck.downloadUrl, {
     destDir: app.getPath('downloads'),
@@ -884,6 +896,7 @@ ipcMain.handle('updates:openInstaller', async () => {
 // replaced. Where no silent install exists (macOS), fall back to opening the downloaded
 // file — the same behaviour as updates:openInstaller.
 ipcMain.handle('updates:install', async () => {
+  if (process.env.SNAP) return { error: 'This install updates through the Snap Store.' };
   const r = await updates.installDownloaded({ destDir: app.getPath('downloads') });
   if (r.unsupported) {
     const p = updates.lastDownload();
