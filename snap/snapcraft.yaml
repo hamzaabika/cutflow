@@ -6,7 +6,7 @@
 #                         snap/local/launcher.sh
 #
 # Verified against the source tree on 2026-11-09:
-#   package.json version 1.2.0, Electron 33, React + Vite, ffmpeg-static,
+#   package.json version 1.0.0, Electron 33, React + Vite, ffmpeg-static,
 #   ffprobe-static, onnxruntime-node (all asar-unpacked, same as the .deb).
 # The release difference is reused, not reinvented: the build runs
 # scripts/prepare-release-config.cjs, so the Snap is the LIGHT build
@@ -27,7 +27,7 @@
 
 name: cutflow
 title: Cutflow
-version: '1.2.0'
+version: '1.0.0'
 summary: Free desktop video editor — no watermark, no account, no subscription
 description: |
   Cutflow is a free, open-source desktop video editor and covers what
@@ -50,7 +50,7 @@ source-code: https://github.com/hamzaabika/clipcraft
 issues: https://github.com/hamzaabika/clipcraft/issues
 
 # core24 = Ubuntu 24.04 base, pairs with the GNOME 46 runtime that the
-# gnome extension below pulls in — the same generation Cutflow 1.2.0
+# gnome extension below pulls in — the same generation Cutflow 1.0.0
 # is developed and tested against.
 base: core24
 confinement: strict
