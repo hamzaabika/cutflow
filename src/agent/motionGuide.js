@@ -1,4 +1,4 @@
-// CraftAI's motion design recipes: what Remotion's best practices (remotion-dev/skills: timing, easing,
+// FlowAI's motion design recipes: what Remotion's best practices (remotion-dev/skills: timing, easing,
 // scenes, transitions, captions, sound effects, Arabic text) teach, written as Cutflow tool calls. Returned by the
 // motion_guide tool only when needed, so the recipes do not weigh on every request.
 
@@ -79,7 +79,7 @@ export const MOTION_TOPICS = Object.keys(MOTION_GUIDE);
 
 // Named editing styles: a whole edit from one word ("edit it Orbit style"). Each is a recipe of Cutflow tool calls
 // (real filter / effect / transition / animation / caption ids). edit_style returns one by name or alias; emoji and
-// tag are for the style cards in CraftAI's panel.
+// tag are for the style cards in FlowAI's panel.
 export const EDIT_STYLES = {
   orbit: {
     emoji: '🌙',

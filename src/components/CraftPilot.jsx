@@ -153,7 +153,7 @@ export default function CraftAI({ getProject, getHistoryLength, dispatch, settle
   return (
     <>
       {open && (
-        <section className="pilot-panel pilot2" aria-label="CraftAI assistant">
+        <section className="pilot-panel pilot2" aria-label="FlowAI assistant">
           <header className="pilot-head">
             <span className="pilot-title"><Zap size={16} /> <span className="pilot-wordmark">Craft<span className="grad">AI</span></span></span>
             <span className="pilot-model" title={config ? `${config.provider} · ${config.model}` : ''}>{config ? config.model : ''}</span>
@@ -257,7 +257,7 @@ export default function CraftAI({ getProject, getHistoryLength, dispatch, settle
           )}
           <div className="pilot-input">
             <textarea ref={inputRef} rows={2} value={input} dir="auto"
-              placeholder={style ? `A reel in the ${EDIT_STYLES[style].title} style… (optional details)` : 'Tell CraftAI what to do…'}
+              placeholder={style ? `A reel in the ${EDIT_STYLES[style].title} style… (optional details)` : 'Tell FlowAI what to do…'}
               onChange={(e) => setInput(e.target.value)} onKeyDown={onKeyDown} disabled={!config?.ready} aria-label="Message" />
             {busy ? (
               <button className="send stop" onClick={() => { canceled.current = true; }} aria-label="Stop"><Square size={14} fill="currentColor" /></button>
@@ -268,9 +268,9 @@ export default function CraftAI({ getProject, getHistoryLength, dispatch, settle
         </section>
       )}
 
-      <button className={`pilot-fab ${open ? 'open' : ''}`} onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-label="CraftAI assistant">
+      <button className={`pilot-fab ${open ? 'open' : ''}`} onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-label="FlowAI assistant">
         <span className="pilot-fab-icon"><Zap size={17} /></span>
-        <span>CraftAI</span>
+        <span>FlowAI</span>
       </button>
     </>
   );

@@ -47,7 +47,7 @@
   <a href="#transitions">Transitions</a> ·
   <a href="#effects">Effects</a> ·
   <a href="#text-templates">Text templates</a> ·
-  <a href="#craftai">CraftAI</a> ·
+  <a href="#flowai">FlowAI</a> ·
   <a href="#export">Export</a> ·
   <a href="#download">Download</a> ·
   <a href="#run-from-source">Get started</a> ·
@@ -84,7 +84,7 @@ Cutflow is a free, open-source desktop video editor and covers what people actua
 - 💬 **Auto-captions.** Free on-device Whisper — including a Darija model — or bring a cloud key for speed.
 - 🔤 **Animated text done properly.** 54 text templates, word-by-word styling, and real RTL/Arabic shaping.
 - 🧩 **Offline templates + built-in stock.** And a screen recorder that drops captures straight onto the timeline.
-- 🤖 **CraftAI.** An AI editing assistant that runs on *your* provider and *your* key.
+- 🤖 **FlowAI.** An AI editing assistant that runs on *your* provider and *your* key.
 - ⚡ **Fast, honest export.** Trimmed sources are seeked, not re-decoded from zero — exports of clips cut from long footage start instantly and run up to ~40% faster, byte-identical to before. Adaptive performance modes (Low-End / Balanced / High-Performance) tune background work to your machine, and never touch export quality.
 
 ## Edit
@@ -119,9 +119,9 @@ Glitch & digital, film looks, light leaks and more — stack effects on any clip
 
 <p align="center"><sub>The Craft and Motion template rows, the Arabic row, and the one-card Welcome that greets a first project — no tour, no steps — are all pictured on the <a href="https://clipcrafts.pages.dev">Cutflow site</a>.</sub></p>
 
-## CraftAI
+## FlowAI
 
-CraftAI is an AI editing assistant inside the editor: one-click looks, or just say what to do — cut the filler, style the captions, apply a look — and watch it work on your timeline. It works with **your provider and your key** — Gemini, OpenAI, Anthropic, Groq, OpenRouter, Ollama and more — and it shows its work: you stay in control of every change.
+FlowAI is an AI editing assistant inside the editor: one-click looks, or just say what to do — cut the filler, style the captions, apply a look — and watch it work on your timeline. It works with **your provider and your key** — Gemini, OpenAI, Anthropic, Groq, OpenRouter, Ollama and more — and it shows its work: you stay in control of every change.
 
 ## Export
 
@@ -165,7 +165,7 @@ Public release builds are produced by GitHub Actions (`.github/workflows/release
 | UI | React + Vite |
 | Rendering | FFmpeg — one pipeline for preview and export |
 | Captions | Whisper, on-device |
-| AI | CraftAI — your provider, your key |
+| AI | FlowAI — your provider, your key |
 
 ## Updates
 

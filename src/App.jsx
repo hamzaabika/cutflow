@@ -1795,7 +1795,7 @@ export default function App() {
   }, [seek]);
   const startExportRef = useRef(null);
   startExportRef.current = startExport;
-  // What CraftAI can do beyond project actions: add a file it fetched (library sound, stock clip, voice-over)
+  // What FlowAI can do beyond project actions: add a file it fetched (library sound, stock clip, voice-over)
   // to the media library, start the export, check font names.
   const pilotApp = {
     addProbed: (res) => {

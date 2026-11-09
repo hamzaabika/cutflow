@@ -1,5 +1,5 @@
 // Caption translation (v1.1.10): translate caption lines with the user's own AI
-// provider (the same plumbing CraftAI uses), keeping every caption's timing.
+// provider (the same plumbing FlowAI uses), keeping every caption's timing.
 // The model is asked for a strict numbered list back — one output line per
 // input line, same numbers — so translations can be aligned to the original
 // captions exactly. A reply that does not line up is retried on smaller

@@ -691,7 +691,7 @@ kbd {
 .field > span .btn { margin: -4px 0; }
 .field small { line-height: 1.4; }
 
-/* ---------- CraftAI (AI assistant) ---------- */
+/* ---------- FlowAI (AI assistant) ---------- */
 .pilot-fab {
   position: fixed; right: 18px; bottom: 18px; z-index: 35; display: flex; align-items: center; gap: 9px; height: 44px; padding: 0 18px 0 8px;
   border-radius: 22px; border: 1px solid var(--border-strong); background: rgba(28, 32, 43, 0.92); backdrop-filter: blur(8px);
@@ -1234,7 +1234,7 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 .settings2 .btn-primary:hover:not(:disabled) { filter: brightness(1.1); }
 .settings2 .settings-section { background: #181826; border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 14px; padding: 16px; }
 
-/* CraftAI redesign (pilot2): a Cutflow command deck — gradient wordmark, model pill,
+/* FlowAI redesign (pilot2): a Cutflow command deck — gradient wordmark, model pill,
    grouped quick-action cards, visual style tiles, card messages, floating pill composer.
    Scoped under .pilot2; panel position/size and all behaviour are unchanged. */
 .pilot-panel.pilot2 {

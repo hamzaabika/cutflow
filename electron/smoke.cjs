@@ -587,7 +587,7 @@ module.exports = async function smoke(win, app, dir) {
     // does not cover, exercised in the real app — panel import/add, timeline ops with
     // undo/redo, layer lock/hide, effects on the stage, a text clip rendered on the
     // text layer, extract audio, the Captions tab (1.1.4 panel + 1.1.5 transcript),
-    // CraftAI + Stock panels, the About/update check, a save/load round-trip, and an
+    // FlowAI + Stock panels, the About/update check, a save/load round-trip, and an
     // everything-export verified on the output file (streams, duration, blackdetect,
     // audio level) rather than on exit codes.
     const q = run;
@@ -690,12 +690,12 @@ module.exports = async function smoke(win, app, dir) {
       await wait(800);
       S.captionsPanel = await q(`(() => { const t = document.querySelector('.library')?.innerText || ''; return { hasSubtitles: /Subtitles/.test(t), hasTranscript: /Transcript/.test(t), hasSilences: /silence/i.test(t), slice: t.slice(0, 160) }; })()`);
       await shot('sw-3-captions.png');
-      // S6: CraftAI panel opens and renders its honest state.
-      await q(`(() => { const b = [...document.querySelectorAll('button')].find((x) => /CraftAI/.test(x.textContent)); if (b) b.click(); return !!b; })()`);
+      // S6: FlowAI panel opens and renders its honest state.
+      await q(`(() => { const b = [...document.querySelectorAll('button')].find((x) => /FlowAI/.test(x.textContent)); if (b) b.click(); return !!b; })()`);
       await wait(1200);
       S.craftPanel = await q(`(() => { const el = document.querySelector('.pilot, .craft-panel, [class*=pilot]'); return el ? el.innerText.slice(0, 200) : null; })()`);
       await shot('sw-4-craft.png');
-      await q(`(() => { const b = [...document.querySelectorAll('button')].find((x) => /CraftAI/.test(x.textContent)); if (b) b.click(); return !!b; })()`).catch(() => {});
+      await q(`(() => { const b = [...document.querySelectorAll('button')].find((x) => /FlowAI/.test(x.textContent)); if (b) b.click(); return !!b; })()`).catch(() => {});
       // S7: Stock sub-tab renders (live results need network; the honest state is the check).
       await q(`window.__fve.tab('media')`);
       await wait(500);
@@ -1272,6 +1272,52 @@ module.exports = async function smoke(win, app, dir) {
       await wait(300);
       result.beatsAfterClear = await q(`window.__fve.exportData().project.beats`);
       result.ticksAfterClear = await q(`document.querySelectorAll('.beat-tick').length`);
+    } catch (e) {
+      result.error = e.message;
+    }
+    fs.writeFileSync(path.join(dir, 'result.json'), JSON.stringify(result, null, 2));
+    return app.quit();
+  }
+  if (process.env.FVE_SMOKE_MODE === 'encoder') {
+    // GPU/CPU encoder visibility (v1.1.12): opening the Export dialog must
+    // show an Encoder row in the export summary naming the encoder the main
+    // process actually picked by test-encoding on this machine (libx264 in
+    // the sandbox — no GPU — which is exactly the honest CPU fallback).
+    const q = run;
+    const until = async (js, ms = 30000) => { for (let t = 0; t < ms; t += 250) { if (await q(js)) return true; await wait(250); } return false; };
+    const { execFileSync } = require('child_process');
+    const ff = require('./ffmpeg.cjs').ffmpegPath;
+    try {
+      const mediaDir = path.join(dir, 'media');
+      fs.mkdirSync(mediaDir, { recursive: true });
+      const src = path.join(mediaDir, 'clip.mp4');
+      if (!fs.existsSync(src)) {
+        execFileSync(ff, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=360x640:rate=30:duration=6',
+          '-f', 'lavfi', '-i', 'sine=frequency=440:duration=6', '-shortest', '-pix_fmt', 'yuv420p', src]);
+      }
+      await wait(800);
+      const probed = await require('./ffmpeg.cjs').probe(src);
+      const p = {
+        name: 'Encoder smoke', ratio: '9:16', resolution: 720, width: 360, height: 640, fps: 30, background: '#000000',
+        media: [{ id: 'm0', path: src, name: 'clip.mp4', kind: 'video', ...probed }],
+        videoClips: [{ id: 'v1', mediaId: 'm0', in: 0, out: 6, speed: 1, volume: 1, muted: false, filter: 'none', adjust: {}, effects: [], transition: null }],
+        overlayClips: [], audioClips: [], stickerClips: [], effectClips: [], textClips: [],
+      };
+      await q(`(() => { const b = document.querySelector('button[aria-label="New 16:9 project"]'); if (b) b.click(); return !!b; })()`).catch(() => {});
+      result.editorReady = await until(`!!document.querySelector('.play-btn')`, 15000);
+      await q(`(() => { const b = document.querySelector('button[aria-label="Skip tour"]') || [...document.querySelectorAll('button')].find((x) => x.textContent.trim() === 'Start creating'); if (b) b.click(); return !!b; })()`).catch(() => {});
+      await wait(600);
+      await q(`window.__fve.load(${JSON.stringify(p)})`);
+      await wait(600);
+      result.mainPick = await require('./ffmpeg.cjs').pickEncoder();
+      await q(`[...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Export').click()`);
+      result.dialogShown = await until(`!!document.querySelector('.export-modal')`, 15000);
+      await q(`document.querySelector('.x-details-toggle')?.click()`);
+      await wait(400);
+      result.encoderRow = await until(`[...document.querySelectorAll('.export-summary-row')].some((r) => r.children[0]?.textContent === 'Encoder')`, 15000)
+        ? await q(`[...document.querySelectorAll('.export-summary-row')].find((r) => r.children[0]?.textContent === 'Encoder')?.children[1]?.textContent`)
+        : null;
+      await shot('enc-1-dialog.png');
     } catch (e) {
       result.error = e.message;
     }
