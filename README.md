@@ -29,7 +29,7 @@
 <p align="center">
   <a href="https://getcutflow.pages.dev">Website</a> ·
   <a href="https://instagram.com/hamza_abika">Instagram</a> ·
-  <a href="https://github.com/hamzaabika/cutflow/releases/tag/v1.1.0">Release 1.1.0</a>
+  <a href="https://github.com/hamzaabika/cutflow/releases/tag/v1.0.0">Release 1.0.0</a>
 </p>
 
 <br>
@@ -133,16 +133,16 @@ FlowAI is an AI editing assistant inside the editor: one-click looks, or just sa
 
 ## Download
 
-Get **Cutflow 1.1.0** from the [GitHub Release](https://github.com/hamzaabika/cutflow/releases/tag/v1.1.0):
+Get **Cutflow 1.0.0** from the [GitHub Release](https://github.com/hamzaabika/cutflow/releases/tag/v1.0.0):
 
-- **Linux (.deb)** — `clipcraft_1.1.0_amd64.deb`, then:
+- **Linux (.deb)** — `cutflow_1.0.0_amd64.deb`, then:
 
 ```bash
-sudo apt install ./clipcraft_1.1.0_amd64.deb
+sudo apt install ./cutflow_1.0.0_amd64.deb
 ```
 
-- **Windows (.exe)** — `Cutflow-Setup-1.1.0.exe` (NSIS installer).
-- **macOS (.dmg)** — `Cutflow-1.1.0.dmg` (Apple silicon & Intel).
+- **Windows (.exe)** — `Cutflow-Setup-1.0.0.exe` (NSIS installer).
+- **macOS (.dmg)** — `Cutflow-1.0.0.dmg` (Apple silicon & Intel).
 
 SHA-256 checksums for every installer are printed in the release notes.
 
