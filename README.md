@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://clipcrafts.pages.dev/assets/logo.png" width="110" alt="Cutflow logo" />
+  <img src="https://getcutflow.pages.dev/assets/logo.png" width="110" alt="Cutflow logo" />
 </p>
 
 <h1 align="center">Cutflow</h1>
@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.1.0-825cfb?style=flat-square">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.2.0-825cfb?style=flat-square">
   <img alt="Platform" src="https://img.shields.io/badge/platform-Linux%20·%20Windows%20·%20macOS-825cfb?style=flat-square">
   <img alt="License" src="https://img.shields.io/badge/license-MIT-825cfb?style=flat-square">
   <img alt="Electron" src="https://img.shields.io/badge/Electron-47848F?style=flat-square&logo=electron&logoColor=white">
@@ -27,15 +27,15 @@
 </p>
 
 <p align="center">
-  <a href="https://clipcrafts.pages.dev">Website</a> ·
+  <a href="https://getcutflow.pages.dev">Website</a> ·
   <a href="https://instagram.com/hamza_abika">Instagram</a> ·
-  <a href="https://github.com/hamzaabika/clipcraft/releases/tag/v1.1.0">Release 1.1.0</a>
+  <a href="https://github.com/hamzaabika/cutflow/releases/tag/v1.1.0">Release 1.1.0</a>
 </p>
 
 <br>
 
 <p align="center">
-  <img src="https://clipcrafts.pages.dev/assets/editor.png" alt="The Cutflow editor: media bin with project clips on the left, the live player in the centre, project settings on the right, and a multi-track timeline below" width="100%">
+  <img src="https://getcutflow.pages.dev/assets/editor.png" alt="The Cutflow editor: media bin with project clips on the left, the live player in the centre, project settings on the right, and a multi-track timeline below" width="100%">
 </p>
 
 <p align="center"><sub><i>The editor.</i> Media bin, live player and a multi-track timeline — effects, captions and overlays stacked over the picture, with project settings one click away. What the player shows is what the export renders.</sub></p>
@@ -65,11 +65,11 @@ Cutflow is a free, open-source desktop video editor and covers what people actua
 
 ## Demo
 
-<p align="center"><b>▶ <a href="https://clipcrafts.pages.dev/assets/demo.mp4">Watch the screen recording</a></b> — home, timeline, transitions, effects and live playback, in under a minute.<br>
-<sub>Sample output: <a href="https://clipcrafts.pages.dev/assets/caption-sample.mp4">word-by-word caption animation</a>, exported from Cutflow.</sub></p>
+<p align="center"><b>▶ <a href="https://getcutflow.pages.dev/assets/demo.mp4">Watch the screen recording</a></b> — home, timeline, transitions, effects and live playback, in under a minute.<br>
+<sub>Sample output: <a href="https://getcutflow.pages.dev/assets/caption-sample.mp4">word-by-word caption animation</a>, exported from Cutflow.</sub></p>
 
 <p align="center">
-  <img src="https://clipcrafts.pages.dev/assets/home.png" alt="The Cutflow home screen: start a project in 16:9, 9:16, 1:1, 4:5 or 21:9 at 24, 30 or 60 fps, or jump back into a recent project" width="100%">
+  <img src="https://getcutflow.pages.dev/assets/home.png" alt="The Cutflow home screen: start a project in 16:9, 9:16, 1:1, 4:5 or 21:9 at 24, 30 or 60 fps, or jump back into a recent project" width="100%">
 </p>
 
 <p align="center"><sub><i>Start in the frame your video lives in</i> — landscape, vertical, square, portrait or cinematic, at 24, 30 or 60 fps. Reshape later, any time, in the editor. Recent projects return with real poster frames, and the Home screen carries the Support spot.</sub></p>
@@ -96,7 +96,7 @@ Cutflow is a free, open-source desktop video editor and covers what people actua
 - **Sequence guard** — if your footage doesn't match the project, Cutflow asks before changing anything.
 
 <p align="center">
-  <img src="https://clipcrafts.pages.dev/assets/crop.png" alt="Crop mode: the frame hugs the rendered picture with edge and centre handles, a thirds grid, alignment guides and a rotation slider" width="100%">
+  <img src="https://getcutflow.pages.dev/assets/crop.png" alt="Crop mode: the frame hugs the rendered picture with edge and centre handles, a thirds grid, alignment guides and a rotation slider" width="100%">
 </p>
 
 <p align="center"><sub><i>Crop mode.</i> The frame is the picture itself — handles, centre move, centre guides and a −45°…+45° rotation control, with aspect presets that are true in source pixels. Done is one undo step; Cancel changes nothing.</sub></p>
@@ -114,10 +114,10 @@ Glitch & digital, film looks, light leaks and more — stack effects on any clip
 **54 original templates** in browsable rows — Basics, Captions, the **Craft** set, the **Motion** row of slide templates (Slide Up, Smooth Slide, Slide Blur, Rise & Fade…), and an Arabic row whose previews read «صُنع بواسطة Cutflow». One click applies; favorites and search are built in.
 
 <p align="center">
-  <img src="https://clipcrafts.pages.dev/assets/templates.png" alt="Text templates in Cutflow: browsable rows of original designs with live previews" width="60%">
+  <img src="https://getcutflow.pages.dev/assets/templates.png" alt="Text templates in Cutflow: browsable rows of original designs with live previews" width="60%">
 </p>
 
-<p align="center"><sub>The Craft and Motion template rows, the Arabic row, and the one-card Welcome that greets a first project — no tour, no steps — are all pictured on the <a href="https://clipcrafts.pages.dev">Cutflow site</a>.</sub></p>
+<p align="center"><sub>The Craft and Motion template rows, the Arabic row, and the one-card Welcome that greets a first project — no tour, no steps — are all pictured on the <a href="https://getcutflow.pages.dev">Cutflow site</a>.</sub></p>
 
 ## FlowAI
 
@@ -126,14 +126,14 @@ FlowAI is an AI editing assistant inside the editor: one-click looks, or just sa
 ## Export
 
 <p align="center">
-  <img src="https://clipcrafts.pages.dev/assets/export.png" alt="The export menu: Video (MP4), Audio only (MP3), Audio only (WAV), Audio only (M4A)" width="60%">
+  <img src="https://getcutflow.pages.dev/assets/export.png" alt="The export menu: Video (MP4), Audio only (MP3), Audio only (WAV), Audio only (M4A)" width="60%">
 </p>
 
 <p align="center"><sub><i>Presets when you're in a hurry, full control when you're not</i> — MP4 video or audio-only (MP3 / WAV / M4A); codec, CRF or bitrate, resolution up to 4K, frame rate and audio quality.</sub></p>
 
 ## Download
 
-Get **Cutflow 1.1.0** from the [GitHub Release](https://github.com/hamzaabika/clipcraft/releases/tag/v1.1.0):
+Get **Cutflow 1.1.0** from the [GitHub Release](https://github.com/hamzaabika/cutflow/releases/tag/v1.1.0):
 
 - **Linux (.deb)** — `clipcraft_1.1.0_amd64.deb`, then:
 
