@@ -6,6 +6,12 @@ app.setName('ClipCraft');
 // each time. The player only plays H.264 / VP9 / AV1 up to 1080p (heavier files get a light preview copy), which
 // any CPU decodes easily. FVE_GPU_VIDEO=1 turns hardware decoding back on.
 if (process.env.FVE_GPU_VIDEO !== '1') app.commandLine.appendSwitch('disable-accelerated-video-decode');
+// Inside the Snap (and other confined runtimes) Chromium cannot create shared
+// memory in /dev/shm and the app traps on launch — seen on the Snap Store build
+// 2026-11-09: 'Creating shared memory in /dev/shm ... Permission denied (13)'
+// then 'Trace/breakpoint trap (core dumped)'. Keep shared memory in /tmp
+// instead; verified by hand with `cutflow --disable-dev-shm-usage`.
+app.commandLine.appendSwitch('disable-dev-shm-usage');
 // The screen recording UI test uses Chromium's fake camera and microphone, never the real ones.
 if (process.env.FVE_SMOKE && process.env.FVE_SMOKE_MODE === 'screenrec') {
   app.commandLine.appendSwitch('use-fake-device-for-media-stream');

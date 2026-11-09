@@ -122,7 +122,7 @@ export default function HomeScreen({ recents, onNew, onOpen, onOpenRecent, onRem
       <header className="home-top">
         <img src="./logo.png" alt="" className="home-logo" draggable={false} />
         <div className="home-brand">
-          <span className="home-name">Clip<b>Craft</b></span>
+          <span className="home-name">Cut<b>flow</b></span>
           <span className="home-greet">{greeting()} — ready when you are.</span>
         </div>
         <span className="home-ver">{version ? `Version ${version}` : 'Cutflow'}</span>
