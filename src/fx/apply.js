@@ -1,6 +1,7 @@
 // Which animated effects act at a moment, shared by the player and the export.
 // Effects come from two places:
-//   - on a clip (clip.effects): they last the whole clip, their time T starts with the clip;
+//   - on a clip (clip.effects): they last the whole clip — or the instance's timing window
+//     (clip.fxTiming) when it carries one; their time T starts with the clip / the window;
 //   - on the Effects track (project.effectClips: { id, fx, start, duration }): free objects you move and trim;
 //     they act on every picture under them, their time T starts with the effect.
 // The Effects panel offers the same tiles for both places, including the six classic effects of
@@ -14,7 +15,7 @@
 // (Before this map existed, a classic effect on the Effects track rendered NOTHING anywhere:
 // freeOn collected the clip, then both pass builders discarded it as neither pixel nor overlay.)
 import { OVERLAY_EFFECTS, PIXEL_EFFECTS } from './catalog.js';
-import { freeLen, videoLayout } from '../store.js';
+import { freeLen, fxTimingOf, videoLayout } from '../store.js';
 import { gradeExpr, hasGrade } from './grade.js';
 import { getLut, lutOn } from './lut.js';
 import { filterExpr, hasFilter, lutFilterRef } from './filters.js';
@@ -89,12 +90,12 @@ export function fxWrap(expr, region, k) {
 }
 
 // A classic effect attached to a clip normally runs through the CSS (preview) / FFmpeg
-// (export) look path, which paints the whole frame and takes neither a region nor a
-// strength. When the instance carries a region, or a strength below 1, it is routed
-// through its shader form instead (TRACK_CLASSIC + fxWrap, exactly like the Effects
-// track), and the look paths skip it — see clipCss / Preview flips / lookFilters.
+// (export) look path, which paints the whole frame for the whole clip and takes neither
+// a region, a timing window nor a strength. When the instance carries any of those, it
+// is routed through its shader form instead (TRACK_CLASSIC + fxWrap, exactly like the
+// Effects track), and the look paths skip it — see clipCss / Preview flips / lookFilters.
 export const classicViaShader = (clip, id) =>
-  isClassic(id) && (!!clip?.fxRegions?.[id] || (clip?.fxStrength?.[id] != null && clip.fxStrength[id] < 1));
+  isClassic(id) && (!!clip?.fxRegions?.[id] || !!clip?.fxTiming?.[id] || (clip?.fxStrength?.[id] != null && clip.fxStrength[id] < 1));
 
 const freeOn = (project, t) => (project.effectClips || []).filter((e) => !e.disabled && t >= e.start && t < e.start + e.duration);
 
@@ -118,8 +119,13 @@ export function pixelPasses(project, clip, clipStart, lt) {
   for (const id of clip.effects || []) {
     const k = clip.fxStrength?.[id];
     if (k === 0) continue;
-    if (isPixel(id)) list.push({ expr: fxWrap(PIXEL[id], clip.fxRegions?.[id], k), T: lt });
-    else if (classicViaShader(clip, id)) list.push({ expr: fxWrap(TRACK_CLASSIC[id], clip.fxRegions?.[id], k), T: lt });
+    // A timed instance acts only inside its window, and its T starts with the window —
+    // an untimed one starts with the clip, as before.
+    const w = fxTimingOf(clip, id);
+    if (w && (lt < w.start || lt >= w.start + w.duration)) continue;
+    const T = lt - (w ? w.start : 0);
+    if (isPixel(id)) list.push({ expr: fxWrap(PIXEL[id], clip.fxRegions?.[id], k), T });
+    else if (classicViaShader(clip, id)) list.push({ expr: fxWrap(TRACK_CLASSIC[id], clip.fxRegions?.[id], k), T });
   }
   const t = clipStart + lt;
   for (const e of freeOn(project, t)) {
@@ -205,21 +211,38 @@ function drawStrength(ctx, k, draw) {
 export function drawOverlayPasses(ctx, project, t, W, H) {
   for (const l of videoLayout(project.videoClips)) {
     if (l.clip.gap || t < l.start || t >= l.end) continue;
-    for (const id of l.clip.effects || []) if (OVERLAY[id]) drawStrength(ctx, l.clip.fxStrength?.[id], (c1) => drawRegioned(c1, W, H, l.clip.fxRegions?.[id], (c2) => OVERLAY[id](c2, W, H, t - l.start)));
+    for (const id of l.clip.effects || []) {
+      if (!OVERLAY[id]) continue;
+      // A timed instance is drawn only inside its window, its T starting with the window.
+      const w = fxTimingOf(l.clip, id);
+      const ws = l.start + (w ? w.start : 0);
+      if (w && (t < ws || t >= ws + w.duration)) continue;
+      drawStrength(ctx, l.clip.fxStrength?.[id], (c1) => drawRegioned(c1, W, H, l.clip.fxRegions?.[id], (c2) => OVERLAY[id](c2, W, H, t - ws)));
+    }
   }
   for (const c of project.overlayClips || []) {
     if (t < c.start || t >= c.start + freeLen('overlay', c)) continue;
-    for (const id of c.effects || []) if (OVERLAY[id]) drawStrength(ctx, c.fxStrength?.[id], (c1) => drawRegioned(c1, W, H, c.fxRegions?.[id], (c2) => OVERLAY[id](c2, W, H, t - c.start)));
+    for (const id of c.effects || []) {
+      if (!OVERLAY[id]) continue;
+      const w = fxTimingOf(c, id);
+      const ws = c.start + (w ? w.start : 0);
+      if (w && (t < ws || t >= ws + w.duration)) continue;
+      drawStrength(ctx, c.fxStrength?.[id], (c1) => drawRegioned(c1, W, H, c.fxRegions?.[id], (c2) => OVERLAY[id](c2, W, H, t - ws)));
+    }
   }
   for (const e of freeOn(project, t)) if (OVERLAY[e.fx]) drawStrength(ctx, e.strength, (c1) => drawRegioned(c1, W, H, e.region, (c2) => OVERLAY[e.fx](c2, W, H, t - e.start)));
 }
 
 // Time ranges with a particle / light layer, so the export knows which frames to draw.
+// One range per effect instance: a timed instance covers only its window.
 export function overlayRanges(project) {
-  const has = (c) => (c.effects || []).some(isOverlay);
+  const win = (c, id, start, span) => {
+    const w = fxTimingOf(c, id);
+    return w ? [start + w.start, start + w.start + w.duration] : [start, start + span];
+  };
   return [
-    ...videoLayout(project.videoClips).filter((l) => !l.clip.gap && has(l.clip)).map((l) => [l.start, l.end]),
-    ...(project.overlayClips || []).filter(has).map((c) => [c.start, c.start + freeLen('overlay', c)]),
+    ...videoLayout(project.videoClips).flatMap((l) => (l.clip.gap ? [] : (l.clip.effects || []).filter(isOverlay).map((id) => win(l.clip, id, l.start, l.end - l.start)))),
+    ...(project.overlayClips || []).flatMap((c) => (c.effects || []).filter(isOverlay).map((id) => win(c, id, c.start, freeLen('overlay', c)))),
     ...(project.effectClips || []).filter((e) => !e.disabled && isOverlay(e.fx)).map((e) => [e.start, e.start + e.duration]),
   ];
 }

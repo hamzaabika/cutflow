@@ -556,7 +556,9 @@ function reduceProjectInner(p, a) {
         if (c.id !== clipId) return c;
         const fxRegions = { ...(c.fxRegions || {}) };
         delete fxRegions[fx]; // the region belongs to the effect instance; it goes with it
-        return { ...c, effects: (c.effects || []).filter((e) => e !== fx), fxRegions };
+        const fxTiming = { ...(c.fxTiming || {}) };
+        delete fxTiming[fx]; // …and so does the instance's timing window
+        return { ...c, effects: (c.effects || []).filter((e) => e !== fx), fxRegions, fxTiming };
       }) };
     }
     case 'split':
@@ -1392,16 +1394,41 @@ export function renderable(p) {
   };
 }
 
+// The time window a clip-attached effect instance covers, in clip-local seconds
+// (clip.fxTiming[fx] = { start, duration }); absent = the whole clip. Readers that
+// know the clip's span clamp the window into it (effectObjects); the render paths
+// gate on it directly, since they only ever visit times inside the clip.
+export const fxTimingOf = (clip, fx) => {
+  const w = clip?.fxTiming?.[fx];
+  return w && w.duration > 0 ? { start: Math.max(0, w.start || 0), duration: w.duration } : null;
+};
+// The fxTiming map for a clip with one instance's window replaced. A window that
+// covers the whole clip is stored as NO entry (absent = whole clip), so projects
+// keep the shape they had before timing existed.
+export const withFxTiming = (clip, fx, w, span) => {
+  const next = { ...(clip.fxTiming || {}) };
+  if (!w || (w.start <= 1e-9 && w.start + w.duration >= span - 1e-9)) delete next[fx];
+  else next[fx] = { start: w.start, duration: w.duration };
+  return next;
+};
+
 // Effects as timeline objects for the Effects lane: free effects (their own id, movable and trimmable) and
-// effects applied to clips (key "<track>|<clipId>|<effectId>", spanning and following the clip).
+// effects applied to clips (key "<track>|<clipId>|<effectId>", spanning and following the clip — or the
+// part of it the instance's timing window covers).
 export function effectObjects(p) {
   const out = (p.effectClips || []).map((e) => ({ key: e.id, free: true, fx: e.fx, start: e.start, duration: e.duration, clip: e }));
+  const bound = (key, track, clipId, clip, fx, clipStart, span) => {
+    const w = fxTimingOf(clip, fx);
+    const start = w ? Math.min(w.start, span) : 0;
+    const duration = w ? Math.max(0, Math.min(w.duration, span - start)) : span;
+    return { key, track, clipId, fx, start: clipStart + start, duration };
+  };
   for (const l of videoLayout(p.videoClips)) {
     if (l.clip.gap) continue;
-    for (const fx of l.clip.effects || []) out.push({ key: `video|${l.clip.id}|${fx}`, track: 'video', clipId: l.clip.id, fx, start: l.start, duration: l.end - l.start });
+    for (const fx of l.clip.effects || []) out.push(bound(`video|${l.clip.id}|${fx}`, 'video', l.clip.id, l.clip, fx, l.start, l.end - l.start));
   }
   for (const c of p.overlayClips || []) {
-    for (const fx of c.effects || []) out.push({ key: `overlay|${c.id}|${fx}`, track: 'overlay', clipId: c.id, fx, start: c.start, duration: freeLen('overlay', c) });
+    for (const fx of c.effects || []) out.push(bound(`overlay|${c.id}|${fx}`, 'overlay', c.id, c, fx, c.start, freeLen('overlay', c)));
   }
   return out;
 }

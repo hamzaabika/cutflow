@@ -3,7 +3,7 @@ import {
   ArrowLeftRight, ArrowLeftToLine, ArrowRightToLine, AudioLines, AudioWaveform, Copy, CopyPlus, Eye, EyeOff, Film, Flag, GripVertical, Layers, Link2, Lock, LockOpen, Magnet, Mic, MoreHorizontal, MousePointer2, Music, Pencil, Plus, Scissors, Slice,
   Sparkles, Split, Square, StretchHorizontal, Target, Trash2, Type, Undo2, Unlink, Volume2, VolumeX, Redo2, X, ZoomIn, ZoomOut, Captions,
 } from 'lucide-react';
-import { LAYERED, MIN_CLIP, clipLayer, effectObjects, formatTime, freeLen, isLayerLocked, layerCount, layerFree, layerName, layerOf, layerStateOf, toFileUrl, trimActions, uid, videoClipAt, videoLayout } from '../store.js';
+import { LAYERED, MIN_CLIP, clipLayer, effectObjects, formatTime, freeLen, isLayerLocked, layerCount, layerFree, layerName, layerOf, layerStateOf, toFileUrl, trimActions, uid, videoClipAt, videoLayout, withFxTiming } from '../store.js';
 import { animById, animOf, keyTimes, moveKeys } from '../anim.js';
 import { beatSplitTarget, beatsOf, formatBpm } from '../beats.js';
 import { filterName } from '../fx/filters.js';
@@ -346,6 +346,11 @@ export default function Timeline({
       const l = videoLayout(p.videoClips).find((x) => x.clip.id === id);
       return l ? { start: l.start, len: l.end - l.start } : null;
     }
+    if (track === 'effect' && String(id).includes('|')) {
+      // A clip-attached effect object: its span is the window its bar covers.
+      const o = effectObjects(p).find((x) => x.key === id);
+      return o ? { start: o.start, len: o.duration } : null;
+    }
     const c = (p[TRACK_ARRAY[track]] || []).find((x) => x.id === id);
     if (!c) return null;
     if (track === 'audio') return { start: c.start, len: freeLen('audio', c) };
@@ -579,6 +584,44 @@ export default function Timeline({
     else drag(e, trimAware(track, clip, mode, freeMove), endTrim(freeEnd));
   };
 
+  // A clip-attached (bound) effect follows its clip, so its bar cannot be moved on its
+  // own — 'move' only selects the instance, as before. The edge handles trim the window
+  // of the clip the effect runs over: the same gesture machinery as a free effect's trim
+  // (snap, HUD, one undo step), writing clip.fxTiming — clip-local seconds, so the
+  // window follows the clip when the clip moves, exactly as the bar does. (Before this,
+  // the bound onDown swallowed edge drags whole: the handles rendered but did nothing.)
+  const startBoundDrag = (e, o, mode) => {
+    const lay = o.track === 'video' ? layout.find((l) => l.clip.id === o.clipId) : null;
+    const hostClip = o.track === 'video' ? lay?.clip : (project.overlayClips || []).find((c) => c.id === o.clipId);
+    if (!hostClip) return;
+    if (trackLocked('effect', hostClip) || trackLocked(o.track, hostClip)) return;
+    e.stopPropagation();
+    onSelect({ track: 'effect', id: o.key });
+    if (mode === 'move' || tool === 'razor') return;
+    const clipStart = o.track === 'video' ? lay.start : hostClip.start;
+    const span = o.track === 'video' ? lay.end - lay.start : freeLen('overlay', hostClip);
+    const off0 = o.start - clipStart; // the window as rendered — already clamped to the span
+    const dur0 = o.duration;
+    const boundMove = (d) => {
+      if (project.snapping) {
+        // Duration-based trims pull the dragged edge onto a snap target, like free ones do.
+        const edge0 = mode === 'left' ? o.start + d : o.start + o.duration + d;
+        const snapped = snapPoint(edge0);
+        if (snapped !== edge0) { d += snapped - edge0; setSnapAt(snapped); }
+      }
+      let start = off0;
+      let duration = dur0;
+      if (mode === 'left') {
+        start = clamp(off0 + d, 0, off0 + dur0 - MIN_CLIP);
+        duration = off0 + dur0 - start;
+      } else {
+        duration = clamp(dur0 + d, MIN_CLIP, span - off0);
+      }
+      dispatch({ type: 'update', track: o.track, id: o.clipId, patch: { fxTiming: withFxTiming(hostClip, o.fx, { start, duration }, span) } });
+    };
+    drag(e, trimAware('effect', { id: o.key }, mode, boundMove), endTrim());
+  };
+
   // Zoom keeping one moment of the timeline under the same spot on screen (the mouse for Ctrl + wheel, the
   // playhead for the zoom buttons and slider). The scroll is fixed after the new width is laid out.
   const zoomAnchor = useRef(null);
@@ -751,7 +794,7 @@ export default function Timeline({
             start={o.start} length={o.duration} row={stacks.effect.rows[o.key]}
             icon={<span className="clip-emoji">{e?.icon || '✨'}</span>} label={o.free ? e?.name || o.fx : `${e?.name || o.fx} · on clip`}
             onDown={o.free ? (ev, mode) => startFreeDrag(ev, 'effect', o.clip, mode)
-              : (ev, mode) => { ev.stopPropagation(); if (mode === 'move') onSelect({ track: 'effect', id: o.key }); }} />
+              : (ev, mode) => startBoundDrag(ev, o, mode)} />
         );
       });
     }
@@ -1093,7 +1136,7 @@ const MAX_TILES = 400;
 // position on the timeline (follows trim, speed and zoom). Uses the sprite from makeVisuals.
 function Filmstrip({ m, clip, width, pps }) {
   if (!m) return null;
-  const look = { filter: clipCss(clip) || undefined, transform: clip.effects?.includes('mirror') && !clip.fxRegions?.mirror && !(clip.fxStrength?.mirror != null && clip.fxStrength.mirror < 1) ? 'scaleX(-1)' : undefined };
+  const look = { filter: clipCss(clip) || undefined, transform: clip.effects?.includes('mirror') && !clip.fxRegions?.mirror && !clip.fxTiming?.mirror && !(clip.fxStrength?.mirror != null && clip.fxStrength.mirror < 1) ? 'scaleX(-1)' : undefined };
   if (m.type === 'image') {
     return <div className="filmstrip" style={{ ...look, backgroundImage: `url("${toFileUrl(m.path)}")`, backgroundSize: `auto ${THUMB_H}px`, backgroundRepeat: 'repeat-x' }} />;
   }

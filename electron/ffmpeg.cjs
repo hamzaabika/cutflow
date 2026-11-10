@@ -89,10 +89,10 @@ function atempo(speed) {
 function lookFilters(clip, W, H) {
   const f = [];
   const fx = clip.effects || [];
-  // A classic effect carrying a region, or a strength below 1, is baked by the effects
-  // pass through its shader form instead (src/fx/apply.js classicViaShader) — the flat
-  // look filters here must not paint it a second time.
-  const viaShader = (id) => !!(clip.fxRegions?.[id] || (clip.fxStrength?.[id] != null && clip.fxStrength[id] < 1));
+  // A classic effect carrying a region, a timing window, or a strength below 1, is baked
+  // by the effects pass through its shader form instead (src/fx/apply.js
+  // classicViaShader) — the flat look filters here must not paint it a second time.
+  const viaShader = (id) => !!(clip.fxRegions?.[id] || !!clip.fxTiming?.[id] || (clip.fxStrength?.[id] != null && clip.fxStrength[id] < 1));
   if (fx.includes('mirror') && !viaShader('mirror')) f.push('hflip');
   if (fx.includes('flipv') && !viaShader('flipv')) f.push('vflip');
   // clip.filter is drawn by the effects pass (GPU, src/fx/filters.js), like in the player.

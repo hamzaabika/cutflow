@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Blend, Film, Info, Layers, Music, RotateCcw, Settings2, Sparkles, Type } from 'lucide-react';
-import { clipLen, formatTime, parseEffectKey, videoLayout } from '../store.js';
+import { clipLen, formatTime, fxTimingOf, parseEffectKey, videoLayout, withFxTiming } from '../store.js';
 import { ANIMATIONS, EFFECTS, RATIOS, TRANSITIONS, sizeFor } from '../effects.js';
 import { EXPORT_PRESETS, ENCODER_PRESETS, RES_CAPS, FPS_CHOICES, AUDIO_RATES, storedExportSettings, settingsPatch, resolveExport } from '../exportQuality.js';
 import Slider from './Slider.jsx';
@@ -351,15 +351,32 @@ function EffectPanel({ project, selection, dispatch, onAddTextOver = null }) {
     if (k == null || k >= 1) delete next[fx]; else next[fx] = k;
     dispatch({ type: 'update', track, id: clipId, patch: { fxStrength: next } });
   };
+  // Timing storage likewise: the clip's fxTiming map (absent = the whole clip), in
+  // clip-local seconds — the same window the effect's bar trims on the Effects lane.
+  const span = clipLenTl(track, clip);
+  const win = fxTimingOf(clip, fx) || { start: 0, duration: span };
+  const setTiming = (p) => {
+    const start = Math.min(Math.max(0, p.start ?? win.start), Math.max(0, span - 0.1));
+    const duration = Math.min(Math.max(0.1, p.duration ?? win.duration), Math.max(0.1, span - start));
+    dispatch({ type: 'update', track, id: clipId, patch: { fxTiming: withFxTiming(clip, fx, { start, duration }, span) } });
+  };
   return (
     <div className="fields">
       <div className="fx-head"><span className="fx-icon">{e?.icon || '✨'}</span><div><b>{e?.name || fx}</b><span className="dim">on {media?.name || 'clip'}</span></div></div>
       <div className="insp-card">
-      <p className="dim small">The effect runs for the whole clip and moves with it. Remove it here, with Delete, or from the right-click menu.</p>
+      <p className="dim small">{fxTimingOf(clip, fx)
+        ? 'The effect runs over part of the clip and moves with it. Remove it here, with Delete, or from the right-click menu.'
+        : 'The effect runs for the whole clip and moves with it. Remove it here, with Delete, or from the right-click menu.'}</p>
+      </div>
+      <div className="insp-card">
+        <div className="insp-card-title">Timing</div>
+        <p className="dim small">Drag the effect's edges on the Effects lane, or set its range here.</p>
+        <Num label="Start in clip (s)" value={win.start} min={0} onChange={(start) => setTiming({ start })} />
+        <Num label="Duration (s)" value={win.duration} min={0.1} onChange={(duration) => setTiming({ duration })} />
       </div>
       {!NO_STRENGTH.includes(fx) && <StrengthControl value={clip.fxStrength?.[fx]} dispatch={dispatch} onChange={setStrength} />}
       <RegionControls region={clip.fxRegions?.[fx] || null} dispatch={dispatch} onChange={setRegion} />
-      <AddTextCard onAddTextOver={onAddTextOver} start={clipStartTl(project, track, clip)} duration={clipLenTl(track, clip)} />
+      <AddTextCard onAddTextOver={onAddTextOver} start={clipStartTl(project, track, clip) + win.start} duration={win.duration} />
       <button className="btn btn-danger" onClick={() => dispatch({ type: 'removeEffect', id: selection.id })}>Remove effect</button>
     </div>
   );
