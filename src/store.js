@@ -8,6 +8,7 @@
 
 import { RATIOS, sizeFor } from './effects.js';
 import { cleanPins } from './track.js';
+import { clipDuration, hasCurve, sliceCurve, sourceOffsetAt, speedAtSource, timelineOffsetAt } from './speedCurve.js';
 
 export const uid = () => Math.random().toString(36).slice(2, 10);
 export const MIN_CLIP = 0.1;
@@ -34,7 +35,7 @@ export function emptyProject() {
     // Only layers that differ from the defaults get an entry. NOT part of undo history:
     // toggling a lock must never be an undoable document edit (industry standard).
     layerState: {},
-    markers: [], // [{ id, time, label }] timeline flags
+    markers: [], // [{ id, time, label, color }] timeline flags — colour is a MARKER_COLORS id
     beats: null, // { bpm, times: [seconds] } — the soundtrack's beat grid (Beat cuts); snapping uses it too
     snapping: true, // drags snap to clip edges, the playhead and markers
   };
@@ -45,14 +46,27 @@ export function normalizeProject(p) {
   const base = emptyProject();
   return {
     ...base, ...p,
-    // R1 (2026-11-01): the Stickers feature was removed. Projects saved before the removal
-    // may still carry stickerClips — they are DROPPED here, so an old file loads cleanly
-    // with everything else intact and no sticker lane anywhere.
-    stickerClips: [],
+    // Stickers (removed in R1, restored 10/10 step 3): clips referencing the bundled
+    // sticker set survive loading again. Entries are sanitized to the clip shape the
+    // lane, preview and export all read; anything malformed is dropped, never fatal.
+    stickerClips: (Array.isArray(p.stickerClips) ? p.stickerClips : [])
+      .filter((c) => c && typeof c.id === 'string' && typeof c.sticker === 'string')
+      .map((c) => ({
+        id: c.id, sticker: c.sticker,
+        name: typeof c.name === 'string' ? c.name : 'Sticker',
+        start: Math.max(0, Number(c.start) || 0),
+        duration: Math.min(120, Math.max(0.2, Number(c.duration) || 3)),
+        transform: c.transform && typeof c.transform === 'object' ? c.transform : { scale: 0.3, x: 0, y: 0 },
+        opacity: typeof c.opacity === 'number' ? Math.min(1, Math.max(0, c.opacity)) : 1,
+        w: Number(c.w) || 480, h: Number(c.h) || 480,
+      })),
     overlayClips: p.overlayClips || [],
     effectClips: p.effectClips || [],
     magnet: { ...base.magnet, ...(p.magnet || {}) },
-    markers: p.markers || [],
+    markers: (Array.isArray(p.markers) ? p.markers : [])
+      .filter((m) => m && Number.isFinite(Number(m.time)))
+      .map((m, i) => ({ id: m.id || `mk${i}`, time: Math.max(0, Number(m.time)), label: typeof m.label === 'string' ? m.label : '', color: markerColorId(m.color) }))
+      .sort((x, y) => x.time - y.time),
     beats: p.beats && Array.isArray(p.beats.times) && p.beats.times.length ? { bpm: p.beats.bpm || 0, times: p.beats.times } : null,
     snapping: p.snapping ?? true,
   };
@@ -81,10 +95,36 @@ function normalizeGaps(list) {
 }
 
 // Length of a clip on a free track (overlay / audio / text). Audio clips carry a
-// constant speed like picture clips do (a detached clip follows its video's speed).
-export const freeLen = (track, c) => (track === 'audio' ? (c.out - c.in) / (c.speed || 1) : track === 'overlay' ? (c.out - c.in) / (c.speed || 1) : c.duration);
+// speed like picture clips do (a detached clip follows its video's timing). All
+// lengths go through the speed sampler (src/speedCurve.js): a clip with a speed
+// curve lasts its curve integral; any other clip lasts (out - in) / speed, the
+// arithmetic the app has always used.
+export const freeLen = (track, c) => (track === 'audio' || track === 'overlay' ? clipDuration(c) : c.duration);
 
-export const clipLen = (c) => (c.out - c.in) / (c.speed || 1);
+export const clipLen = (c) => clipDuration(c);
+
+// One clip patch application, shared by 'update' (and 'updateMany' through it).
+// Two timing invariants live here so every writer gets them for free:
+// - A constant-speed write replaces the timing model: a patch that sets `speed`
+//   without mentioning `speedCurve` retires any curve the clip carries — the
+//   constant controls (Speed dialog, inspector chips, template fills) rely on
+//   this, and curve edits always write speedCurve explicitly.
+// - A window write (in / out) on a ramped clip re-anchors its curve: the patch
+//   keeps the slice of the curve that covers the new window, so direct writers
+//   (inspector In/Out fields, timeline edge drags) can never leave a curve
+//   pointing at source the clip no longer shows. Paths that compute their own
+//   slice (split, trim, cut ranges) build clips directly and never come here.
+export function applyClipPatch(c, patch) {
+  const next = { ...c, ...patch };
+  if (!patch) return next;
+  if ('speed' in patch && !('speedCurve' in patch) && c.speedCurve) delete next.speedCurve;
+  if (('in' in patch || 'out' in patch) && !('speedCurve' in patch) && hasCurve(c)) {
+    const from = (patch.in !== undefined ? patch.in : c.in) - c.in;
+    const to = (patch.out !== undefined ? patch.out : c.out) - c.in;
+    next.speedCurve = sliceCurve(c, from, to);
+  }
+  return next;
+}
 
 // Layers: every clip of a free track sits on a layer, 0 being the one next to the main track.
 // Clips of one layer never overlap; a clip that would is moved to the first free layer. A higher overlay, text or
@@ -98,7 +138,7 @@ export function layerCount(p, track) {
 }
 
 // Display name of one layer: the user's rename (project.layerNames) or the lane's default.
-const LANE_NAMES = { video: 'Main', overlay: 'Overlay', text: 'Text', audio: 'Audio', effect: 'Effects' };
+const LANE_NAMES = { video: 'Main', overlay: 'Overlay', text: 'Text', sticker: 'Sticker', audio: 'Audio', effect: 'Effects' };
 export function layerName(p, track, layer) {
   return (p.layerNames && p.layerNames[track] && p.layerNames[track][layer]) || `${LANE_NAMES[track] || track} ${layer + 1}`;
 }
@@ -248,7 +288,7 @@ export function videoClipAt(p, t) {
   return hits[hits.length - 1] || null;
 }
 
-const TRACKS = { video: 'videoClips', overlay: 'overlayClips', text: 'textClips', audio: 'audioClips', effect: 'effectClips' };
+const TRACKS = { video: 'videoClips', overlay: 'overlayClips', text: 'textClips', audio: 'audioClips', effect: 'effectClips', sticker: 'stickerClips' };
 
 export const IMAGE_DEFAULT = 4;
 
@@ -317,9 +357,20 @@ function reduceProjectInner(p, a) {
           { id: a.clipId, text: 'Your text', start: a.at, duration: 3, y: 0.5, ...a.patch, ...(a.layer != null && { layer: a.layer }) },
         ],
       };
+    case 'addSticker': {
+      // Bundled sticker (10/10 step 3): a drawn PNG from shared/stickers/, centred at
+      // 30% of the frame by default. The transform/opacity shape matches overlay clips,
+      // so layerStyle (preview) and the layer builder (export) treat it identically.
+      const clip = {
+        id: a.clipId, sticker: a.sticker, name: a.name || 'Sticker',
+        start: Math.max(0, a.at), duration: a.duration || 3,
+        transform: { scale: 0.3, x: 0, y: 0 }, opacity: 1, w: a.w || 480, h: a.h || 480,
+      };
+      return { ...p, stickerClips: [...p.stickerClips, clip] };
+    }
     case 'update': {
       const key = TRACKS[a.track];
-      return { ...p, [key]: p[key].map((c) => (c.id === a.id ? { ...c, ...a.patch } : c)) };
+      return { ...p, [key]: p[key].map((c) => (c.id === a.id ? applyClipPatch(c, a.patch) : c)) };
     }
     case 'addLayer':
       return { ...p, layers: { ...p.layers, [a.track]: layerCount(p, a.track) + 1 } };
@@ -535,6 +586,26 @@ function reduceProjectInner(p, a) {
       return { ...p, textClips: p.textClips.map((c) => (c.source === 'srt' ? { ...c, ...a.patch } : c)) };
     case 'styleCaptions':
       return { ...p, textClips: p.textClips.map((c) => (c.caption ? { ...c, ...a.patch } : c)) };
+    case 'replaceCaptionText': {
+      // Batch caption text editing (10/10 step 5, Filmora row 13's second
+      // half): a literal find & replace across caption clips — imported .srt
+      // subtitles, generated captions, or both — as ONE undo step. Timings
+      // and styles are untouched; a no-match replace changes nothing.
+      const find = typeof a.find === 'string' ? a.find : '';
+      if (!find || find === a.replace) return p;
+      const replace = typeof a.replace === 'string' ? a.replace : '';
+      const inScope = (c) => (a.scope === 'srt' ? c.source === 'srt'
+        : a.scope === 'captions' ? !!c.caption
+        : a.scope === 'translation' ? c.source === 'translation'
+        : c.source === 'srt' || !!c.caption || c.source === 'translation');
+      let changed = false;
+      const textClips = p.textClips.map((c) => {
+        if (!inScope(c) || typeof c.text !== 'string' || !c.text.includes(find)) return c;
+        changed = true;
+        return { ...c, text: c.text.split(find).join(replace) };
+      });
+      return changed ? { ...p, textClips } : p;
+    }
     case 'duplicate': {
       const key = TRACKS[a.track];
       const i = p[key].findIndex((c) => c.id === a.id);
@@ -558,7 +629,12 @@ function reduceProjectInner(p, a) {
         delete fxRegions[fx]; // the region belongs to the effect instance; it goes with it
         const fxTiming = { ...(c.fxTiming || {}) };
         delete fxTiming[fx]; // …and so does the instance's timing window
-        return { ...c, effects: (c.effects || []).filter((e) => e !== fx), fxRegions, fxTiming };
+        const fxStrength = { ...(c.fxStrength || {}) };
+        delete fxStrength[fx]; // …and its strength: a stale entry would resurface as a
+        // ghost value if the same effect were re-added later (Sprint 12 fix).
+        const fxParams = { ...(c.fxParams || {}) };
+        delete fxParams[fx]; // …and its per-effect parameters (§5), for the same reason.
+        return { ...c, effects: (c.effects || []).filter((e) => e !== fx), fxRegions, fxTiming, fxStrength, fxParams };
       }) };
     }
     case 'split':
@@ -583,15 +659,18 @@ function reduceProjectInner(p, a) {
     case 'extractAudio': {
       // Extract the sound of a video clip onto the audio track as an INDEPENDENT clip
       // (same timing, same media, no linkId — unlike Detach audio, nothing stays in
-      // sync afterwards) and mute the clip. The copy carries the clip's speed: audio
-      // clips play at a constant rate, so (out - in) / speed matches the picture's
-      // timeline length at any speed.
+      // sync afterwards) and mute the clip. The copy carries the clip's timing —
+      // constant speed AND speed curve — so the sampler gives both clips the
+      // same timeline length at any rate.
       const key = TRACKS[a.track];
       const c = key && p[key].find((x) => x.id === a.id);
       const m = c && p.media.find((x) => x.id === c.mediaId);
       if (!c || c.gap || !m || m.type !== 'video' || !m.hasAudio || c.muted) return p;
       const start = a.track === 'video' ? videoLayout(p.videoClips).find((l) => l.clip.id === c.id).start : c.start;
-      const audio = { id: a.newId, mediaId: m.id, start, in: c.in, out: c.out, speed: c.speed || 1, volume: c.volume ?? 1, fadeIn: 0, fadeOut: 0 };
+      // The copy carries the clip's whole gain model — volume, fades and
+      // volume keyframes (same media file, so the keys' absolute source
+      // times stay true) — so extracting never changes how the sound plays.
+      const audio = { id: a.newId, mediaId: m.id, start, in: c.in, out: c.out, speed: c.speed || 1, ...(c.speedCurve ? { speedCurve: c.speedCurve } : {}), volume: c.volume ?? 1, fadeIn: c.fadeIn || 0, fadeOut: c.fadeOut || 0, ...(c.volKeys ? { volKeys: c.volKeys } : {}) };
       return { ...p, [key]: p[key].map((x) => (x.id === c.id ? { ...x, muted: true } : x)), audioClips: [...p.audioClips, audio] };
     }
     case 'paste': {
@@ -608,8 +687,10 @@ function reduceProjectInner(p, a) {
     }
     case 'cutRanges':
       return cutRanges(p, a.ranges, { rippleText: !!a.rippleText });
+    case 'cutFreeRanges':
+      return cutFreeRanges(p, a.track, a.id, a.ranges);
     case 'addMarker':
-      return { ...p, markers: [...p.markers, { id: a.id, time: Math.max(0, a.time), label: a.label || '' }].sort((x, y) => x.time - y.time) };
+      return { ...p, markers: [...p.markers, { id: a.id, time: Math.max(0, a.time), label: a.label || '', color: markerColorId(a.color) }].sort((x, y) => x.time - y.time) };
     case 'addMarkers': {
       // Bulk add (auto chapters, v1.1.11): the whole batch is one undo step.
       // A marker within half a second of an existing one (or of another in
@@ -620,18 +701,40 @@ function reduceProjectInner(p, a) {
         const t = Math.max(0, Number(m.time) || 0);
         if (taken.some((x) => Math.abs(x - t) < 0.5)) continue;
         taken.push(t);
-        kept.push({ id: m.id, time: t, label: m.label || '' });
+        kept.push({ id: m.id, time: t, label: m.label || '', color: markerColorId(m.color) });
       }
       if (!kept.length) return p;
       return { ...p, markers: [...p.markers, ...kept].sort((x, y) => x.time - y.time) };
     }
     case 'removeMarker':
       return { ...p, markers: p.markers.filter((m) => m.id !== a.id) };
+    case 'setMarkerColor': {
+      // Colour per marker (10/10 step 5): only palette ids land; anything
+      // else leaves the project untouched.
+      if (!MARKER_COLORS.some((c) => c.id === a.color)) return p;
+      return { ...p, markers: p.markers.map((m) => (m.id === a.id ? { ...m, color: a.color } : m)) };
+    }
+    case 'clearMarkers':
+      return p.markers.length ? { ...p, markers: [] } : p;
+    case 'removeMarkersInRange': {
+      // Bulk delete (step 5): every marker inside [from, to) goes, in one
+      // undo step — the in-clip counterpart of clearing the whole ruler.
+      const from = Math.min(a.from || 0, a.to || 0);
+      const to = Math.max(a.from || 0, a.to || 0);
+      const next = p.markers.filter((m) => m.time < from || m.time >= to);
+      return next.length === p.markers.length ? p : { ...p, markers: next };
+    }
     case 'setBeats':
       // The soundtrack's beat grid (Beat cuts): { bpm, times } or null to clear it.
       return { ...p, beats: a.beats && Array.isArray(a.beats.times) && a.beats.times.length ? { bpm: a.beats.bpm || 0, times: [...a.beats.times].sort((x, y) => x - y) } : null };
     case 'splitAtBeats':
       return splitClipAtBeats(p, a.id, a.newIds || []);
+    case 'splitAtTimes':
+      return splitClipAtTimes(p, a.track || 'video', a.id, a.times || [], a.newIds || []);
+    case 'insertClip':
+      return insertClip(p, a);
+    case 'moveRanges':
+      return moveRanges(p, a.ranges, a.to);
     default:
       return p;
   }
@@ -667,6 +770,48 @@ export function trimClip(p, { track, id, edge, delta }) {
       return { ...p, videoClips: normalizeGaps(list) };
     }
     const m = p.media.find((x) => x.id === c.mediaId);
+    if (hasCurve(c)) {
+      // Speed-ramped clip: the dragged edge moves in TIMELINE seconds, the source
+      // edge follows the curve integral (extending past an edge extrapolates at
+      // that edge's rate), and the surviving window keeps its slice of the curve.
+      // d stays the timeline delta the gap bookkeeping below expects.
+      const maxOutC = !m || m.type === 'image' ? Infinity : m.duration;
+      const span = c.out - c.in;
+      const len = clipLen(c);
+      let d;
+      if (edge === 'left') {
+        const prev = list[idx - 1];
+        const avail = prev && prev.gap ? clipLen(prev) : 0;
+        const maxOff = sourceOffsetAt(c, Math.max(0, len - MIN_CLIP));
+        const want = delta >= 0 ? sourceOffsetAt(c, delta) : delta * speedAtSource(c, 0);
+        let newIn = Math.max(0, Math.min(c.in + want, c.in + maxOff));
+        d = Math.max(timelineOffsetAt(c, newIn - c.in), -avail);
+        newIn = c.in + (d >= 0 ? sourceOffsetAt(c, d) : d * speedAtSource(c, 0));
+        list[idx] = { ...c, in: newIn, speedCurve: sliceCurve(c, newIn - c.in, span) };
+        if (d > 0) {
+          if (prev && prev.gap) list[idx - 1] = { ...prev, out: prev.out + d };
+          else list.splice(idx, 0, newGap(`${id}-gl`, d));
+        } else if (d < 0 && prev && prev.gap) list[idx - 1] = { ...prev, out: prev.out + d };
+      } else {
+        const after = list[idx + 1];
+        const avail = !after ? Infinity : after.gap ? clipLen(after) : 0;
+        const edgeRate = speedAtSource(c, span);
+        const targetLen = len - delta;
+        let newSpan = targetLen <= len
+          ? sourceOffsetAt(c, Math.max(MIN_CLIP, targetLen))
+          : span + (targetLen - len) * edgeRate;
+        newSpan = Math.min(newSpan, Math.max(0, maxOutC - c.in));
+        const newDur = newSpan <= span ? timelineOffsetAt(c, newSpan) : len + (newSpan - span) / edgeRate;
+        d = Math.max(len - newDur, -avail);
+        newSpan = d >= 0 ? sourceOffsetAt(c, len - d) : span + (-d) * edgeRate;
+        list[idx] = { ...c, out: c.in + newSpan, speedCurve: sliceCurve(c, 0, newSpan) };
+        if (d > 0) {
+          if (after && after.gap) list[idx + 1] = { ...after, out: after.out + d };
+          else if (after) list.splice(idx + 1, 0, newGap(`${id}-gr`, d));
+        } else if (d < 0 && after && after.gap) list[idx + 1] = { ...after, out: after.out + d };
+      }
+      return { ...p, videoClips: normalizeGaps(list) };
+    }
     const sp = c.speed || 1;
     const maxOut = !m || m.type === 'image' ? Infinity : m.duration;
     let d;
@@ -699,7 +844,33 @@ export function trimClip(p, { track, id, edge, delta }) {
   const m = c.mediaId && p.media.find((x) => x.id === c.mediaId);
   let d;
   let next;
-  if (track === 'overlay') {
+  if ((track === 'overlay' || track === 'audio') && hasCurve(c)) {
+    // Speed-ramped clip: same integral mapping as the main track's curve trim —
+    // the edge moves in timeline seconds, the source edge follows the curve,
+    // and the surviving window keeps its slice. d is the timeline length change
+    // the ripple below shifts later clips by.
+    const span = c.out - c.in;
+    const maxOut = track === 'overlay'
+      ? (m && m.type === 'video' ? m.duration : Infinity)
+      : (m ? m.duration : Infinity);
+    if (edge === 'left') {
+      const maxOff = sourceOffsetAt(c, Math.max(0, len - MIN_CLIP));
+      const want = delta >= 0 ? sourceOffsetAt(c, delta) : delta * speedAtSource(c, 0);
+      const newIn = Math.max(0, Math.min(c.in + want, c.in + maxOff));
+      d = timelineOffsetAt(c, newIn - c.in);
+      next = { ...c, in: newIn, speedCurve: sliceCurve(c, newIn - c.in, span) };
+    } else {
+      const edgeRate = speedAtSource(c, span);
+      const targetLen = len - delta;
+      let newSpan = targetLen <= len
+        ? sourceOffsetAt(c, Math.max(MIN_CLIP, targetLen))
+        : span + (targetLen - len) * edgeRate;
+      newSpan = Math.min(newSpan, Math.max(0, maxOut - c.in));
+      const newDur = newSpan <= span ? timelineOffsetAt(c, newSpan) : len + (newSpan - span) / edgeRate;
+      d = len - newDur;
+      next = { ...c, out: c.in + newSpan, speedCurve: sliceCurve(c, 0, newSpan) };
+    }
+  } else if (track === 'overlay') {
     // Same as audio, with speed (timeline seconds vs source seconds) and endless photos.
     const sp = c.speed || 1;
     if (edge === 'left') {
@@ -740,6 +911,21 @@ export function trimClip(p, { track, id, edge, delta }) {
 }
 
 // The marker closest to time t within `eps` seconds, or null.
+// Marker colours (10/10 step 5): a small named palette — a marker's colour is
+// one of these ids (amber is the historical default, so old projects render
+// exactly as they always did). Colour per marker + bulk delete close the
+// parity row CapCut covers with its coloured chapter/marker flags.
+export const MARKER_COLORS = [
+  { id: 'amber', name: 'Amber', hex: '#fbbf24' },
+  { id: 'violet', name: 'Violet', hex: '#825cfb' },
+  { id: 'teal', name: 'Teal', hex: '#14b8a6' },
+  { id: 'coral', name: 'Coral', hex: '#f97066' },
+  { id: 'sky', name: 'Sky', hex: '#38bdf8' },
+  { id: 'pink', name: 'Pink', hex: '#ec4899' },
+];
+export const markerColorId = (id) => (MARKER_COLORS.some((c) => c.id === id) ? id : 'amber');
+export const markerColorHex = (id) => MARKER_COLORS.find((c) => c.id === id)?.hex || MARKER_COLORS[0].hex;
+
 export function markerNear(markers, t, eps = 0.05) {
   let best = null;
   for (const m of markers) if (Math.abs(m.time - t) <= eps && (!best || Math.abs(m.time - t) < Math.abs(best.time - t))) best = m;
@@ -839,17 +1025,255 @@ export function cutRanges(p, ranges, opts = {}) {
   const out = [];
   for (const l of videoLayout(p.videoClips)) {
     const c = l.clip;
-    const sp = c.speed || 1;
     const pieces = subtractRanges(l.start, l.end, cuts);
     pieces.filter(([a, b]) => b - a >= 0.03).forEach(([a, b], i) => {
       const id = i ? `${c.id}-c${i}` : c.id;
       if (c.gap) out.push({ ...c, id, in: 0, out: b - a });
-      else out.push({ ...c, id, in: c.in + (a - l.start) * sp, out: c.in + (b - l.start) * sp, transition: i ? null : c.transition });
+      else {
+        // Timeline -> source through the sampler (constant * speed for plain
+        // clips, the curve integral for ramped ones); each piece keeps the
+        // slice of the curve that covers its own source window.
+        const inOff = sourceOffsetAt(c, a - l.start);
+        const outOff = sourceOffsetAt(c, b - l.start);
+        out.push({ ...c, id, in: c.in + inOff, out: c.in + outOff, speedCurve: sliceCurve(c, inOff, outOff), transition: i ? null : c.transition });
+      }
     });
   }
   const next = { ...p, videoClips: normalizeGaps(out) };
   if (opts.rippleText) next.textClips = rippleTextClips(p.textClips, cuts);
   return next;
+}
+
+// Removes time ranges from ONE clip on a free track and closes the space
+// inside that clip (10/10 step 4 — silence removal on a standalone audio
+// clip): pieces keep their source windows through the sampler, later pieces
+// shift earlier by the ranges removed before them, and the clip's total
+// length shrinks by the removed total. Other clips are untouched — a free
+// track has no shared sequence to ripple. ranges: [{ start, end }] in
+// timeline seconds, clipped to the clip's window here.
+export function cutFreeRanges(p, track, id, ranges) {
+  const key = TRACKS[track];
+  if (!key || track === 'video') return p;
+  const list = p[key] || [];
+  const c = list.find((x) => x.id === id);
+  if (!c || !Number.isFinite(c.in) || !Number.isFinite(c.out)) return p;
+  const len = freeLen(track, c);
+  const cuts = [...(ranges || [])]
+    .map((r) => ({ start: Math.max(c.start, r.start), end: Math.min(c.start + len, r.end) }))
+    .filter((r) => r.end - r.start > 0.01)
+    .sort((a, b) => a.start - b.start);
+  if (!cuts.length) return p;
+  const cutBefore = (t) => cuts.reduce((n, r) => n + (t > r.start ? Math.max(0, Math.min(r.end, t) - r.start) : 0), 0);
+  const pieces = subtractRanges(c.start, c.start + len, cuts).filter(([a, b]) => b - a >= 0.03);
+  const next = pieces.map(([a, b], i) => {
+    const inOff = sourceOffsetAt(c, a - c.start);
+    const outOff = sourceOffsetAt(c, b - c.start);
+    return { ...c, id: i ? `${c.id}-c${i}` : c.id, start: a - cutBefore(a), in: c.in + inOff, out: c.in + outOff, speedCurve: sliceCurve(c, inOff, outOff) };
+  });
+  return { ...p, [key]: list.flatMap((x) => (x.id === id ? next : [x])) };
+}
+
+// ---- Insert editing (Sprint 10) ----
+// An insert edit places a clip at time `at` on a track and pushes everything
+// at or after `at` on that track/layer right by the clip's length — the
+// ripple-insert half of the matrix's insert row (ripple delete already
+// exists as the magnet behaviour). On the main track the sequential layout
+// does the pushing: the clip straddling `at` is split there first (through
+// the linked split, so a detached-audio partner splits with it) and the new
+// clip is spliced in. On the free tracks the straddler on the target layer
+// splits the same way, then every clip starting at or after `at` on that
+// layer shifts by the inserted length. Linked pairs move together: a free
+// partner of a shifted clip shifts with it, and an audio clip whose picture
+// sits on the (positional) main track absorbs the shift into its linkOff,
+// so the pair's sync invariant survives as data, not just by luck.
+
+// The clips an insert at `at` on (track, layer) would split or shift — the
+// lock guard refuses the edit when any of them sits on a locked layer.
+export function insertAffected(p, track, layer, at) {
+  const key = TRACKS[track];
+  const out = [];
+  if (!key || track === 'video' || !Number.isFinite(at)) return out;
+  const inLayer = (c) => !LAYERED[track] || layerOf(c) === layer;
+  const list = p[key] || [];
+  const seen = new Set();
+  const add = (trk, c) => {
+    const k = `${trk}:${c.id}`;
+    if (!seen.has(k)) { seen.add(k); out.push({ track: trk, clip: c }); }
+  };
+  const straddler = list.find((c) => inLayer(c) && at > c.start + MIN_CLIP && at < c.start + freeLen(track, c) - MIN_CLIP);
+  if (straddler) {
+    add(track, straddler);
+    const partner = findLinkPartner(p, straddler);
+    if (partner) add(partner.track, partner.clip);
+  }
+  for (const c of list) if (inLayer(c) && c.start >= at - 1e-6) add(track, c);
+  for (const { clip: c } of [...out]) {
+    if (!c.linkId) continue;
+    const partner = findLinkPartner(p, c);
+    if (partner && partner.track !== 'video') add(partner.track, partner.clip);
+  }
+  return out;
+}
+
+function insertClip(p, a) {
+  const clip = a.clip;
+  const at = a.at;
+  if (!clip || !Number.isFinite(at) || at < 0) return p;
+  if (a.track === 'video') {
+    if (clip.gap) return p;
+    let q = p;
+    const hit = videoLayout(q.videoClips).find((l) => !l.clip.gap && at > l.start + MIN_CLIP && at < l.end - MIN_CLIP);
+    if (hit) {
+      q = splitLinked(q, 'video', hit.clip.id, at, a.splitId || `${clip.id}-s`);
+      if (q === p) return p; // the split was refused: never insert half-heartedly
+    }
+    const layout1 = videoLayout(q.videoClips);
+    let index = layout1.findIndex((l) => l.start >= at - 1e-6);
+    if (index < 0) index = layout1.length;
+    const list = [...q.videoClips];
+    list.splice(index, 0, { ...clip, transition: null });
+    return { ...q, videoClips: list };
+  }
+  const key = TRACKS[a.track];
+  if (!key) return p;
+  const len = freeLen(a.track, clip);
+  if (!(len > 0)) return p;
+  const layer = LAYERED[a.track] ? layerOf(clip) : 0;
+  const inLayer = (c) => !LAYERED[a.track] || layerOf(c) === layer;
+  let q = p;
+  const straddler = (q[key] || []).find((c) => inLayer(c) && at > c.start + MIN_CLIP && at < c.start + freeLen(a.track, c) - MIN_CLIP);
+  if (straddler) {
+    q = splitLinked(q, a.track, straddler.id, at, a.splitId || `${clip.id}-s`);
+    if (q === p) return p;
+  }
+  const shift = new Map();
+  const add = (trk, c) => shift.set(`${trk}:${c.id}`, { track: trk, clip: c });
+  for (const c of q[key] || []) if (inLayer(c) && c.start >= at - 1e-6) add(a.track, c);
+  for (const { clip: c } of [...shift.values()]) {
+    if (!c.linkId) continue;
+    const partner = findLinkPartner(q, c);
+    if (partner && partner.track !== 'video') add(partner.track, partner.clip);
+  }
+  // An audio member whose picture is on the main track shifts alone: its
+  // linkOff absorbs the shift so start == picStart + linkOff still holds.
+  const linkOffAdj = new Set();
+  for (const { track: trk, clip: c } of shift.values()) {
+    if (trk !== 'audio' || !c.linkId) continue;
+    const partner = findLinkPartner(q, c);
+    if (partner && partner.track === 'video') linkOffAdj.add(c.id);
+  }
+  let out = q;
+  for (const trk of new Set([...shift.values()].map((s) => s.track))) {
+    const k2 = TRACKS[trk];
+    out = {
+      ...out,
+      [k2]: out[k2].map((c) => (shift.has(`${trk}:${c.id}`)
+        ? { ...c, start: c.start + len, ...(linkOffAdj.has(c.id) ? { linkOff: (c.linkOff || 0) + len } : {}) }
+        : c)),
+    };
+  }
+  const placed = LAYERED[a.track] ? { ...clip, start: at, layer } : { ...clip, start: at };
+  return { ...out, [key]: [...out[key], placed] };
+}
+
+// ---- Transcript move (Sprint 10) ----
+// moveRanges reorders the main track: the given timeline ranges (a word or
+// sentence selection, via src/transcript.js) are lifted out — the track
+// closes up exactly like cutRanges — and re-inserted at `to` (a timeline
+// time in the ORIGINAL coordinates), splitting the survivor that straddles
+// the target when it falls mid-clip. Total duration never changes. Text
+// clips travel with the picture the same way rippleTextClips keeps them
+// locked on a cut: material inside the ranges moves into the inserted
+// block (relative order and internal offsets preserved), material outside
+// maps through the cut-and-insert point map, and a text clip spanning the
+// insertion point splits there. One action = one undo step.
+function textPiece(c, a, b, id, start) {
+  const clip = { ...c, id, start, duration: b - a };
+  if (c.words && c.words.length) {
+    const s = c.start;
+    const kept = c.words
+      .map((w) => ({ ...w, absStart: s + w.start, absEnd: s + w.end }))
+      .filter((w) => w.absStart >= a - 1e-6 && w.absEnd <= b + 1e-6);
+    clip.words = kept.map((w) => ({ text: w.text, start: w.absStart - a, end: w.absEnd - a }));
+    clip.text = kept.map((w) => w.text).join(' ');
+  }
+  return clip;
+}
+
+function moveTextClips(textClips, cuts, insertAt, blockLen) {
+  const cutBefore = (t) => cuts.reduce((n, r) => n + (t > r.start ? Math.max(0, Math.min(r.end, t) - r.start) : 0), 0);
+  const inBlock = (t) => insertAt + cutBefore(t); // compressed offset inside the moved block
+  const out = [];
+  for (const c of textClips) {
+    const s = c.start;
+    const e = c.start + c.duration;
+    // Surviving pieces (outside the cuts), in survivor coordinates.
+    subtractRanges(s, e, cuts).filter(([a, b]) => b - a >= 0.03).forEach(([a, b], i) => {
+      const aS = a - cutBefore(a);
+      const bS = b - cutBefore(b);
+      const id = i ? `${c.id}-r${i}` : c.id;
+      if (aS < insertAt - 1e-6 && bS > insertAt + 1e-6) {
+        // The insertion point falls inside this piece: it splits there. The
+        // second half's original-coordinate anchor is the point that maps
+        // to insertAt (no cut contains it, by construction).
+        let tStar = insertAt;
+        for (const r of cuts) if (r.end <= tStar) tStar += r.end - r.start;
+        out.push(textPiece(c, a, tStar, id, aS));
+        out.push(textPiece(c, tStar, b, `${c.id}-r${i}s`, insertAt + blockLen));
+      } else {
+        const start = aS >= insertAt - 1e-6 ? aS + blockLen : aS;
+        out.push(textPiece(c, a, b, id, start));
+      }
+    });
+    // Moved pieces (inside the cuts) land in the inserted block.
+    cuts
+      .map((r) => [Math.max(s, r.start), Math.min(e, r.end)])
+      .filter(([a, b]) => b - a >= 0.03)
+      .forEach(([a, b], i) => out.push(textPiece(c, a, b, `${c.id}-m${i}`, inBlock(a))));
+  }
+  return out;
+}
+
+export function moveRanges(p, ranges, to) {
+  const cuts = [...(ranges || [])].filter((r) => r.end - r.start > 0.01).sort((a, b) => a.start - b.start);
+  if (!cuts.length || !Number.isFinite(to)) return p;
+  const layout = videoLayout(p.videoClips);
+  const total = layout.length ? layout[layout.length - 1].end : 0;
+  const blockLen = cuts.reduce((n, r) => n + (r.end - r.start), 0);
+  // Lift the pieces out (the same sampler-mapped construction cutRanges
+  // uses, with move-derived ids so they can never collide with survivors).
+  const pieces = [];
+  for (const l of layout) {
+    const c = l.clip;
+    cuts
+      .map((r) => [Math.max(l.start, r.start), Math.min(l.end, r.end)])
+      .filter(([a, b]) => b - a >= 0.03)
+      .forEach(([a, b], i) => {
+        const id = `${c.id}-m${pieces.length}`;
+        if (c.gap) pieces.push({ ...c, id, in: 0, out: b - a });
+        else {
+          const inOff = sourceOffsetAt(c, a - l.start);
+          const outOff = sourceOffsetAt(c, b - l.start);
+          pieces.push({ ...c, id, in: c.in + inOff, out: c.in + outOff, speedCurve: sliceCurve(c, inOff, outOff), transition: i ? null : c.transition });
+        }
+      });
+  }
+  if (!pieces.length) return p;
+  const survivors = cutRanges(p, cuts);
+  const cutBefore = (t) => cuts.reduce((n, r) => n + (t > r.start ? Math.max(0, Math.min(r.end, t) - r.start) : 0), 0);
+  const target = Math.max(0, Math.min(Math.max(0, total - blockLen), to - cutBefore(to)));
+  let q = survivors;
+  const hit = videoLayout(q.videoClips).find((l) => !l.clip.gap && target > l.start + MIN_CLIP && target < l.end - MIN_CLIP);
+  if (hit) {
+    const q2 = splitLinked(q, 'video', hit.clip.id, target, `${hit.clip.id}-ms`);
+    if (q2 !== q) q = q2;
+  }
+  const sl = videoLayout(q.videoClips);
+  let index = sl.findIndex((l) => l.start >= target - 1e-6);
+  if (index < 0) index = sl.length;
+  const list = [...q.videoClips];
+  list.splice(index, 0, ...pieces);
+  return { ...q, videoClips: normalizeGaps(list), textClips: moveTextClips(p.textClips, cuts, target, blockLen) };
 }
 
 // After a split the In animation stays on the left part and the Out animation on the right one.
@@ -864,11 +1288,16 @@ function splitAt(p, track, id, t, newId) {
   if (track === 'video') {
     const l = videoLayout(p.videoClips).find((x) => x.clip.id === id);
     if (!l || l.clip.gap || t - l.start < MIN_CLIP || l.end - t < MIN_CLIP) return p;
-    const cut = l.clip.in + (t - l.start) * (l.clip.speed || 1);
+    const cutOff = sourceOffsetAt(l.clip, t - l.start);
+    const cut = l.clip.in + cutOff;
+    const span = l.clip.out - l.clip.in;
     const list = [];
     p.videoClips.forEach((c) => {
       if (c.id !== id) return list.push(c);
-      list.push({ ...c, out: cut, anim: splitAnim(c.anim, 'left') }, { ...c, id: newId, in: cut, transition: null, anim: splitAnim(c.anim, 'right') });
+      list.push(
+        { ...c, out: cut, speedCurve: sliceCurve(c, 0, cutOff), anim: splitAnim(c.anim, 'left') },
+        { ...c, id: newId, in: cut, speedCurve: sliceCurve(c, cutOff, span), transition: null, anim: splitAnim(c.anim, 'right') },
+      );
     });
     return { ...p, videoClips: list };
   }
@@ -876,21 +1305,26 @@ function splitAt(p, track, id, t, newId) {
     const c = p.audioClips.find((x) => x.id === id);
     const len = c ? freeLen('audio', c) : 0;
     if (!c || t - c.start < MIN_CLIP || c.start + len - t < MIN_CLIP) return p;
-    const cut = c.in + (t - c.start) * (c.speed || 1);
+    const cutOff = sourceOffsetAt(c, t - c.start);
+    const cut = c.in + cutOff;
+    const span = c.out - c.in;
     return {
       ...p,
-      audioClips: p.audioClips.flatMap((x) => (x.id !== id ? [x] : [{ ...x, out: cut }, { ...x, id: newId, start: t, in: cut }])),
+      audioClips: p.audioClips.flatMap((x) => (x.id !== id ? [x]
+        : [{ ...x, out: cut, speedCurve: sliceCurve(x, 0, cutOff) }, { ...x, id: newId, start: t, in: cut, speedCurve: sliceCurve(x, cutOff, span) }])),
     };
   }
   if (track === 'overlay') {
     const c = p.overlayClips.find((x) => x.id === id);
     const len = c ? freeLen('overlay', c) : 0;
     if (!c || t - c.start < MIN_CLIP || c.start + len - t < MIN_CLIP) return p;
-    const cut = c.in + (t - c.start) * (c.speed || 1);
+    const cutOff = sourceOffsetAt(c, t - c.start);
+    const cut = c.in + cutOff;
+    const span = c.out - c.in;
     return {
       ...p,
       overlayClips: p.overlayClips.flatMap((x) => (x.id !== id ? [x]
-        : [{ ...x, out: cut, anim: splitAnim(x.anim, 'left') }, { ...x, id: newId, start: t, in: cut, anim: splitAnim(x.anim, 'right') }])),
+        : [{ ...x, out: cut, speedCurve: sliceCurve(x, 0, cutOff), anim: splitAnim(x.anim, 'left') }, { ...x, id: newId, start: t, in: cut, speedCurve: sliceCurve(x, cutOff, span), anim: splitAnim(x.anim, 'right') }])),
     };
   }
   if (track === 'text' || track === 'effect') {
@@ -939,26 +1373,38 @@ function splitLinked(p, track, id, t, newId) {
   return res;
 }
 
-// Splits ONE main-track clip at every beat of the project's beat grid inside it
-// (Beat cuts, v1.1.9): the cuts walk the grid in time order, each one splitting the
-// piece that currently carries the rest of the clip, through the same linked split
-// a manual cut uses — a detached-audio partner is cut at the same moments and the
-// link invariants hold for every pair. Beats too close to an edge (or to the
-// previous cut) leave no sliver: splitAt itself refuses them, and the walk simply
-// moves on. One reduction, so the whole beat cut is one undo step. newIds supplies
-// one fresh id per potential cut; extras are ignored.
-export function splitClipAtBeats(p, id, newIds) {
-  const times = p.beats && Array.isArray(p.beats.times) ? p.beats.times : [];
-  if (!times.length) return p;
-  const l0 = videoLayout(p.videoClips).find((x) => x.clip.id === id);
-  if (!l0 || l0.clip.gap) return p;
-  const inside = times.filter((t) => t > l0.start && t < l0.end).sort((a, b) => a - b);
+// Splits ONE clip at every time in `times` inside it, on any track: the cuts
+// walk in time order, each one splitting the piece that currently carries the
+// rest of the clip, through the same linked split a manual cut uses — a
+// detached-audio partner is cut at the same moments and the link invariants
+// hold for every pair. Times too close to an edge (or to the previous cut)
+// leave no sliver: splitAt itself refuses them, and the walk simply moves
+// on. One reduction, so the whole multi-split is one undo step. newIds
+// supplies one fresh id per potential cut; extras are ignored. This is the
+// shared walker behind Beat cuts (splitClipAtBeats) and scene splitting
+// (Sprint 10: the `scdet` pass's boundaries become ordinary splits here).
+export function splitClipAtTimes(p, track, id, times, newIds) {
+  if (!times || !times.length || !newIds || !newIds.length) return p;
+  let start;
+  let end;
+  if (track === 'video') {
+    const l0 = videoLayout(p.videoClips).find((x) => x.clip.id === id);
+    if (!l0 || l0.clip.gap) return p;
+    start = l0.start;
+    end = l0.end;
+  } else {
+    const c = findClipIn(p, track, id);
+    if (!c) return p;
+    start = c.start;
+    end = c.start + freeLen(track, c);
+  }
+  const inside = [...times].filter((t) => t > start && t < end).sort((a, b) => a - b);
   let out = p;
   let carrier = id;
   let n = 0;
   for (const t of inside) {
     if (n >= newIds.length) break;
-    const next = splitLinked(out, 'video', carrier, t, newIds[n]);
+    const next = splitLinked(out, track, carrier, t, newIds[n]);
     if (next !== out) {
       out = next;
       carrier = newIds[n];
@@ -968,7 +1414,15 @@ export function splitClipAtBeats(p, id, newIds) {
   return out;
 }
 
-const CLIP_LISTS = { video: 'videoClips', overlay: 'overlayClips', text: 'textClips', audio: 'audioClips', effect: 'effectClips' };
+// Splits ONE main-track clip at every beat of the project's beat grid inside it
+// (Beat cuts, v1.1.9) — splitClipAtTimes over the beat times.
+export function splitClipAtBeats(p, id, newIds) {
+  const times = p.beats && Array.isArray(p.beats.times) ? p.beats.times : [];
+  if (!times.length) return p;
+  return splitClipAtTimes(p, 'video', id, times, newIds);
+}
+
+const CLIP_LISTS = { video: 'videoClips', overlay: 'overlayClips', text: 'textClips', audio: 'audioClips', effect: 'effectClips', sticker: 'stickerClips' };
 export function findClipIn(p, track, id) {
   const key = CLIP_LISTS[track];
   return key ? (p[key] || []).find((c) => c.id === id) : undefined;
@@ -1019,6 +1473,14 @@ function actionLocked(p, a) {
     case 'duplicate':
     case 'split': return clipLocked(p, a.track, clipOf(a.track, a.id));
     case 'splitAtBeats': return clipLocked(p, 'video', clipOf('video', a.id));
+    case 'splitAtTimes': return clipLocked(p, a.track || 'video', clipOf(a.track || 'video', a.id));
+    case 'insertClip': {
+      if (a.track === 'video') return isLayerLocked(p, 'video', 0);
+      const layer = LAYERED[a.track] ? layerOf(a.clip || {}) : 0;
+      if (isLayerLocked(p, a.track, layer)) return true;
+      return insertAffected(p, a.track, layer, a.at).some(({ track, clip }) => clipLocked(p, track, clip));
+    }
+    case 'moveRanges': return isLayerLocked(p, 'video', 0);
     case 'trimClip': return clipLocked(p, a.track, clipOf(a.track, a.id));
     case 'paste': {
       if (a.track === 'video') return isLayerLocked(p, 'video', 0);
@@ -1029,6 +1491,7 @@ function actionLocked(p, a) {
     case 'moveToMain': return clipLocked(p, 'overlay', clipOf('overlay', a.id));
     case 'extractAudio': return clipLocked(p, a.track, clipOf(a.track, a.id));
     case 'cutRanges': return isLayerLocked(p, 'video', 0);
+    case 'cutFreeRanges': return clipLocked(p, a.track, clipOf(a.track, a.id));
     case 'removeEffect': {
       const { track, clipId } = parseEffectKey(a.id);
       return clipLocked(p, track, clipOf(track, clipId));
@@ -1120,9 +1583,15 @@ function syncLinked(prev, next) {
     const pv = was.pic.clip;
     const pa = was.aud.clip;
     const num = (c, f) => (f === 'speed' ? c.speed || 1 : c[f] || 0);
+    // A speed curve is part of the pair's timing: it propagates verbatim (both
+    // windows span the same source length and offsets are in-relative on both
+    // sides, so the same points keep the pair in sync), and losing it on one
+    // side loses it on the other.
     const vChanged = ['in', 'out', 'speed'].some((f) => num(v, f) !== num(pv, f))
+      || pv.speedCurve !== v.speedCurve
       || picStart(prev, was.pic.track, pv) !== picStart(next, pair.pic.track, v);
-    const aChanged = ['in', 'out', 'speed', 'start'].some((f) => num(au, f) !== num(pa, f));
+    const aChanged = ['in', 'out', 'speed', 'start'].some((f) => num(au, f) !== num(pa, f))
+      || pa.speedCurve !== au.speedCurve;
     if (vChanged) {
       const want = {
         start: picStart(next, pair.pic.track, v) + (au.linkOff || 0),
@@ -1132,6 +1601,7 @@ function syncLinked(prev, next) {
       };
       const patch = {};
       for (const f of ['start', 'in', 'out', 'speed']) if (num(au, f) !== want[f]) patch[f] = want[f];
+      if (au.speedCurve !== v.speedCurve) patch.speedCurve = v.speedCurve;
       if (Object.keys(patch).length && !isLayerLocked(next, 'audio', layerOf(au))) put('audio', au.id, patch);
     } else if (aChanged) {
       const patch = {};
@@ -1140,6 +1610,7 @@ function syncLinked(prev, next) {
       if ((v.in || 0) !== wantIn) patch.in = wantIn;
       if ((v.out || 0) !== wantOut) patch.out = wantOut;
       if ((v.speed || 1) !== (au.speed || 1)) patch.speed = au.speed || 1;
+      if (v.speedCurve !== au.speedCurve) patch.speedCurve = au.speedCurve;
       // The main track's start is positional, so a start change can only flow picture-wards
       // for overlay partners; for video partners it is the picture that leads.
       if (pair.pic.track === 'overlay') {
@@ -1197,7 +1668,82 @@ function patchVisuals(p, a) {
   return { ...p, media: p.media.map((m) => (m.path === a.path ? { ...m, ...a.patch } : m)) };
 }
 
+// Relink: media items point at their new file after the user located moved media
+// (a.updates: [{ id, path, ...probed fields }]). Generated pointers recorded against
+// the old location (thumb/wave/proxy) are dropped — they regenerate for the new path
+// through the usual visuals queue instead of risking a stale stand-in.
+function patchRelink(p, a) {
+  const byId = new Map((a.updates || []).map((u) => [u.id, u]));
+  if (!p.media.some((m) => byId.has(m.id))) return p;
+  return {
+    ...p,
+    media: p.media.map((m) => {
+      const u = byId.get(m.id);
+      if (!u) return m;
+      const { id, verified, ...patch } = u;
+      const next = { ...m, ...patch };
+      for (const k of ['thumb', 'thumbCount', 'thumbInterval', 'thumbW', 'thumbH', 'wave', 'proxy', 'lightProxy', 'proxies', 'remux']) delete next[k];
+      // The new location was probed by the main process during pick/scan, so
+      // the file exists again: the lost flag dies with the old path too.
+      delete next.missing;
+      return next;
+    }),
+  };
+}
+
+// Missing-media tracking (Part 3, 2026-11-10): media are reference-linked to
+// real files on disk, so the store carries a `missing` flag per item — set
+// from the main process's existence check (findMissingMedia) at load and at
+// export start. Like a relink it patches every history state and is not an
+// undo step: the flag describes the disk, not an edit. `merge` only ADDS
+// flags (a scoped check, e.g. one clip's audio export); without it the id
+// list is the complete truth and flags not in it are cleared (a file that
+// came back renders normally again).
+function patchMissing(p, a) {
+  const ids = new Set(a.ids || []);
+  if (!p.media.some((m) => (a.merge ? ids.has(m.id) && !m.missing : ids.has(m.id) !== !!m.missing))) return p;
+  return {
+    ...p,
+    media: p.media.map((m) => {
+      if (ids.has(m.id)) return m.missing ? m : { ...m, missing: true };
+      if (a.merge || !m.missing) return m;
+      const next = { ...m };
+      delete next.missing;
+      return next;
+    }),
+  };
+}
+
+function patchClipField(p, a) {
+  const key = CLIP_LISTS[a.track];
+  if (!key || !(p[key] || []).some((c) => c.id === a.id)) return p;
+  return { ...p, [key]: p[key].map((c) => (c.id === a.id ? { ...c, [a.field]: a.value } : c)) };
+}
+
 export function historyReducer(state, a) {
+  if (a.type === 'relinkMedia') {
+    // A relink is a repair of where files live, not a creative edit: like mediaVisuals
+    // it patches every history state and never becomes an undo step — undoing an edit
+    // must not resurrect a path that no longer exists on disk.
+    return {
+      ...state,
+      past: state.past.map((p) => patchRelink(p, a)),
+      present: patchRelink(state.present, a),
+      future: state.future.map((p) => patchRelink(p, a)),
+      gestureStart: state.gestureStart && patchRelink(state.gestureStart, a),
+    };
+  }
+  if (a.type === 'setMediaMissing') {
+    // Same repair class as a relink: the lost flags describe the disk, not an
+    // edit, so they patch every history state and never become an undo step.
+    return {
+      ...state,
+      past: state.past.map((p) => patchMissing(p, a)),
+      present: patchMissing(state.present, a),
+      future: state.future.map((p) => patchMissing(p, a)),
+      gestureStart: state.gestureStart && patchMissing(state.gestureStart, a),
+    };
+  }
   if (a.type === 'mediaVisuals') {
     return {
       ...state,
@@ -1205,6 +1751,19 @@ export function historyReducer(state, a) {
       present: patchVisuals(state.present, a),
       future: state.future.map((p) => patchVisuals(p, a)),
       gestureStart: state.gestureStart && patchVisuals(state.gestureStart, a),
+    };
+  }
+  if (a.type === 'clipDerivative') {
+    // A background derivative render (the AudioFx preview file) lands on a clip without
+    // becoming an undo step: like mediaVisuals, the pointer is patched into every history
+    // state, and every consumer revalidates it against the clip's current settings
+    // before use — so undoing an fx edit simply makes the render inert, never wrong.
+    return {
+      ...state,
+      past: state.past.map((p) => patchClipField(p, a)),
+      present: patchClipField(state.present, a),
+      future: state.future.map((p) => patchClipField(p, a)),
+      gestureStart: state.gestureStart && patchClipField(state.gestureStart, a),
     };
   }
   if (a.type === 'setLayerState') {

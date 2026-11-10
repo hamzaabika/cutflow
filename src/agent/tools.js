@@ -3,6 +3,7 @@
 // export all behave exactly as for a manual edit. Tools return small JSON results (or { error }) so the
 // model can read them and correct itself.
 import { clipLen, projectDuration, videoLayout, uid } from '../store.js';
+import { hasCurve, sourceOffsetAt, speedAtSource } from '../speedCurve.js';
 import { FILTERS, EFFECTS, TRANSITIONS, RATIOS, DEFAULT_ADJUST, sizeFor } from '../effects.js';
 import { ANIM_IN, ANIM_LOOP, ANIM_OUT, BUBBLES, HIGHLIGHTS, TEXT_EFFECTS, TEXT_TEMPLATES } from '../text/catalog.js';
 import { ANIMATIONS, EASINGS, KEY_PROPS, baseAt, hasKeys } from '../anim.js';
@@ -280,14 +281,16 @@ export function summarizeProject(p) {
       ? { id: l.clip.id, type: 'gap', start: r2(l.start), end: r2(l.end) }
       : {
         id: l.clip.id, media: label(l.clip), type: mediaById[l.clip.mediaId]?.type, start: r2(l.start), end: r2(l.end),
-        source_in: r2(l.clip.in), source_out: r2(l.clip.out), speed: l.clip.speed || 1, volume: l.clip.volume ?? 1,
+        source_in: r2(l.clip.in), source_out: r2(l.clip.out), speed: l.clip.speed || 1,
+        ...(hasCurve(l.clip) ? { speed_curve: l.clip.speedCurve.points.map((pt) => [r2(pt.t), r2(pt.speed)]) } : {}),
+        volume: l.clip.volume ?? 1,
         muted: !!l.clip.muted, filter: l.clip.filter || 'none', effects: l.clip.effects || [],
         transition_in: l.clip.transition ? l.clip.transition.type : null,
         ...motionInfo(l.clip),
       })),
     overlay_track: (p.overlayClips || []).map((c) => ({ id: c.id, media: label(c), start: r2(c.start), end: r2(c.start + clipLen(c)), ...motionInfo(c) })),
     audio_track: p.audioClips.map((c) => ({
-      id: c.id, media: label(c), start: r2(c.start), end: r2(c.start + c.out - c.in), volume: c.volume ?? 1,
+      id: c.id, media: label(c), start: r2(c.start), end: r2(c.start + clipLen(c)), volume: c.volume ?? 1,
       ...(c.fadeIn ? { fade_in: r2(c.fadeIn) } : {}), ...(c.fadeOut ? { fade_out: r2(c.fadeOut) } : {}),
     })),
     // Captions are many: listed by count and time span, their look once.
@@ -345,7 +348,7 @@ export function createToolRunner(ctx) {
     return f;
   };
   const PROP = { scale: 'scale', x: 'x', y: 'y', rotation: 'rot', rot: 'rot', opacity: 'opacity' };
-  const srcTime = (clip, lt) => (clip.in || 0) + lt * (clip.speed || 1);
+  const srcTime = (clip, lt) => (clip.in || 0) + sourceOffsetAt(clip, lt);
   // A keyframe list ({ t: source time, v }) with values set at the given local times (same times replaced).
   // pairs: [localTime, value, easing?] (easing of the move arriving at that keyframe; see EASINGS in anim.js).
   const putKeys = (list, clip, pairs) => {
@@ -794,7 +797,7 @@ export function createToolRunner(ctx) {
       if (added.error) return added;
       if (added.track === 'overlay' && Number(duration_sec) > 0) {
         const c = findClip(added.clip_id).clip;
-        dispatch({ type: 'update', track: 'overlay', id: c.id, patch: { out: c.in + Number(duration_sec) * (c.speed || 1) } });
+        dispatch({ type: 'update', track: 'overlay', id: c.id, patch: { out: c.in + sourceOffsetAt(c, Number(duration_sec)) } });
       }
       return after({ clip_id: added.clip_id, track: added.track });
     },
@@ -865,13 +868,29 @@ export function createToolRunner(ctx) {
       const p = project();
       const c = f.clip;
       const start = f.track === 'video' ? videoLayout(p.videoClips).find((l) => l.clip.id === clip_id).start : c.start;
-      const end = start + (f.track === 'video' || f.track === 'overlay' || f.track === 'audio' ? (f.track === 'audio' ? c.out - c.in : clipLen(c)) : c.duration);
+      const end = start + (f.track === 'video' || f.track === 'overlay' || f.track === 'audio' ? (f.track === 'audio' && !hasCurve(c) ? c.out - c.in : clipLen(c)) : c.duration);
       const ns = start_sec === undefined ? start : Number(start_sec);
       const ne = end_sec === undefined ? end : Number(end_sec);
       if (!Number.isFinite(ns) || !Number.isFinite(ne) || ne - ns < 0.1) return { error: 'The new end must be at least 0.1 s after the new start.' };
       let patch;
       if (f.track === 'text' || f.track === 'effect') patch = { start: Math.max(0, ns), duration: ne - Math.max(0, ns) };
-      else {
+      else if (hasCurve(c)) {
+        // Ramped clip: the timeline deltas convert through the curve integral
+        // (edge rates when extending); the update keeps the window's slice of
+        // the curve. (Constant audio clips keep the legacy span math below.)
+        const m = p.media.find((x) => x.id === c.mediaId);
+        const max = m?.type === 'image' ? Infinity : m?.duration ?? c.out;
+        const dIn = ns - start;
+        const dOut = ne - end;
+        const inP = c.in + (dIn >= 0 ? sourceOffsetAt(c, dIn) : dIn * speedAtSource(c, 0));
+        const span = c.out - c.in;
+        const outP = dOut <= 0
+          ? c.in + sourceOffsetAt(c, Math.max(0.1, clipLen(c) + dOut))
+          : c.out + dOut * speedAtSource(c, span);
+        if (inP < -1e-3) return { error: `The clip cannot start earlier: its source begins ${r2(-inP)} s before the point asked for.` };
+        if (outP > max + 1e-3) return { error: `The clip cannot end later: its source runs out ${r2(outP - max)} s before the point asked for.` };
+        patch = { in: Math.max(0, inP), out: Math.min(max, outP), ...(f.track === 'video' ? {} : { start: Math.max(0, ns) }) };
+      } else {
         // Media: move the source in / out points (speed-scaled for picture clips).
         const sp = f.track === 'audio' ? 1 : c.speed || 1;
         const m = p.media.find((x) => x.id === c.mediaId);

@@ -164,6 +164,30 @@ export const STUDIO_TRANSITIONS = [
       st(3, min(1, ld(2)*smooth(0, 0.6, P) + smooth(0.5, 1, P)));
       A(X, Y)*(1-ld(3)) + B(X, Y)*ld(3)`,
   },
+  {
+    id: 'fx_clockwipe', name: 'Clock Wipe', duration: 0.8,
+    // A hand sweeps clockwise from the top; the next clip is whatever the hand has passed (Sprint 12, original).
+    expr: `st(0, mod(atan2(X - W/2, -(Y - H/2)) + 6.28319, 6.28319)/6.28319);
+      if(lt(ld(0), P), B(X, Y), A(X, Y))`,
+  },
+  {
+    id: 'fx_bandwipe', name: 'Band Wipe', duration: 0.8,
+    // Eight horizontal bands wipe left-to-right, each starting a beat after the one above (Sprint 12, original).
+    expr: `st(0, floor(Y/(H/8))); st(1, clip(P*1.7 - ld(0)*0.09, 0, 1));
+      if(lt(X, W*ld(1)), B(X, Y), A(X, Y))`,
+  },
+  {
+    id: 'fx_zoomthrough', name: 'Zoom Through', duration: 0.8,
+    // The current clip rushes toward the viewer and dissolves as the next one settles back from a punch-in (Sprint 12, original).
+    expr: `st(0, 1 + P*1.5); st(1, 1 + (1 - P)*2);
+      A(W/2 + (X - W/2)/ld(0), H/2 + (Y - H/2)/ld(0))*(1 - P) + B(W/2 + (X - W/2)/ld(1), H/2 + (Y - H/2)/ld(1))*P`,
+  },
+  {
+    id: 'fx_spinfall', name: 'Spin Fall', duration: 0.9,
+    // The current clip spins, shrinks and fades away over the next one (Sprint 12, original).
+    expr: `st(0, P*1.1); st(1, 1 - P*0.45); st(2, W/2 + ((X - W/2)*cos(ld(0)) - (Y - H/2)*sin(ld(0)))/ld(1) + 0.5); st(3, H/2 + ((X - W/2)*sin(ld(0)) + (Y - H/2)*cos(ld(0)))/ld(1) + 0.5);
+      if(${inFrame('ld(2)', 'ld(3)')}, A(ld(2), ld(3)), B(X, Y))*(1 - P) + B(X, Y)*P`,
+  },
 ];
 
 // ---- Transition packs: five packs of real engine transitions (Seamless, Mask & Reveal, Light & Glow,
@@ -431,7 +455,181 @@ export const PACK_TRANSITIONS = [
   },
 ];
 
+// Library mega-growth (10/10 step 3): 36 more shared-engine transitions, written to the same
+// contract as the studio set — each starts exactly on the outgoing clip and ends exactly on the
+// incoming one (mask sweeps use a normalized metric whose maximum the sweep range covers, so
+// no corner is left behind at P = 1 and nothing shows early at P = 0).
+const wipeK = (d) => `st(0, ${d}); st(1, smooth(P*1.06 - 0.05, P*1.06 - 0.01, ld(0))); B(X, Y)*(1 - ld(1)) + A(X, Y)*ld(1)`;
+const GROWTH_TRANSITIONS = [
+  { id: 'fx_wipewest', name: 'Wipe From Left', duration: 0.6, expr: wipeK('X/W') },
+  { id: 'fx_wipeeast', name: 'Wipe From Right', duration: 0.6, expr: wipeK('1 - X/W') },
+  { id: 'fx_wipecenter', name: 'Wipe From Center', duration: 0.7, expr: wipeK('abs(X/W - 0.5)*2') },
+  { id: 'fx_wipecorners', name: 'Wipe From Corners', duration: 0.8, expr: wipeK('1 - max(abs(X/W - 0.5), abs(Y/H - 0.5))*2') },
+  { id: 'fx_venetianv', name: 'Venetian Columns', duration: 0.9, expr: wipeK('abs(fract(X/(W/14)) - 0.5)*2') },
+  { id: 'fx_venetianh', name: 'Venetian Rows', duration: 0.9, expr: wipeK('abs(fract(Y/(H/10)) - 0.5)*2') },
+  {
+    id: 'fx_blindslide', name: 'Blinds Slide', duration: 0.9,
+    expr: `st(0, mod(floor(X/(W/9)), 2)); st(1, (1 - P)*H);
+      if(ld(0), if(lt(Y, H - ld(1)), B(X, Y + ld(1)), A(X, Y)), if(gt(Y, ld(1)), B(X, Y - ld(1)), A(X, Y)))`,
+  },
+  { id: 'fx_checker', name: 'Checkerboard', duration: 1, expr: wipeK('hash(floor(X/(W/8))*3.17 + floor(Y/(H/6))*7.71)') },
+  {
+    id: 'fx_stripsdown', name: 'Strips Down', duration: 0.9,
+    expr: `st(0, floor(X/(W/10))); st(1, (1 - P)*H*(1 + 0.4*hash(ld(0)*3.31)));
+      if(lt(Y, H - ld(1)), B(X, Y + ld(1)), A(X, Y))`,
+  },
+  {
+    id: 'fx_stripsup', name: 'Strips Up', duration: 0.9,
+    expr: `st(0, floor(X/(W/10))); st(1, (1 - P)*H*(1 + 0.4*hash(ld(0)*3.31)));
+      if(gt(Y, ld(1)), B(X, Y - ld(1)), A(X, Y))`,
+  },
+  {
+    id: 'fx_orbitwipe', name: 'Orbit Wipe', duration: 1.1,
+    expr: `st(0, W/2 + cos(P*6.2832)*W*0.18); st(1, H/2 + sin(P*6.2832)*H*0.18);
+      st(2, hypot(X - ld(0), Y - ld(1))/hypot(W, H)); st(3, smooth(P*0.74 - 0.03, P*0.74 - 0.01, ld(2)));
+      B(X, Y)*(1 - ld(3)) + A(X, Y)*ld(3)`,
+  },
+  {
+    id: 'fx_squircle', name: 'Squircle Wipe', duration: 0.9,
+    expr: `st(0, abs((X - W/2)/(W/2))); st(1, abs((Y - H/2)/(H/2)));
+      st(2, min(sqrt(sqrt(ld(0)*ld(0)*ld(0)*ld(0) + ld(1)*ld(1)*ld(1)*ld(1))), 1));
+      st(3, smooth(P*1.06 - 0.05, P*1.06 - 0.01, ld(2))); B(X, Y)*(1 - ld(3)) + A(X, Y)*ld(3)`,
+  },
+  {
+    id: 'fx_starwipe', name: 'Star Wipe', duration: 1,
+    expr: `st(0, atan2(Y - H/2, X - W/2)); st(1, hypot(X - W/2, Y - H/2)/(0.71*hypot(W, H))*(0.8 + 0.2*cos(ld(0)*5)));
+      st(2, smooth(P*1.06 - 0.05, P*1.06 - 0.01, ld(1))); B(X, Y)*(1 - ld(2)) + A(X, Y)*ld(2)`,
+  },
+  {
+    id: 'fx_heartwipe', name: 'Heart Wipe', duration: 1,
+    expr: `st(0, (X/W - 0.5)*2.3); st(1, (0.54 - Y/H)*2.3);
+      st(2, pow(ld(0)*ld(0) + ld(1)*ld(1) - 1, 3) - ld(0)*ld(0)*ld(1)*ld(1)*ld(1));
+      st(3, smooth(-1.25 + P*5.3, -1.0 + P*5.3, ld(2))); B(X, Y)*(1 - ld(3)) + A(X, Y)*ld(3)`,
+  },
+  { id: 'fx_diamondout', name: 'Diamond Out', duration: 0.8, expr: wipeK('1 - (abs(X/W - 0.5) + abs(Y/H - 0.5))') },
+  { id: 'fx_crosswipe', name: 'Cross Wipe', duration: 0.9, expr: wipeK('min(abs(X - W/2)/(W/2), abs(Y - H/2)/(H/2))') },
+  {
+    id: 'fx_slidediag', name: 'Slide Diagonal', duration: 0.7,
+    expr: `st(0, 1 - P); st(1, X/W*0.5 + Y/H*0.5);
+      if(gt(ld(1), ld(0)), B(clip(X - ld(0)*W, 0, W - 1), clip(Y - ld(0)*H, 0, H - 1)), A(X, Y))`,
+  },
+  {
+    id: 'fx_pushdiag', name: 'Push Diagonal', duration: 0.7,
+    expr: `st(0, 1 - P); st(1, X/W*0.5 + Y/H*0.5); st(2, X + P*W*0.5); st(3, Y + P*H*0.5);
+      if(gt(ld(1), ld(0)), B(clip(X - ld(0)*W, 0, W - 1), clip(Y - ld(0)*H, 0, H - 1)),
+        if(${inFrame('ld(2)', 'ld(3)')}, A(ld(2), ld(3)), B(X, Y)))`,
+  },
+  {
+    id: 'fx_zoompunch', name: 'Zoom Punch', duration: 0.6,
+    expr: `st(0, smooth(0.15, 0.85, P)); st(1, 0.55 + 0.45*ld(0));
+      A(X, Y)*(1 - ld(0)) + B(W/2 + (X - W/2)/ld(1), H/2 + (Y - H/2)/ld(1))*ld(0)`,
+  },
+  {
+    id: 'fx_spinwise', name: 'Spin In', duration: 0.9,
+    expr: `A(X, Y)*(1 - P) + (${spinBlur('B', '(1 - P)*0.85', '(1 - P)*0.05')})*P`,
+  },
+  {
+    id: 'fx_spinback', name: 'Spin Out', duration: 0.9,
+    expr: `(${spinBlur('A', 'P*0.85', 'P*0.05')})*(1 - P) + B(X, Y)*P`,
+  },
+  {
+    id: 'fx_fliplr', name: 'Flip Horizontal', duration: 0.8,
+    expr: `st(0, P*2); st(1, (P - 0.5)*2);
+      if(lt(P, 0.5),
+        if(lt(abs(X - W/2), (1 - ld(0))*W/2), A(W/2 + (X - W/2)/max(1 - ld(0), 0.02), Y), C(12, 12, 16)),
+        if(lt(abs(X - W/2), max(ld(1), 0)*W/2), B(W/2 + (X - W/2)/max(ld(1), 0.02), Y), C(12, 12, 16)))`,
+  },
+  {
+    id: 'fx_flipud', name: 'Flip Vertical', duration: 0.8,
+    expr: `st(0, P*2); st(1, (P - 0.5)*2);
+      if(lt(P, 0.5),
+        if(lt(abs(Y - H/2), (1 - ld(0))*H/2), A(X, H/2 + (Y - H/2)/max(1 - ld(0), 0.02)), C(12, 12, 16)),
+        if(lt(abs(Y - H/2), max(ld(1), 0)*H/2), B(X, H/2 + (Y - H/2)/max(ld(1), 0.02)), C(12, 12, 16)))`,
+  },
+  {
+    id: 'fx_rollleft', name: 'Roll Left', duration: 0.7,
+    expr: `st(0, X + P*W); if(lt(ld(0), W), A(ld(0), Y), B(ld(0) - W, Y))`,
+  },
+  {
+    id: 'fx_rollup', name: 'Roll Up', duration: 0.7,
+    expr: `st(0, Y + P*H); if(lt(ld(0), H), A(X, ld(0)), B(X, ld(0) - H))`,
+  },
+  {
+    id: 'fx_blurvert', name: 'Blur Vertical', duration: 0.8,
+    expr: `(${vblurAt('A', '0', '(4*P*(1 - P))*16*H/720')})*(1 - P) + (${vblurAt('B', '0', '(4*P*(1 - P))*16*H/720')})*P`,
+  },
+  {
+    id: 'fx_blurzoom', name: 'Blur Zoom', duration: 0.9,
+    expr: `(${zoomBlur('A', '1 + 0.22*(4*P*(1 - P))', '0.3*(4*P*(1 - P))')})*(1 - P) + (${zoomBlur('B', '1 + 0.22*(4*P*(1 - P))', '0.3*(4*P*(1 - P))')})*P`,
+  },
+  {
+    id: 'fx_pixeldissolve', name: 'Pixel Dissolve', duration: 1,
+    expr: `st(0, max(1, H*0.035*(4*P*(1 - P)) + 1)); st(1, floor(X/ld(0))); st(2, floor(Y/ld(0)));
+      st(3, ld(1)*ld(0) + ld(0)/2); st(4, ld(2)*ld(0) + ld(0)/2);
+      if(lt(hash(ld(1)*12.9898 + ld(2)*78.233), P), B(ld(3), ld(4)), A(ld(3), ld(4)))`,
+  },
+  {
+    id: 'fx_melt', name: 'Melt Down', duration: 1,
+    expr: `st(0, P*1.28 - 0.18 + 0.05*sin(X/(H*0.09) + P*7)); st(1, smooth(-0.04, 0.04, Y/H - ld(0)));
+      B(X, Y)*(1 - ld(1)) + A(X, Y)*ld(1)`,
+  },
+  { id: 'fx_vortex', name: 'Vortex Wipe', duration: 1.1, expr: wipeK('fract((atan2(Y - H/2, X - W/2) + PI)/6.28319 + hypot(X - W/2, Y - H/2)/(0.71*hypot(W, H))*1.2)') },
+  {
+    id: 'fx_prismwipe', name: 'Prism Wipe', duration: 0.8,
+    expr: `st(0, X/W); st(1, smooth(P*1.06 - 0.05, P*1.06 - 0.01, ld(0))); st(2, clip(1 - abs(ld(0) - P)*16, 0, 1));
+      A(X, Y)*ld(1) + B(X + C(W*0.012, 0, -W*0.012)*ld(2), Y)*(1 - ld(1))`,
+  },
+  {
+    id: 'fx_hexwipe', name: 'Hexagon Wipe', duration: 0.9,
+    expr: `st(0, abs((X - W/2)/(W/2))); st(1, abs((Y - H/2)/(H/2)));
+      st(2, min(max(ld(0)*0.9 + ld(1)*0.44, ld(1)), 1));
+      st(3, smooth(P*1.06 - 0.05, P*1.06 - 0.01, ld(2))); B(X, Y)*(1 - ld(3)) + A(X, Y)*ld(3)`,
+  },
+  {
+    id: 'fx_waveslide', name: 'Wave Slide', duration: 0.9,
+    expr: `st(0, W*(1.02 - 1.04*P) + sin(Y/(H*0.14) - P*5)*W*0.045*(4*P*(1 - P)));
+      st(1, smooth(-W*0.012, W*0.012, ld(0) - X)); B(X, Y)*(1 - ld(1)) + A(X, Y)*ld(1)`,
+  },
+  {
+    id: 'fx_curtainfall', name: 'Curtain Fall', duration: 0.8,
+    expr: `st(0, P*H/2);
+      if(lt(abs(Y - H/2), ld(0)), B(X, Y), if(lt(Y, H/2), A(X, Y + ld(0)), A(X, Y - ld(0))))`,
+  },
+  {
+    id: 'fx_gridspin', name: 'Grid Spin', duration: 1.1,
+    expr: `st(0, floor(X/(W/6))); st(1, floor(Y/(H/4))); st(2, (ld(0) + 0.5)*(W/6)); st(3, (ld(1) + 0.5)*(H/4));
+      st(4, clip(P*1.5 - hash(ld(0)*12.9898 + ld(1)*78.233)*0.5, 0, 1)); st(5, (1 - ld(4))*1.35);
+      st(6, ld(2) + (X - ld(2))*cos(ld(5)) + (Y - ld(3))*sin(ld(5)));
+      st(7, ld(3) - (X - ld(2))*sin(ld(5)) + (Y - ld(3))*cos(ld(5)));
+      A(X, Y)*(1 - ld(4)) + if(${inFrame('ld(6)', 'ld(7)')}, B(ld(6), ld(7)), B(X, Y))*ld(4)`,
+  },
+  {
+    id: 'fx_stepfade', name: 'Step Fade', duration: 0.8,
+    expr: `st(0, (floor(P*5) + smooth(0.55, 1, fract(P*5)))/5); A(X, Y)*(1 - ld(0)) + B(X, Y)*ld(0)`,
+  },
+];
+
 export const FX_TRANSITIONS = [
+  // The four classic transitions whose FFmpeg xfade forms measurably diverge from the
+  // preview's shapes (Sprint 6 investigation, measurements pinned in
+  // scripts/test-transition-parity.cjs): xfade's dissolve is a per-pixel dither, its
+  // fadeblack/fadewhite dip on a curve that is NOT the preview's two linear halves,
+  // and its circleopen is a soft radial blend, not the preview's hard circle. They live
+  // here so ONE expression defines them in the preview and the export. The expressions
+  // reproduce the preview's documented shapes:
+  //   dissolve   - a real dither dissolve: a pixel shows B once the progress passes its
+  //                hash threshold — the dither xfade performs, thresholded by the
+  //                shared hash() so preview and export scatter identically. (The old
+  //                CSS preview drew dissolve as a plain blend, indistinguishable from
+  //                Crossfade on screen; the unified form is the true dissolve.)
+  //   fadeblack  - two linear halves through black: A * (1 - 2P), then B * (2P - 1).
+  //   fadewhite  - the same dip through white (255).
+  //   circleopen - B inside a hard circle of radius P * 75% of the CSS reference length
+  //                (the frame diagonal / sqrt(2) = 0.53033 of the full diagonal), A outside.
+  { id: 'dissolve', name: 'Dissolve', duration: 0.5, expr: 'if(lt(hash(X*12.9898 + Y*78.233), P), B(X, Y), A(X, Y))' },
+  { id: 'fadeblack', name: 'Fade to Black', duration: 0.5, expr: 'if(lt(P, 0.5), A(X, Y)*(1 - 2*P), B(X, Y)*(2*P - 1))' },
+  { id: 'fadewhite', name: 'Fade to White', duration: 0.5, expr: 'if(lt(P, 0.5), A(X, Y)*(1 - 2*P) + 510*P, B(X, Y)*(2*P - 1) + 510*(1 - P))' },
+  { id: 'circleopen', name: 'Circle', duration: 0.5, expr: 'if(lt(hypot(X - W/2, Y - H/2)/hypot(W, H), P*0.53033), B(X, Y), A(X, Y))' },
   {
     id: 'fx_mosaic', name: 'Mosaic Wipe', duration: 1,
     // Blocks grow towards the middle of the transition while a ragged edge sweeps left to right.
@@ -502,20 +700,32 @@ export const FX_TRANSITIONS = [
   ...PACK_TRANSITIONS,
   // From Transition Studio (above).
   ...STUDIO_TRANSITIONS,
+  // Library mega-growth (10/10 step 3).
+  ...GROWTH_TRANSITIONS,
 ];
 
 // Effects that change the picture itself (geq in the export, canvas pixels in the preview).
+
+// ---- Per-effect parameters (parity-matrix §5) ----
+// A parameterised entry carries `params` — a typed schema [{ key, name, min, max,
+// def, step, fmt? }] — and `make(values)`, which builds its expression from values.
+// `expr` is always make(defaults): byte-identical to the hand-written expression it
+// replaced, so any project saved before parameters existed renders exactly as
+// before (a missing stored value IS the default, everywhere — see fx/params.js).
+// fmt is a display hint for the inspector ('pct' renders the value as a percentage).
+export const pf = (n) => { const v = Math.round(n * 100000) / 100000; return Object.is(v, -0) ? '0' : String(v); };
+const withParams = (entry, params, make) => ({ ...entry, params, make, expr: make(Object.fromEntries(params.map((p) => [p.key, p.def]))) });
+
 export const PIXEL_EFFECTS = [
-  {
-    id: 'fx_vhs', name: 'VHS Noise', icon: '📼',
-    // Colour bleed, scan lines and grain all the time; every couple of seconds a tracking burst bends the lines.
-    expr: `st(0, lt(fract(T/2.3), 0.12) + gt(hash(floor(T*5)+0.3), 0.93));
+  // Colour bleed, scan lines and grain all the time; every couple of seconds a tracking burst bends the lines.
+  withParams({ id: 'fx_vhs', name: 'VHS Noise', icon: '📼' },
+    [{ key: 'grain', name: 'Grain', min: 0, max: 60, def: 30, step: 1 }],
+    (v) => `st(0, lt(fract(T/2.3), 0.12) + gt(hash(floor(T*5)+0.3), 0.93));
       st(1, (sin(Y/H*34+T*42)*0.014 + (hash(floor(Y/(H*0.025))+floor(T*30)*0.37)-0.5)*0.05)*W*min(ld(0), 1) + sin(Y/H*7+T*3)*W*0.0016);
       st(2, W*(0.0035+0.006*min(ld(0), 1)));
       st(3, S(X+ld(1)+C(ld(2), 0, -ld(2)), Y));
-      (ld(3)*(1-0.22*min(ld(0), 1)) + 40*min(ld(0), 1) + C(-6, 0, 12) + (hash(X*0.37+Y*1.31+floor(T*30)*7.1)-0.5)*30)
-        * (1-0.12*fract(floor(Y/max(1, H/240))/2)*2)`,
-  },
+      (ld(3)*(1-0.22*min(ld(0), 1)) + 40*min(ld(0), 1) + C(-6, 0, 12) + (hash(X*0.37+Y*1.31+floor(T*30)*7.1)-0.5)*${pf(v.grain)})
+        * (1-0.12*fract(floor(Y/max(1, H/240))/2)*2)`),
   {
     id: 'fx_striped', name: 'Striped Erosion', icon: '▤',
     // Glitch bursts: horizontal bands tear sideways, with magenta streaks and colour fringes.
@@ -534,18 +744,18 @@ export const PIXEL_EFFECTS = [
       st(3, gt(hash(floor(X/(W*0.005))*7.7+floor(Y/(W*0.005))*3.1+floor(T*12)*1.3), 0.9986));
       if(ld(2), 232, if(ld(3), 18, ld(1)))`,
   },
-  {
-    id: 'fx_zoomblast', name: 'Zoom Blast', icon: '💥',
-    // The clip starts zoomed in and rushes back with a radial blur (first 0.7 s).
-    expr: `if(gt(T, 0.7), S(X, Y),
-      st(0, 1+2.2*(1-smooth(0, 0.7, T))^2);
+  // The clip starts zoomed in and rushes back with a radial blur (first 0.7 s).
+  withParams({ id: 'fx_zoomblast', name: 'Zoom Blast', icon: '💥' },
+    [{ key: 'amount', name: 'Blast', min: 0, max: 4, def: 2.2, step: 0.05 }],
+    (v) => `if(gt(T, 0.7), S(X, Y),
+      st(0, 1+${pf(v.amount)}*(1-smooth(0, 0.7, T))^2);
       (S(W/2+(X-W/2)/ld(0), H/2+(Y-H/2)/ld(0)) + S(W/2+(X-W/2)/(ld(0)*1.05), H/2+(Y-H/2)/(ld(0)*1.05))
-        + S(W/2+(X-W/2)/(ld(0)*1.1), H/2+(Y-H/2)/(ld(0)*1.1)) + S(W/2+(X-W/2)/(ld(0)*1.15), H/2+(Y-H/2)/(ld(0)*1.15)))/4)`,
-  },
+        + S(W/2+(X-W/2)/(ld(0)*1.1), H/2+(Y-H/2)/(ld(0)*1.1)) + S(W/2+(X-W/2)/(ld(0)*1.15), H/2+(Y-H/2)/(ld(0)*1.15)))/4)`),
   // ---- The expanded library: parameterized families built from the same primitives. Every
   // variant carries its own constants/structure (the sampling suite proves pairwise-distinct
   // frames across the whole library — no tile is a rename of another tile's render).
   ...pixelLibrary(),
+  ...pixelGrowth(),
 ];
 
 // Builders for the expanded pixel library (defined below the classic four for readability).
@@ -577,64 +787,78 @@ function twirl(amt, rad) {
 function pixelLibrary() {
   return [
   // -- Glitch & Digital --
-  { id: 'fx_rgb2', name: 'RGB Split Light', icon: '🔀', expr: `S(X + C(W*0.003, 0, -W*0.003), Y)` },
-  { id: 'fx_rgb6', name: 'RGB Split Heavy', icon: '🔀', expr: `S(X + C(W*0.009, 0, -W*0.009) + (hash(floor(T*24)+0.5)-0.5)*W*0.002, Y)` },
-  { id: 'fx_rgb8', name: 'RGB Split Extreme', icon: '🔀', expr: `S(X + C(W*0.02, 0, -W*0.02) + (hash(floor(Y/(H/9))*1.7+floor(T*18)*0.53)-0.5)*W*0.004, Y)` },
-  { id: 'fx_rgbv', name: 'RGB Split Vertical', icon: '🔀', expr: `S(X, Y + C(H*0.006, 0, -H*0.006))` },
+  withParams({ id: 'fx_rgb2', name: 'RGB Split Light', icon: '🔀' }, [{ key: 'shift', name: 'Shift', min: 0, max: 0.03, def: 0.003, step: 0.0005, fmt: 'pct' }], (v) => `S(X + C(W*${pf(v.shift)}, 0, -W*${pf(v.shift)}), Y)`),
+  withParams({ id: 'fx_rgb6', name: 'RGB Split Heavy', icon: '🔀' }, [{ key: 'shift', name: 'Shift', min: 0, max: 0.03, def: 0.009, step: 0.0005, fmt: 'pct' }], (v) => `S(X + C(W*${pf(v.shift)}, 0, -W*${pf(v.shift)}) + (hash(floor(T*24)+0.5)-0.5)*W*0.002, Y)`),
+  withParams({ id: 'fx_rgb8', name: 'RGB Split Extreme', icon: '🔀' }, [{ key: 'shift', name: 'Shift', min: 0, max: 0.04, def: 0.02, step: 0.0005, fmt: 'pct' }], (v) => `S(X + C(W*${pf(v.shift)}, 0, -W*${pf(v.shift)}) + (hash(floor(Y/(H/9))*1.7+floor(T*18)*0.53)-0.5)*W*0.004, Y)`),
+  withParams({ id: 'fx_rgbv', name: 'RGB Split Vertical', icon: '🔀' }, [{ key: 'shift', name: 'Shift', min: 0, max: 0.03, def: 0.006, step: 0.0005, fmt: 'pct' }], (v) => `S(X, Y + C(H*${pf(v.shift)}, 0, -H*${pf(v.shift)}))`),
   { id: 'fx_slices', name: 'Slice Shift', icon: '🍰', expr: `st(0, hash(floor(Y/(H/14))*3.3+floor(T*8)*0.91)); S(X + if(gt(ld(0), 0.55), (ld(0)-0.55)*W*0.5, 0), Y)` },
   { id: 'fx_slicesbig', name: 'Slice Shift Wide', icon: '🍰', expr: `st(0, hash(floor(Y/(H/6))*5.1+floor(T*5)*0.77)); S(X + if(gt(ld(0), 0.45), (ld(0)-0.5)*W*0.9, 0), Y)` },
   { id: 'fx_mosh', name: 'Datamosh Smear', icon: '🫠', expr: `st(0, hash(floor(X/(W/9))*7.7+floor(T*2)*0.31)); S(X + if(gt(ld(0), 0.62), (ld(0)-0.62)*W*0.55, 0), Y)` },
-  { id: 'fx_mosaic60', name: 'Mosaic Fine', icon: '🧩', expr: `st(0, max(2, W/90)); S(floor(X/ld(0))*ld(0)+ld(0)/2, floor(Y/ld(0))*ld(0)+ld(0)/2)` },
-  { id: 'fx_mosaic24', name: 'Mosaic Medium', icon: '🧩', expr: `st(0, max(2, W/36)); S(floor(X/ld(0))*ld(0)+ld(0)/2, floor(Y/ld(0))*ld(0)+ld(0)/2)` },
-  { id: 'fx_mosaic10', name: 'Mosaic Chunky', icon: '🧩', expr: `st(0, max(2, W/14)); S(floor(X/ld(0))*ld(0)+ld(0)/2, floor(Y/ld(0))*ld(0)+ld(0)/2)` },
-  { id: 'fx_poster4', name: 'Posterize 4', icon: '🎛', expr: `floor(S(X, Y)/64)*64 + 32` },
-  { id: 'fx_poster6', name: 'Posterize 6', icon: '🎛', expr: `floor(S(X, Y)/43)*43 + 21` },
-  { id: 'fx_solar', name: 'Solarize', icon: '☀', expr: `if(gt(S(X, Y), 130), 255 - S(X, Y), S(X, Y))` },
+  withParams({ id: 'fx_mosaic60', name: 'Mosaic Fine', icon: '🧩' }, [{ key: 'cells', name: 'Cells across', min: 8, max: 240, def: 90, step: 1 }], (v) => `st(0, max(2, W/${Math.round(v.cells)})); S(floor(X/ld(0))*ld(0)+ld(0)/2, floor(Y/ld(0))*ld(0)+ld(0)/2)`),
+  withParams({ id: 'fx_mosaic24', name: 'Mosaic Medium', icon: '🧩' }, [{ key: 'cells', name: 'Cells across', min: 8, max: 240, def: 36, step: 1 }], (v) => `st(0, max(2, W/${Math.round(v.cells)})); S(floor(X/ld(0))*ld(0)+ld(0)/2, floor(Y/ld(0))*ld(0)+ld(0)/2)`),
+  withParams({ id: 'fx_mosaic10', name: 'Mosaic Chunky', icon: '🧩' }, [{ key: 'cells', name: 'Cells across', min: 8, max: 240, def: 14, step: 1 }], (v) => `st(0, max(2, W/${Math.round(v.cells)})); S(floor(X/ld(0))*ld(0)+ld(0)/2, floor(Y/ld(0))*ld(0)+ld(0)/2)`),
+  withParams({ id: 'fx_poster4', name: 'Posterize 4', icon: '🎛' }, [{ key: 'levels', name: 'Levels', min: 2, max: 16, def: 4, step: 1 }], (v) => { const q = Math.max(2, Math.round(256 / v.levels)); return `floor(S(X, Y)/${q})*${q} + ${Math.floor(q / 2)}`; }),
+  withParams({ id: 'fx_poster6', name: 'Posterize 6', icon: '🎛' }, [{ key: 'levels', name: 'Levels', min: 2, max: 16, def: 6, step: 1 }], (v) => { const q = Math.max(2, Math.round(256 / v.levels)); return `floor(S(X, Y)/${q})*${q} + ${Math.floor(q / 2)}`; }),
+  withParams({ id: 'fx_solar', name: 'Solarize', icon: '☀' }, [{ key: 'threshold', name: 'Threshold', min: 0, max: 255, def: 130, step: 1 }], (v) => `if(gt(S(X, Y), ${pf(v.threshold)}), 255 - S(X, Y), S(X, Y))`),
   { id: 'fx_invert', name: 'Negative', icon: '◐', expr: `255 - S(X, Y)` },
-  { id: 'fx_bitcut', name: 'Bit Crush', icon: '👾', expr: `floor(S(X, Y)/32)*32*(0.82 + 0.18*fract(Y/2))` },
-  { id: 'fx_scanline', name: 'Scanlines', icon: '📺', expr: `S(X, Y) * (1 - 0.38*fract(floor(Y/max(1, H/220))/2)*2)` },
+  withParams({ id: 'fx_bitcut', name: 'Bit Crush', icon: '👾' }, [{ key: 'steps', name: 'Steps', min: 2, max: 32, def: 8, step: 1 }], (v) => { const q = Math.max(2, Math.round(256 / v.steps)); return `floor(S(X, Y)/${q})*${q}*(0.82 + 0.18*fract(Y/2))`; }),
+  withParams({ id: 'fx_scanline', name: 'Scanlines', icon: '📺' }, [{ key: 'amount', name: 'Darkening', min: 0, max: 0.9, def: 0.38, step: 0.01, fmt: 'pct' }], (v) => `S(X, Y) * (1 - ${pf(v.amount)}*fract(floor(Y/max(1, H/220))/2)*2)`),
   { id: 'fx_crt', name: 'CRT Grille', icon: '📺', expr: `S(X, Y) * if(lt(fract(X/3), 0.34), C(1.15, 0.62, 0.62), if(lt(fract(X/3), 0.67), C(0.62, 1.15, 0.62), C(0.62, 0.62, 1.15)))` },
   { id: 'fx_vhstrack', name: 'VHS Tracking Band', icon: '📼', expr: `st(0, fract(T*0.14)*1.15 - 0.06); st(1, clip(1 - abs(Y/H - ld(0))/0.09, 0, 1)); S(X + ld(1)*W*0.02*sin(Y*0.4 + T*30), Y) * (1 + ld(1)*0.35) + ld(1)*22` },
+  // Ordered-dither print: each channel is thresholded against a fixed 4x4 pattern (Sprint 12, original).
+  { id: 'fx_dither', name: 'Dither Print', icon: '🎲', expr: `st(0, mod(mod(floor(X/3), 4)*5 + mod(floor(Y/3), 4)*11, 16)/16); if(gt(S(X, Y)/255, ld(0)), 255, 0)` },
   // -- Blur & Focus --
-  { id: 'fx_soft1', name: 'Soft Blur', icon: '🌫', expr: crossBlur(0.004) },
-  { id: 'fx_soft2', name: 'Dream Blur', icon: '🌫', expr: `${blurN(0.01)} * 1.02 + 4` },
-  { id: 'fx_soft3', name: 'Gauze Blur', icon: '🌫', expr: `${blurN(0.02)} * 1.03 + 7` },
-  { id: 'fx_mblurh', name: 'Motion Blur H', icon: '💨', expr: `st(0, H*0.009); (S(X - ld(0)*2, Y) + S(X - ld(0), Y) + S(X, Y) + S(X + ld(0), Y) + S(X + ld(0)*2, Y))/5` },
-  { id: 'fx_mblurv', name: 'Motion Blur V', icon: '💨', expr: `st(0, H*0.009); (S(X, Y - ld(0)*2) + S(X, Y - ld(0)) + S(X, Y) + S(X, Y + ld(0)) + S(X, Y + ld(0)*2))/5` },
-  { id: 'fx_mblurd', name: 'Motion Blur Diagonal', icon: '💨', expr: `st(0, H*0.008); (S(X - ld(0), Y - ld(0)) + S(X - ld(0)/2, Y - ld(0)/2) + S(X, Y) + S(X + ld(0)/2, Y + ld(0)/2) + S(X + ld(0), Y + ld(0)))/5` },
-  { id: 'fx_radial1', name: 'Radial Blur', icon: '🌀', expr: radialTaps([1, 0.96, 0.92, 0.88]) },
-  { id: 'fx_radial2', name: 'Radial Blur Strong', icon: '🌀', expr: radialTaps([1, 0.94, 0.88, 0.82, 0.76]) },
+  withParams({ id: 'fx_soft1', name: 'Soft Blur', icon: '🌫' }, [{ key: 'radius', name: 'Radius', min: 0.001, max: 0.02, def: 0.004, step: 0.0005, fmt: 'pct' }], (v) => crossBlur(Number(pf(v.radius)))),
+  withParams({ id: 'fx_soft2', name: 'Dream Blur', icon: '🌫' }, [{ key: 'radius', name: 'Radius', min: 0.001, max: 0.03, def: 0.01, step: 0.0005, fmt: 'pct' }], (v) => `${blurN(Number(pf(v.radius)))} * 1.02 + 4`),
+  withParams({ id: 'fx_soft3', name: 'Gauze Blur', icon: '🌫' }, [{ key: 'radius', name: 'Radius', min: 0.001, max: 0.04, def: 0.02, step: 0.0005, fmt: 'pct' }], (v) => `${blurN(Number(pf(v.radius)))} * 1.03 + 7`),
+  withParams({ id: 'fx_mblurh', name: 'Motion Blur H', icon: '💨' }, [{ key: 'radius', name: 'Length', min: 0.001, max: 0.03, def: 0.009, step: 0.0005, fmt: 'pct' }], (v) => `st(0, H*${pf(v.radius)}); (S(X - ld(0)*2, Y) + S(X - ld(0), Y) + S(X, Y) + S(X + ld(0), Y) + S(X + ld(0)*2, Y))/5`),
+  withParams({ id: 'fx_mblurv', name: 'Motion Blur V', icon: '💨' }, [{ key: 'radius', name: 'Length', min: 0.001, max: 0.03, def: 0.009, step: 0.0005, fmt: 'pct' }], (v) => `st(0, H*${pf(v.radius)}); (S(X, Y - ld(0)*2) + S(X, Y - ld(0)) + S(X, Y) + S(X, Y + ld(0)) + S(X, Y + ld(0)*2))/5`),
+  withParams({ id: 'fx_mblurd', name: 'Motion Blur Diagonal', icon: '💨' }, [{ key: 'radius', name: 'Length', min: 0.001, max: 0.03, def: 0.008, step: 0.0005, fmt: 'pct' }], (v) => `st(0, H*${pf(v.radius)}); (S(X - ld(0), Y - ld(0)) + S(X - ld(0)/2, Y - ld(0)/2) + S(X, Y) + S(X + ld(0)/2, Y + ld(0)/2) + S(X + ld(0), Y + ld(0)))/5`),
+  withParams({ id: 'fx_radial1', name: 'Radial Blur', icon: '🌀' }, [{ key: 'amount', name: 'Spread', min: 0, max: 0.12, def: 0.04, step: 0.005, fmt: 'pct' }], (v) => radialTaps([0, 1, 2, 3].map((i) => Number(pf(1 - i * v.amount))))),
+  withParams({ id: 'fx_radial2', name: 'Radial Blur Strong', icon: '🌀' }, [{ key: 'amount', name: 'Spread', min: 0, max: 0.12, def: 0.06, step: 0.005, fmt: 'pct' }], (v) => radialTaps([0, 1, 2, 3, 4].map((i) => Number(pf(1 - i * v.amount))))),
   { id: 'fx_tilt', name: 'Tilt Shift', icon: '🎯', expr: `st(1, clip(abs(Y - H*0.46)/(H*0.42), 0, 1)); S(X, Y)*(1 - ld(1)) + (${crossBlur(0.008)})*ld(1)` },
   { id: 'fx_tiltwide', name: 'Tilt Shift Wide', icon: '🎯', expr: `st(1, clip(abs(Y - H*0.5)/(H*0.3), 0, 1)); S(X, Y)*(1 - ld(1)) + (${blurN(0.012)})*ld(1)` },
   { id: 'fx_spinblur2', name: 'Spin Blur Soft', icon: '🌀', expr: `(S(W/2 + (X - W/2)*0.99875 - (Y - H/2)*0.04998, H/2 + (X - W/2)*0.04998 + (Y - H/2)*0.99875) + S(X, Y) + S(W/2 + (X - W/2)*0.99875 + (Y - H/2)*0.04998, H/2 - (X - W/2)*0.04998 + (Y - H/2)*0.99875))/3` },
   // -- Distortion & Mirror --
-  { id: 'fx_kaleido4', name: 'Kaleidoscope 4', icon: '🔮', expr: kaleido(4) },
-  { id: 'fx_kaleido6', name: 'Kaleidoscope 6', icon: '🔮', expr: kaleido(6) },
-  { id: 'fx_kaleido8', name: 'Kaleidoscope 8', icon: '🔮', expr: kaleido(8) },
-  { id: 'fx_kaleido12', name: 'Kaleidoscope 12', icon: '🔮', expr: kaleido(12) },
+  withParams({ id: 'fx_kaleido4', name: 'Kaleidoscope 4', icon: '🔮' }, [{ key: 'segments', name: 'Segments', min: 3, max: 16, def: 4, step: 1 }], (v) => kaleido(Math.round(v.segments))),
+  withParams({ id: 'fx_kaleido6', name: 'Kaleidoscope 6', icon: '🔮' }, [{ key: 'segments', name: 'Segments', min: 3, max: 16, def: 6, step: 1 }], (v) => kaleido(Math.round(v.segments))),
+  withParams({ id: 'fx_kaleido8', name: 'Kaleidoscope 8', icon: '🔮' }, [{ key: 'segments', name: 'Segments', min: 3, max: 16, def: 8, step: 1 }], (v) => kaleido(Math.round(v.segments))),
+  withParams({ id: 'fx_kaleido12', name: 'Kaleidoscope 12', icon: '🔮' }, [{ key: 'segments', name: 'Segments', min: 3, max: 16, def: 12, step: 1 }], (v) => kaleido(Math.round(v.segments))),
   { id: 'fx_mirrorquad', name: 'Mirror Quad', icon: '🪞', expr: `S(W/2 - abs(X - W/2), H/2 - abs(Y - H/2))` },
-  { id: 'fx_twirl1', name: 'Twirl', icon: '🌪', expr: twirl(0.9, 1) },
-  { id: 'fx_twirl2', name: 'Twirl Strong', icon: '🌪', expr: twirl(2.3, 0.55) },
-  { id: 'fx_bulge', name: 'Bulge', icon: '🔍', expr: `st(0, hypot(X - W/2, Y - H/2)/(0.72*hypot(W, H))); st(1, 1 - 0.4*max(0, 1 - ld(0)*ld(0))); S(W/2 + (X - W/2)*ld(1), H/2 + (Y - H/2)*ld(1))` },
-  { id: 'fx_pinch', name: 'Pinch', icon: '🤏', expr: `st(0, hypot(X - W/2, Y - H/2)/(0.72*hypot(W, H))); st(1, 1 + 0.45*max(0, 1 - ld(0)*ld(0))); S(W/2 + (X - W/2)*ld(1), H/2 + (Y - H/2)*ld(1))` },
+  withParams({ id: 'fx_twirl1', name: 'Twirl', icon: '🌪' }, [{ key: 'amount', name: 'Twist', min: 0, max: 4, def: 0.9, step: 0.05 }], (v) => twirl(Number(pf(v.amount)), 1)),
+  withParams({ id: 'fx_twirl2', name: 'Twirl Strong', icon: '🌪' }, [{ key: 'amount', name: 'Twist', min: 0, max: 5, def: 2.3, step: 0.05 }], (v) => twirl(Number(pf(v.amount)), 0.55)),
+  withParams({ id: 'fx_bulge', name: 'Bulge', icon: '🔍' }, [{ key: 'amount', name: 'Bulge', min: 0, max: 1, def: 0.4, step: 0.01, fmt: 'pct' }], (v) => `st(0, hypot(X - W/2, Y - H/2)/(0.72*hypot(W, H))); st(1, 1 - ${pf(v.amount)}*max(0, 1 - ld(0)*ld(0))); S(W/2 + (X - W/2)*ld(1), H/2 + (Y - H/2)*ld(1))`),
+  withParams({ id: 'fx_pinch', name: 'Pinch', icon: '🤏' }, [{ key: 'amount', name: 'Pinch', min: 0, max: 1, def: 0.45, step: 0.01, fmt: 'pct' }], (v) => `st(0, hypot(X - W/2, Y - H/2)/(0.72*hypot(W, H))); st(1, 1 + ${pf(v.amount)}*max(0, 1 - ld(0)*ld(0))); S(W/2 + (X - W/2)*ld(1), H/2 + (Y - H/2)*ld(1))`),
   { id: 'fx_squeeze', name: 'Squeeze In', icon: '↔', expr: `S(X*1.18 - W*0.09, Y)` },
   { id: 'fx_stretchx', name: 'Stretch Wide', icon: '↔', expr: `S(X*0.84 + W*0.08, Y)` },
-  { id: 'fx_wavewarp', name: 'Wave Warp', icon: '〰', expr: `S(X + sin(Y/H*12.56 + T*2.2)*W*0.008, Y)` },
+  withParams({ id: 'fx_wavewarp', name: 'Wave Warp', icon: '〰' }, [{ key: 'amount', name: 'Wave depth', min: 0, max: 0.03, def: 0.008, step: 0.0005, fmt: 'pct' }], (v) => `S(X + sin(Y/H*12.56 + T*2.2)*W*${pf(v.amount)}, Y)`),
+  // Fisheye: the sampling radius compresses toward the centre, magnifying the middle of the frame (Sprint 12, original).
+  { id: 'fx_fisheye', name: 'Fisheye', icon: '🐟', expr: `st(0, (X - W/2)/(W/2)); st(1, (Y - H/2)/(H/2)); st(2, ld(0)*ld(0) + ld(1)*ld(1)); st(3, 1/(1 + 0.55*ld(2))); S(W/2 + (X - W/2)*ld(3), H/2 + (Y - H/2)*ld(3))` },
+  // Stained glass: jittered cell sampling with dark grout lines between the panes (Sprint 12, original).
+  { id: 'fx_stainedglass', name: 'Stained Glass', icon: '🪟', expr: `st(0, max(2, W/26)); st(1, floor(X/ld(0))); st(2, floor(Y/ld(0))); st(3, (ld(1) + 0.25 + 0.5*hash(ld(1)*3.7 + ld(2)*9.1))*ld(0)); st(4, (ld(2) + 0.25 + 0.5*hash(ld(1)*5.3 + ld(2)*1.9))*ld(0)); st(5, min(min(fract(X/ld(0)), 1 - fract(X/ld(0))), min(fract(Y/ld(0)), 1 - fract(Y/ld(0))))); S(ld(3), ld(4))*(0.22 + 0.78*smooth(0.02, 0.09, ld(5)))*1.12` },
   { id: 'fx_tunnel', name: 'Tunnel Pulse', icon: '🚇', expr: `st(0, 0.78 + 0.1*sin(T*1.6)); S(W/2 + (X - W/2)*ld(0), H/2 + (Y - H/2)*ld(0))` },
   { id: 'fx_prism', name: 'Prism Fringe', icon: '🌈', expr: `S(W/2 + (X - W/2)*(1 + C(0.025, 0, -0.025)), H/2 + (Y - H/2)*(1 + C(0.025, 0, -0.025)))` },
   // -- Film & Vintage --
-  { id: 'fx_grainfine', name: 'Fine Grain', icon: '🎞', expr: `S(X, Y) + (hash(X*1.37 + Y*2.11 + floor(T*24)*7.7) - 0.5)*16` },
-  { id: 'fx_grainheavy', name: 'Heavy Grain', icon: '🎞', expr: `S(X, Y) + (hash(floor(X/3)*1.37 + floor(Y/3)*2.11 + floor(T*18)*7.7) - 0.5)*52` },
+  withParams({ id: 'fx_grainfine', name: 'Fine Grain', icon: '🎞' }, [{ key: 'amount', name: 'Grain', min: 0, max: 80, def: 16, step: 1 }], (v) => `S(X, Y) + (hash(X*1.37 + Y*2.11 + floor(T*24)*7.7) - 0.5)*${pf(v.amount)}`),
+  withParams({ id: 'fx_grainheavy', name: 'Heavy Grain', icon: '🎞' }, [{ key: 'amount', name: 'Grain', min: 0, max: 120, def: 52, step: 1 }], (v) => `S(X, Y) + (hash(floor(X/3)*1.37 + floor(Y/3)*2.11 + floor(T*18)*7.7) - 0.5)*${pf(v.amount)}`),
   { id: 'fx_sepia', name: 'Sepia', icon: '📜', expr: `L(X, Y)*C(1.08, 0.87, 0.6) + C(16, 9, 2)` },
   { id: 'fx_faded', name: 'Faded Film', icon: '📜', expr: `(S(X, Y)*0.5 + L(X, Y)*0.5)*0.8 + 34` },
   { id: 'fx_bleach', name: 'Bleach Bypass', icon: '📜', expr: `(S(X, Y)*0.45 + L(X, Y)*0.55)*1.3 - 26` },
   { id: 'fx_infrared', name: 'Infrared', icon: '🌡', expr: `L(X, Y)*C(1.15, 0.3, 0.42) + (255 - L(X, Y))*C(0.08, 0.28, 0.55)` },
   { id: 'fx_duotone', name: 'Duotone Blue-Gold', icon: '🎨', expr: `L(X, Y)*C(0.82, 0.68, 0.28) + C(22, 20, 54)` },
-  { id: 'fx_halftone', name: 'Halftone', icon: '🗞', expr: `st(0, max(2, W/110)); st(1, hypot(fract(X/ld(0)) - 0.5, fract(Y/ld(0)) - 0.5)); S(X, Y) * (0.3 + 0.7*clip(0.72 - ld(1) + L(X, Y)/255*0.45, 0, 1))` },
+  withParams({ id: 'fx_halftone', name: 'Halftone', icon: '🗞' }, [{ key: 'cells', name: 'Dots across', min: 24, max: 400, def: 110, step: 1 }], (v) => `st(0, max(2, W/${Math.round(v.cells)})); st(1, hypot(fract(X/ld(0)) - 0.5, fract(Y/ld(0)) - 0.5)); S(X, Y) * (0.3 + 0.7*clip(0.72 - ld(1) + L(X, Y)/255*0.45, 0, 1))`),
   { id: 'fx_scratch', name: 'Scratches & Dust', icon: '🎞', expr: `st(0, W*0.31 + sin(T*0.9)*W*0.012); st(1, W*0.68 + cos(T*0.7)*W*0.014); st(2, lt(abs(X - ld(0)), W*0.0024) + lt(abs(X - ld(1)), W*0.0018)); st(3, gt(hash(floor(X/(W*0.005))*7.7 + floor(Y/(W*0.005))*3.1 + floor(T*11)*1.3), 0.9965)); if(ld(3), 240, S(X, Y) * (1 - 0.4*clip(ld(2), 0, 1)) * (0.965 + 0.055*hash(floor(T*11) + 0.7)) + ld(2)*7)` },
   { id: 'fx_flicker', name: 'Film Flicker', icon: '🎞', expr: `S(X + (hash(floor(T*14) + 0.2) - 0.5)*W*0.004, Y) * (0.9 + 0.16*hash(floor(T*14) + 3.3))` },
   { id: 'fx_oldphoto', name: 'Old Photo', icon: '📜', expr: `(L(X, Y)*C(1.05, 0.85, 0.58) + C(14, 8, 2)) * (0.7 + 0.3*clip(1 - hypot(X - W/2, Y - H/2)/(0.75*hypot(W, H)), 0, 1)) + (hash(X*1.37 + Y*2.11 + floor(T*9)*7.7) - 0.5)*14` },
   { id: 'fx_noir', name: 'Noir Contrast', icon: '🎬', expr: `st(0, (L(X, Y) - 128)*1.65 + 128); (ld(0) - 128)*1.2 + 128` },
+  // Emboss: a diagonal light carved from the luma slope, on mid-grey (Sprint 12, original).
+  { id: 'fx_emboss', name: 'Emboss', icon: '🗿', expr: `clip((L(X + 2, Y + 2) - L(X - 2, Y - 2))*1.6 + 128, 0, 255)` },
+  // Crosshatch: pencil lines at two angles that thicken as the picture darkens (Sprint 12, original).
+  { id: 'fx_hatchlines', name: 'Crosshatch', icon: '✏', expr: `st(0, L(X, Y)/255); st(1, lt(fract((X + Y)/7), clip(0.75 - ld(0), 0, 0.75))); st(2, lt(fract((X - Y)/7), clip(0.45 - ld(0), 0, 0.45))); clip(245 - 200*max(ld(1), ld(2))*(1.05 - ld(0)), 0, 255)` },
+  // Pop quarters: the frame splits into four tinted panels over posterised luma (Sprint 12, original).
+  { id: 'fx_warhol', name: 'Pop Quarters', icon: '🖼', expr: `st(0, floor(L(X, Y)/64)/3); if(lt(Y, H/2), if(lt(X, W/2), C(60, 200, 255)*(0.3 + 0.7*ld(0)), C(255, 90, 200)*(0.3 + 0.7*ld(0))), if(lt(X, W/2), C(255, 200, 40)*(0.3 + 0.7*ld(0)), C(120, 255, 120)*(0.3 + 0.7*ld(0))))` },
+  // Blueprint: white line work on drafting blue, with a faint sheet grid (Sprint 12, original).
+  { id: 'fx_blueprint', name: 'Blueprint', icon: '📐', expr: `st(0, clip((abs(L(X + 1, Y) - L(X - 1, Y)) + abs(L(X, Y + 1) - L(X, Y - 1)))*2.0, 0, 255)); C(16, 48, 116) + C(0.82, 0.9, 1)*ld(0) + (lt(mod(X, 48), 1) + lt(mod(Y, 48), 1))*12` },
   // -- Light & Glow --
   { id: 'fx_leaktl', name: 'Light Leak Top Left', icon: '🌅', expr: leak(0, 0, 255, 150, 60, 0.85, 0) },
   { id: 'fx_leaktr', name: 'Light Leak Top Right', icon: '🌅', expr: leak(1, 0, 255, 160, 70, 0.85, 2.1) },
@@ -649,6 +873,12 @@ function pixelLibrary() {
   { id: 'fx_washgold', name: 'Golden Wash', icon: '🌇', expr: `S(X, Y)*0.85 + C(96, 58, 8)*(Y/H)` },
   { id: 'fx_washteal', name: 'Teal Wash', icon: '🌊', expr: `S(X, Y)*0.85 + C(6, 62, 66)*(1 - Y/H)` },
   { id: 'fx_glowpulse', name: 'Glow Pulse', icon: '✨', expr: `(S(X, Y) + (${crossBlur(0.005)})*0.3) * (1 + 0.13*sin(T*2.6))` },
+  // Thermal camera: luma mapped through a five-stop false-colour ramp of our own (Sprint 12, original).
+  { id: 'fx_thermal', name: 'Thermal Camera', icon: '🌡', expr: `st(0, L(X, Y)/255); if(lt(ld(0), 0.25), C(10 + 440*ld(0), 0, 40 + 480*ld(0)), if(lt(ld(0), 0.5), C(120 + 440*(ld(0) - 0.25), 240*(ld(0) - 0.25), 160 - 520*(ld(0) - 0.25)), if(lt(ld(0), 0.75), C(230 + 100*(ld(0) - 0.5), 60 + 440*(ld(0) - 0.5), 30 - 40*(ld(0) - 0.5)), C(255, 170 + 340*(ld(0) - 0.75), 20 + 840*(ld(0) - 0.75)))))` },
+  // Neon edges: the luma gradient, amplified and tinted electric cyan-green on black (Sprint 12, original).
+  { id: 'fx_neonedge', name: 'Neon Edges', icon: '🔋', expr: `st(0, clip((abs(L(X + 1, Y) - L(X - 1, Y)) + abs(L(X, Y + 1) - L(X, Y - 1)))*1.8, 0, 255)); C(ld(0)*0.25, ld(0)*0.95, ld(0))` },
+  // Night vision: green phosphor gain, a bright centre falloff and sensor grain (Sprint 12, original).
+  { id: 'fx_nightvision', name: 'Night Vision', icon: '🔭', expr: `L(X, Y)*C(0.34, 1.08, 0.38)*(0.72 + 0.4*clip(1 - hypot(X - W/2, Y - H/2)/(0.75*hypot(W, H)), 0, 1)) + (hash(X*1.37 + Y*2.11 + floor(T*24)*7.7) - 0.5)*22 + 10` },
   // -- Motion --
   { id: 'fx_shake1', name: 'Camera Shake', icon: '📳', expr: `S(X + sin(T*43)*W*0.004 + sin(T*97)*W*0.0015, Y + cos(T*37)*H*0.005)` },
   { id: 'fx_shake2', name: 'Impact Tremor', icon: '📳', expr: `S(X + sin(T*61)*W*0.011 + sin(T*131)*W*0.003, Y + cos(T*53)*H*0.012)` },
@@ -659,6 +889,74 @@ function pixelLibrary() {
   { id: 'fx_strobe', name: 'Strobe', icon: '⚡', expr: `S(X, Y) * if(gt(sin(T*22), 0.1), 1.12, 0.45)` },
   { id: 'fx_spinslow', name: 'Slow Sway', icon: '💓', expr: `st(0, sin(T*0.7)*0.045); st(1, cos(ld(0))); st(2, sin(ld(0))); S(W/2 + (X - W/2)*ld(1) + (Y - H/2)*ld(2), H/2 - (X - W/2)*ld(2) + (Y - H/2)*ld(1))` },
   { id: 'fx_zoomslow', name: 'Slow Zoom', icon: '💓', expr: `st(0, 1 + 0.3*smooth(0, 6, T)); S(W/2 + (X - W/2)/ld(0), H/2 + (Y - H/2)/ld(0))` },
+  ];
+}
+
+// ---- Library mega-growth (10/10 step 3): a second parameterized expansion, same rules as
+// pixelLibrary() above — every variant carries its own constants/structure, parameters where
+// the schema applies, and the sampling suite proves pairwise-distinct frames library-wide.
+function pixelGrowth() {
+  return [
+  // -- Glitch & Digital --
+  withParams({ id: 'fx_rgdiag', name: 'RGB Split Diagonal', icon: '🔀' }, [{ key: 'shift', name: 'Shift', min: 0, max: 0.03, def: 0.005, step: 0.0005, fmt: 'pct' }], (v) => `S(X + C(W*${pf(v.shift)}, 0, -W*${pf(v.shift)}), Y + C(H*${pf(v.shift)}, 0, -H*${pf(v.shift)}))`),
+  withParams({ id: 'fx_chromazoom', name: 'Chroma Zoom', icon: '🌈' }, [{ key: 'spread', name: 'Spread', min: 0, max: 0.09, def: 0.03, step: 0.002, fmt: 'pct' }], (v) => `S(W/2 + (X - W/2)*(1 + C(${pf(v.spread)}, 0, -${pf(v.spread)})), H/2 + (Y - H/2)*(1 + C(${pf(v.spread)}, 0, -${pf(v.spread)})))`),
+  { id: 'fx_blockglitch', name: 'Block Glitch', icon: '🧱', expr: `st(0, floor(X/(W/8))); st(1, floor(Y/(H/5))); st(2, hash(ld(0)*3.17 + ld(1)*7.71 + floor(T*7)*1.31)); st(3, hash(ld(0)*9.13 + ld(1)*1.93 + floor(T*7)*2.17)); S(X + if(gt(ld(3), 0.72), (ld(2) - 0.5)*W*0.16, 0), Y)` },
+  withParams({ id: 'fx_rowshift', name: 'Row Shift', icon: '↔' }, [{ key: 'amount', name: 'Shift', min: 0, max: 0.03, def: 0.008, step: 0.0005, fmt: 'pct' }], (v) => `S(X + if(lt(fract(Y/(H/28)), 0.5), 1, -1)*W*${pf(v.amount)}*(0.6 + 0.4*sin(T*2.4)), Y)`),
+  withParams({ id: 'fx_meltpixels', name: 'Pixel Melt', icon: '🫠' }, [{ key: 'drip', name: 'Drip', min: 0, max: 1, def: 0.5, step: 0.02, fmt: 'pct' }], (v) => { const top = 40; const bot = Math.round(40 - 30 * v.drip); return `st(0, max(2, W/(${top} - ${top - bot}*Y/H))); st(1, floor(Y/ld(0))*ld(0) + ld(0)/2); S(floor(X/ld(0))*ld(0) + ld(0)/2, ld(1) + ld(0)*0.35)`; }),
+  withParams({ id: 'fx_quantize', name: 'Color Quantize', icon: '🎛' }, [{ key: 'levels', name: 'Levels', min: 2, max: 12, def: 5, step: 1 }], (v) => { const q = Math.round(256 / v.levels); const qg = Math.round(q * 1.27); const qb = Math.round(q * 1.7); return `floor(S(X, Y)/C(${q}, ${qg}, ${qb}))*C(${q}, ${qg}, ${qb}) + C(${Math.round(q / 2)}, ${Math.round(qg / 2)}, ${Math.round(qb / 2)})`; }),
+  { id: 'fx_edgelines', name: 'Edge Lines', icon: '✒', expr: `st(0, clip((abs(L(X + 1, Y) - L(X - 1, Y)) + abs(L(X, Y + 1) - L(X, Y - 1)))*1.5, 0, 255)); ld(0)*C(1, 0.98, 0.94) + S(X, Y)*0.1 + 6` },
+  withParams({ id: 'fx_ascii', name: 'ASCII Blocks', icon: '🔡' }, [{ key: 'cells', name: 'Cells across', min: 16, max: 120, def: 52, step: 1 }], (v) => `st(0, max(2, W/${Math.round(v.cells)})); st(1, floor(X/ld(0))*ld(0) + ld(0)/2); st(2, floor(Y/ld(0))*ld(0) + ld(0)/2); st(3, floor(L(ld(1), ld(2))/32)); st(4, min(fract(X/ld(0)), min(fract(Y/ld(0)), min(1 - fract(X/ld(0)), 1 - fract(Y/ld(0)))))); (ld(3)*36 + 8)*(0.35 + 0.65*smooth(0.03, 0.14, ld(4)))`),
+  { id: 'fx_interlace', name: 'Interlace Weave', icon: '🪢', expr: `S(X, Y + if(lt(fract(Y/2), 0.5), 1.5, -1.5))*(0.9 + 0.1*fract(Y/2))` },
+  { id: 'fx_tornframe', name: 'Torn Frame', icon: '🖼', expr: `st(0, clip(min(X, min(Y, min(W - X, H - Y)))/(H*0.16), 0, 1)); st(1, (hash(floor(Y/(H/9))*3.7 + floor(T*3)*0.77) - 0.5)*W*0.03*(1 - ld(0))); S(X + ld(1), Y + (hash(floor(X/(W/9))*5.3 + floor(T*3)*0.91) - 0.5)*H*0.03*(1 - ld(0)))*(0.82 + 0.18*ld(0))` },
+  // -- Blur & Focus --
+  withParams({ id: 'fx_boxblur', name: 'Box Blur', icon: '🌫' }, [{ key: 'radius', name: 'Radius', min: 0.001, max: 0.03, def: 0.011, step: 0.0005, fmt: 'pct' }], (v) => `st(0, H*${pf(v.radius)}); (S(X, Y) + S(X + ld(0), Y) + S(X - ld(0), Y) + S(X, Y + ld(0)) + S(X, Y - ld(0)) + S(X + ld(0), Y + ld(0)) + S(X - ld(0), Y - ld(0)) + S(X + ld(0), Y - ld(0)) + S(X - ld(0), Y + ld(0)))/9`),
+  { id: 'fx_depthband', name: 'Depth Band', icon: '🎯', expr: `st(1, clip(abs((X/W + Y/H)*0.5 - 0.62)/0.42, 0, 1)); S(X, Y)*(1 - ld(1)*0.92) + (${blurN(0.013)})*ld(1)*0.92` },
+  { id: 'fx_miniature', name: 'Miniature', icon: '🎯', expr: `st(1, clip(abs(Y - H*0.52)/(H*0.34), 0, 1)); st(2, S(X, Y) + (S(X, Y) - L(X, Y))*0.35); ld(2)*(1 - ld(1)) + ((${blurN(0.016)})*1.04 + 4)*ld(1)` },
+  { id: 'fx_spinblur1', name: 'Spin Blur', icon: '🌀', expr: `(S(W/2 + (X - W/2)*0.9759 + (Y - H/2)*0.21823, H/2 - (X - W/2)*0.21823 + (Y - H/2)*0.9759) + S(W/2 + (X - W/2)*0.99396 + (Y - H/2)*0.10978, H/2 - (X - W/2)*0.10978 + (Y - H/2)*0.99396) + S(X, Y) + S(W/2 + (X - W/2)*0.99396 - (Y - H/2)*0.10978, H/2 + (X - W/2)*0.10978 + (Y - H/2)*0.99396) + S(W/2 + (X - W/2)*0.9759 - (Y - H/2)*0.21823, H/2 + (X - W/2)*0.21823 + (Y - H/2)*0.9759))/5` },
+  withParams({ id: 'fx_zoomtrails', name: 'Zoom Trails', icon: '🌀' }, [{ key: 'amount', name: 'Trails', min: 0, max: 0.12, def: 0.05, step: 0.005, fmt: 'pct' }], (v) => radialTaps([0, 1, 2, 3].map((i) => Number(pf(1 + i * v.amount))))),
+  withParams({ id: 'fx_frost', name: 'Frosted Glass', icon: '❄' }, [{ key: 'grain', name: 'Grain size', min: 0.001, max: 0.03, def: 0.008, step: 0.0005, fmt: 'pct' }], (v) => `S(X + (hash(floor(X/3)*1.37 + floor(Y/3)*2.11) - 0.5)*W*${pf(v.grain)}, Y + (hash(floor(X/3)*3.71 + floor(Y/3)*1.13) - 0.5)*H*${pf(v.grain)})`),
+  withParams({ id: 'fx_hexblur', name: 'Hex Blur', icon: '⬡' }, [{ key: 'radius', name: 'Radius', min: 0.001, max: 0.03, def: 0.01, step: 0.0005, fmt: 'pct' }], (v) => `st(0, H*${pf(v.radius)}); (S(X, Y)*2 + S(X + ld(0), Y) + S(X + ld(0)/2, Y + ld(0)*0.866) + S(X - ld(0)/2, Y + ld(0)*0.866) + S(X - ld(0), Y) + S(X - ld(0)/2, Y - ld(0)*0.866) + S(X + ld(0)/2, Y - ld(0)*0.866))/8`),
+  withParams({ id: 'fx_sharpen', name: 'Sharpen', icon: '🔪' }, [{ key: 'amount', name: 'Amount', min: 0, max: 1.6, def: 0.7, step: 0.05, fmt: 'pct' }], (v) => `S(X, Y)*(1 + ${pf(v.amount)}) - (${blurN(0.005)})*${pf(v.amount)}`),
+  // -- Distortion & Mirror --
+  withParams({ id: 'fx_kaleido5', name: 'Kaleidoscope 5', icon: '🔮' }, [{ key: 'segments', name: 'Segments', min: 3, max: 16, def: 5, step: 1 }], (v) => kaleido(Math.round(v.segments))),
+  withParams({ id: 'fx_kaleido10', name: 'Kaleidoscope 10', icon: '🔮' }, [{ key: 'segments', name: 'Segments', min: 3, max: 16, def: 10, step: 1 }], (v) => kaleido(Math.round(v.segments))),
+  { id: 'fx_mirrorh', name: 'Mirror Horizontal', icon: '🪞', expr: `S(X, H/2 - abs(Y - H/2))` },
+  withParams({ id: 'fx_mirrorseam', name: 'Mirror Seam', icon: '🪞' }, [{ key: 'drift', name: 'Seam drift', min: 0, max: 0.3, def: 0.08, step: 0.005, fmt: 'pct' }], (v) => `st(0, W*(0.5 + ${pf(v.drift)}*sin(T*0.6))); S(if(gt(X, ld(0)), 2*ld(0) - X, X), Y)`),
+  { id: 'fx_floorreflect', name: 'Floor Reflection', icon: '🪞', expr: `if(gt(Y, H*0.74), S(X, H*1.48 - Y)*0.5 + C(6, 8, 14)*(1 - (Y/H - 0.74)*2), S(X, Y))` },
+  withParams({ id: 'fx_wavev', name: 'Wave Warp Vertical', icon: '〰' }, [{ key: 'amount', name: 'Wave depth', min: 0, max: 0.03, def: 0.008, step: 0.0005, fmt: 'pct' }], (v) => `S(X, Y + sin(X/W*12.56 + T*2.0)*H*${pf(v.amount)})`),
+  withParams({ id: 'fx_pond', name: 'Pond Ripple', icon: '💧' }, [{ key: 'rings', name: 'Rings', min: 4, max: 40, def: 18, step: 1 }], (v) => `st(0, hypot(X - W/2, Y - H/2)); st(1, sin(ld(0)/(H*0.5)*${pf(v.rings)}*3.14159 - T*3.2)*H*0.006*clip(1 - ld(0)/(0.75*hypot(W, H)), 0, 1)); st(2, max(ld(0), 0.001)); S(X + (X - W/2)/ld(2)*ld(1), Y + (Y - H/2)/ld(2)*ld(1))`),
+  { id: 'fx_barrelroll', name: 'Barrel Roll', icon: '🛢', expr: `st(0, sin(T*0.45)*0.13); st(1, cos(ld(0))); st(2, sin(ld(0))); S(W/2 + ((X - W/2)*ld(1) + (Y - H/2)*ld(2))/1.18, H/2 + (-(X - W/2)*ld(2) + (Y - H/2)*ld(1))/1.18)` },
+  withParams({ id: 'fx_skew', name: 'Skew Slide', icon: '📐' }, [{ key: 'tilt', name: 'Tilt', min: 0, max: 0.5, def: 0.16, step: 0.01 }], (v) => `S(X + (Y - H/2)*(${pf(v.tilt)} + 0.03*sin(T*0.8)), Y)`),
+  // -- Film & Vintage --
+  withParams({ id: 'fx_colorgrain', name: 'Color Grain', icon: '🎞' }, [{ key: 'amount', name: 'Grain', min: 0, max: 110, def: 30, step: 1 }], (v) => `S(X, Y) + C(hash(X*1.37 + Y*2.11 + floor(T*24)*7.7) - 0.5, hash(X*2.53 + Y*1.07 + floor(T*24)*3.9) - 0.5, hash(X*1.91 + Y*3.17 + floor(T*24)*5.3) - 0.5)*${pf(v.amount)}`),
+  withParams({ id: 'fx_hardvig', name: 'Hard Vignette', icon: '🎬' }, [{ key: 'strength', name: 'Strength', min: 0, max: 1, def: 0.55, step: 0.01, fmt: 'pct' }], (v) => `st(0, smooth(0.52, 0.78, hypot(X - W/2, Y - H/2)/(0.71*hypot(W, H)))); S(X, Y)*(1 - ${pf(v.strength)}*ld(0))`),
+  { id: 'fx_fadedblue', name: 'Faded Blues', icon: '📜', expr: `S(X, Y)*0.7 + L(X, Y)*0.1 + C(16, 24, 42)` },
+  { id: 'fx_xprocess', name: 'Cross Process', icon: '🧪', expr: `S(X, Y)*C(1.22, 1.06, 0.88) - L(X, Y)*C(0.12, 0.02, 0.1) + C(6, 2, 0)` },
+  { id: 'fx_deepsepia', name: 'Deep Sepia', icon: '📜', expr: `st(0, clip(1 - hypot(X - W/2, Y - H/2)/(0.78*hypot(W, H)), 0.35, 1)); (L(X, Y)*1.12 - 12)*C(1.1, 0.8, 0.48)*ld(0) + C(8, 4, 0)` },
+  { id: 'fx_softmono', name: 'Soft Mono', icon: '🤍', expr: `st(0, H*0.005); (L(X, Y)*2 + L(X + ld(0), Y) + L(X - ld(0), Y) + L(X, Y + ld(0)) + L(X, Y - ld(0)))/6*0.94 + 15` },
+  withParams({ id: 'fx_technicolor', name: 'Technicolor', icon: '🌈' }, [{ key: 'pop', name: 'Colour pop', min: 0, max: 1.6, def: 0.85, step: 0.05, fmt: 'pct' }], (v) => `(S(X, Y) + (S(X, Y) - L(X, Y))*${pf(v.pop)})*1.06 - 6`),
+  { id: 'fx_filmborder', name: 'Film Border', icon: '🎞', expr: `st(0, smooth(0, H*0.075, min(X, min(Y, min(W - X, H - Y))))); S(X, Y)*(0.25 + 0.75*ld(0))*C(1.03, 0.99, 0.94) + (1 - ld(0))*C(12, 9, 6)` },
+  { id: 'fx_agedpaper', name: 'Aged Paper', icon: '📜', expr: `st(0, hash(floor(X/(W/5))*3.31 + floor(Y/(H/5))*7.77)); st(1, clip(1 - hypot(X - W/2, Y - H/2)/(0.8*hypot(W, H)), 0, 1)); (S(X, Y)*C(1.06, 0.94, 0.72) + C(18, 10, 2))*(0.78 + 0.22*ld(1))*(1 - 0.16*ld(0)) + (hash(X*1.37 + Y*2.11) - 0.5)*9` },
+  // -- Light & Glow --
+  { id: 'fx_leakstrip', name: 'Leak Strip', icon: '🌅', expr: `st(0, clip(1 - abs(Y/H - 0.38)/0.3, 0, 1)); S(X, Y) + C(255, 140, 50)*ld(0)*ld(0)*0.55*(0.85 + 0.15*sin(T*0.9 + X/W*2.5))` },
+  { id: 'fx_leakdiag', name: 'Diagonal Leak', icon: '🌅', expr: `st(0, clip(1 - abs(X/W - Y/H)/0.55, 0, 1)); S(X, Y) + C(255, 120, 130)*ld(0)*ld(0)*0.5*(0.85 + 0.15*sin(T*0.7))` },
+  withParams({ id: 'fx_sunglow', name: 'Sun Glow', icon: '☀' }, [{ key: 'glow', name: 'Glow', min: 0, max: 1.4, def: 0.8, step: 0.02, fmt: 'pct' }], (v) => `st(0, clip(1 - hypot(X - W*0.8, Y - H*0.14)/(H*0.95), 0, 1)); S(X, Y)*(1 + ld(0)*0.25*${pf(v.glow)}) + C(255, 226, 160)*ld(0)*ld(0)*0.85*${pf(v.glow)}`),
+  { id: 'fx_halo', name: 'Halo Ring', icon: '💫', expr: `st(0, hypot(X - W/2, Y - H/2)/(0.71*hypot(W, H))); st(1, clip(1 - abs(ld(0) - 0.44)/0.13, 0, 1)); S(X, Y) + C(190, 215, 255)*ld(1)*ld(1)*0.5` },
+  { id: 'fx_starburst', name: 'Starburst', icon: '✴', expr: `st(0, atan2(Y - H/2, X - W/2)); st(1, sin(ld(0)*6 + T*0.4)); st(2, ld(1)*ld(1)); st(3, clip(1 - hypot(X - W/2, Y - H/2)/(0.75*hypot(W, H)), 0, 1)); S(X, Y) + C(255, 240, 200)*ld(2)*ld(2)*ld(3)*0.4` },
+  { id: 'fx_prismglow', name: 'Prism Glow', icon: '🔆', expr: `S(X, Y) + (S(X + C(W*0.008, 0, -W*0.008), Y) + S(X - C(W*0.008, 0, -W*0.008), Y))/2*0.5` },
+  { id: 'fx_fogglow', name: 'Fog Glow', icon: '🌫', expr: `st(0, smooth(0.42, 1, Y/H + 0.08*sin(X/W*7 + T*0.5))); S(X, Y)*(1 - ld(0)*0.3) + C(205, 222, 242)*ld(0)*0.5` },
+  { id: 'fx_moonlight', name: 'Moonlight', icon: '🌙', expr: `S(X, Y)*C(0.8, 0.94, 1.24) + smooth(150, 255, L(X, Y))*C(12, 18, 34) + 4` },
+  withParams({ id: 'fx_candle', name: 'Candle Glow', icon: '🕯' }, [{ key: 'flicker', name: 'Flicker', min: 0, max: 1, def: 0.5, step: 0.02, fmt: 'pct' }], (v) => `st(0, clip(1 - hypot(X - W/2, Y - H*1.05)/H, 0, 1)); S(X, Y)*(1 + ld(0)*0.12) + C(255, 170, 80)*ld(0)*ld(0)*(0.5 + ${pf(v.flicker)}*0.24*sin(T*11) + ${pf(v.flicker)}*0.18*sin(T*23 + 1.7))`),
+  // -- Motion --
+  { id: 'fx_rollshake', name: 'Rolling Shake', icon: '📳', expr: `st(0, sin(T*31)*0.008 + sin(T*57)*0.004); st(1, cos(ld(0))); st(2, sin(ld(0))); S(W/2 + (X - W/2)*ld(1) + (Y - H/2)*ld(2), H/2 - (X - W/2)*ld(2) + (Y - H/2)*ld(1))` },
+  { id: 'fx_quake', name: 'Quake', icon: '📳', expr: `st(0, hash(floor(T*5) + 0.31)); st(1, hash(floor(T*5) + 4.77)); st(2, (ld(0) - 0.5)*0.021); st(3, cos(ld(2))); st(4, sin(ld(2))); st(5, 1.04 + (ld(1) - 0.5)*0.05); S(W/2 + ((X - W/2)*ld(3) + (Y - H/2)*ld(4))/ld(5) + (ld(0) - 0.5)*W*0.038, H/2 + (-(X - W/2)*ld(4) + (Y - H/2)*ld(3))/ld(5) + (ld(1) - 0.5)*H*0.033)` },
+  withParams({ id: 'fx_zoomburst', name: 'Zoom Burst', icon: '💥' }, [{ key: 'power', name: 'Power', min: 0, max: 0.4, def: 0.16, step: 0.01, fmt: 'pct' }], (v) => `st(0, 1 + ${pf(v.power)}*pow(max(0, sin(T*1.4)), 6)); S(W/2 + (X - W/2)/ld(0), H/2 + (Y - H/2)/ld(0))`),
+  { id: 'fx_panleft', name: 'Slow Pan', icon: '🎥', expr: `S(W/2 + (X - W/2)/1.14 + sin(T*0.3)*W*0.05, H/2 + (Y - H/2)/1.14)` },
+  { id: 'fx_tiltup2', name: 'Slow Tilt', icon: '🎥', expr: `S(W/2 + (X - W/2)/1.14, H/2 + (Y - H/2)/1.14 + sin(T*0.26 + 1.3)*H*0.045)` },
+  { id: 'fx_orbit', name: 'Orbit Sway', icon: '🪐', expr: `st(0, sin(T*0.55)*0.02); st(1, cos(ld(0))); st(2, sin(ld(0))); S(W/2 + ((X - W/2)*ld(1) + (Y - H/2)*ld(2)) + sin(T*0.55)*W*0.03, H/2 + (-(X - W/2)*ld(2) + (Y - H/2)*ld(1)) + cos(T*0.55)*H*0.026)` },
+  { id: 'fx_glitchshake', name: 'Glitch Shake', icon: '📳', expr: `st(0, hash(floor(T*9) + 0.13)); st(1, if(gt(ld(0), 0.45), (ld(0) - 0.45)*1.6, 0)); S(X + C(W*0.014, 0, -W*0.014)*ld(1) + (ld(0) - 0.5)*W*0.01, Y + (hash(floor(T*9) + 2.9) - 0.5)*H*0.008)` },
+  withParams({ id: 'fx_heartbeat', name: 'Heartbeat Zoom', icon: '💓' }, [{ key: 'beat', name: 'Beat', min: 0, max: 0.25, def: 0.09, step: 0.005, fmt: 'pct' }], (v) => `st(0, 1.03 + ${pf(v.beat)}*(pow(max(0, sin(T*2.6)), 3) + 0.55*pow(max(0, sin(T*2.6 + 0.55)), 8))); S(W/2 + (X - W/2)/ld(0), H/2 + (Y - H/2)/ld(0))`),
+  { id: 'fx_spinpulse', name: 'Spin Pulse', icon: '🌀', expr: `st(0, sin(T*1.25)*0.3); st(1, cos(ld(0))); st(2, sin(ld(0))); S(W/2 + ((X - W/2)*ld(1) + (Y - H/2)*ld(2))/1.3, H/2 + (-(X - W/2)*ld(2) + (Y - H/2)*ld(1))/1.3)` },
   ];
 }
 
@@ -943,8 +1241,187 @@ export const OVERLAY_EFFECTS = [
   { id: 'fx_fog', name: 'Fog Banks', icon: '🌫', draw: drawFog },
   { id: 'fx_confetti', name: 'Confetti', icon: '🎉', draw: drawConfetti },
   { id: 'fx_fireflies', name: 'Fireflies', icon: '🪲', draw: drawFireflies },
+  // -- Library mega-growth (10/10 step 3): more weather & particle overlays, drawn with the
+  // same deterministic rnd() machinery; each has its own shapes, palette and motion.
+  { id: 'fx_bokeh', name: 'Bokeh Lights', icon: '🔮', draw: drawBokeh },
+  { id: 'fx_petals', name: 'Petal Fall', icon: '🌸', draw: drawPetals },
+  { id: 'fx_bubbles', name: 'Soap Bubbles', icon: '🫧', draw: drawBubbles },
+  { id: 'fx_leaves', name: 'Leaf Drift', icon: '🍃', draw: drawLeaves },
+  { id: 'fx_hearts', name: 'Floating Hearts', icon: '💗', draw: drawHearts },
+  { id: 'fx_starfall', name: 'Star Shower', icon: '⭐', draw: drawStarfall },
+  { id: 'fx_sunrays', name: 'Sun Rays', icon: '🌤', draw: drawSunrays },
+  { id: 'fx_windowrain', name: 'Window Rain', icon: '💧', draw: drawWindowRain },
 ];
 
 export const isPixelFx = (id) => PIXEL_EFFECTS.some((e) => e.id === id);
 export const isOverlayFx = (id) => OVERLAY_EFFECTS.some((e) => e.id === id);
 export const fxTransition = (id) => FX_TRANSITIONS.find((t) => t.id === id);
+
+// ---- Mega-growth overlay painters (10/10 step 3). Deterministic in t like the painters
+// above: the same rnd() seeds drive every frame, so preview and export agree. ----
+
+function drawBokeh(ctx, W, H, t) {
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const cols = ['255,190,90', '255,120,150', '120,190,255', '170,255,200', '230,200,255'];
+  for (let i = 0; i < 15; i++) {
+    const r = H * (0.05 + rnd(i * 3.1) * 0.11);
+    const x = ((rnd(i * 7.7) + t * 0.008 * (0.5 + rnd(i * 1.3))) % 1) * (W + r * 2) - r;
+    const y = rnd(i * 5.3) * H + Math.sin(t * 0.4 + i * 1.7) * H * 0.02;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    const c = cols[i % cols.length];
+    g.addColorStop(0, `rgba(${c},0.30)`);
+    g.addColorStop(0.7, `rgba(${c},0.12)`);
+    g.addColorStop(1, `rgba(${c},0)`);
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, 6.2832); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawPetals(ctx, W, H, t) {
+  ctx.save();
+  for (let i = 0; i < 26; i++) {
+    const speed = 0.03 + rnd(i * 2.9) * 0.035;
+    const y = ((rnd(i * 4.1) + t * speed) % 1) * (H + 20) - 10;
+    const x = rnd(i * 6.3) * W + Math.sin(t * 0.9 + i * 2.1) * W * 0.03;
+    const s = H * (0.014 + rnd(i * 8.7) * 0.016);
+    const rot = t * (0.6 + rnd(i * 1.9)) + i * 1.37;
+    ctx.save();
+    ctx.translate(x, y); ctx.rotate(rot);
+    ctx.fillStyle = `rgba(255,${150 + Math.floor(rnd(i * 3.3) * 60)},${180 + Math.floor(rnd(i * 5.9) * 50)},0.75)`;
+    ctx.beginPath();
+    ctx.moveTo(0, -s);
+    ctx.quadraticCurveTo(s * 0.9, -s * 0.2, 0, s);
+    ctx.quadraticCurveTo(-s * 0.9, -s * 0.2, 0, -s);
+    ctx.fill();
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+function drawBubbles(ctx, W, H, t) {
+  ctx.save();
+  ctx.lineWidth = Math.max(1, H * 0.0035);
+  for (let i = 0; i < 20; i++) {
+    const speed = 0.025 + rnd(i * 3.7) * 0.04;
+    const y = H - ((rnd(i * 9.1) + t * speed) % 1) * (H + 30) + 15;
+    const x = rnd(i * 4.7) * W + Math.sin(t * 1.3 + i * 2.9) * W * 0.012;
+    const r = H * (0.02 + rnd(i * 6.1) * 0.045);
+    ctx.strokeStyle = 'rgba(200,230,255,0.55)';
+    ctx.beginPath(); ctx.arc(x, y, r, 0, 6.2832); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+    ctx.beginPath(); ctx.arc(x, y, r, -2.4, -1.5); ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.beginPath(); ctx.arc(x - r * 0.35, y - r * 0.35, r * 0.12, 0, 6.2832); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawLeaves(ctx, W, H, t) {
+  ctx.save();
+  const cols = ['92,160,60', '120,180,70', '70,140,50', '150,190,80'];
+  for (let i = 0; i < 18; i++) {
+    const speed = 0.022 + rnd(i * 5.7) * 0.03;
+    const y = ((rnd(i * 2.3) + t * speed) % 1) * (H + 24) - 12;
+    const x = rnd(i * 8.9) * W + Math.sin(t * 0.7 + i * 1.9) * W * 0.045;
+    const s = H * (0.02 + rnd(i * 4.3) * 0.02);
+    const rot = Math.sin(t * 0.8 + i * 2.3) * 0.9 + i;
+    ctx.save();
+    ctx.translate(x, y); ctx.rotate(rot);
+    ctx.fillStyle = `rgba(${cols[i % cols.length]},0.8)`;
+    ctx.beginPath();
+    ctx.moveTo(0, -s);
+    ctx.quadraticCurveTo(s * 0.8, 0, 0, s);
+    ctx.quadraticCurveTo(-s * 0.8, 0, 0, -s);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(40,90,30,0.6)';
+    ctx.lineWidth = Math.max(1, H * 0.002);
+    ctx.beginPath(); ctx.moveTo(0, -s); ctx.lineTo(0, s); ctx.stroke();
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+function drawHearts(ctx, W, H, t) {
+  ctx.save();
+  const cols = ['255,90,130', '255,120,160', '240,70,100', '255,150,180'];
+  for (let i = 0; i < 14; i++) {
+    const speed = 0.02 + rnd(i * 6.7) * 0.03;
+    const y = H - ((rnd(i * 3.9) + t * speed) % 1) * (H + 30) + 15;
+    const x = rnd(i * 5.1) * W + Math.sin(t * 1.1 + i * 2.7) * W * 0.015;
+    const s = H * (0.02 + rnd(i * 7.3) * 0.022) * (1 + 0.12 * Math.sin(t * 3 + i * 1.3));
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.fillStyle = `rgba(${cols[i % cols.length]},0.78)`;
+    ctx.beginPath();
+    ctx.moveTo(0, s * 0.85);
+    ctx.bezierCurveTo(-s * 1.25, 0, -s * 0.7, -s, 0, -s * 0.35);
+    ctx.bezierCurveTo(s * 0.7, -s, s * 1.25, 0, 0, s * 0.85);
+    ctx.fill();
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+function drawStarfall(ctx, W, H, t) {
+  ctx.save();
+  for (let i = 0; i < 24; i++) {
+    const speed = 0.045 + rnd(i * 4.9) * 0.05;
+    const y = ((rnd(i * 8.3) + t * speed) % 1) * (H + 16) - 8;
+    const x = rnd(i * 2.7) * W + ((rnd(i * 6.9) + t * speed * 0.4) % 1) * W * 0.1;
+    const r = H * (0.012 + rnd(i * 3.5) * 0.014);
+    const tw = 0.55 + 0.45 * Math.sin(t * 4 + i * 2.1);
+    ctx.save();
+    ctx.translate(x, y); ctx.rotate(t * 0.5 + i);
+    ctx.fillStyle = `rgba(255,225,130,${0.75 * tw})`;
+    ctx.beginPath();
+    for (let k = 0; k < 10; k++) {
+      const ang = k * 0.62832 - 1.5708;
+      const rad = k % 2 ? r * 0.45 : r;
+      const px = Math.cos(ang) * rad; const py = Math.sin(ang) * rad;
+      if (k) ctx.lineTo(px, py); else ctx.moveTo(px, py);
+    }
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+function drawSunrays(ctx, W, H, t) {
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const cx = W * 0.08; const cy = -H * 0.05;
+  const len = Math.hypot(W, H) * 1.05;
+  for (let i = 0; i < 12; i++) {
+    const a = 0.25 + i * 0.145 + Math.sin(t * 0.11) * 0.05 + t * 0.008;
+    const wdt = 0.055 + (i % 3) * 0.03;
+    ctx.fillStyle = `rgba(255,230,170,${i % 2 ? 0.05 : 0.09})`;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + Math.cos(a - wdt) * len, cy + Math.sin(a - wdt) * len);
+    ctx.lineTo(cx + Math.cos(a + wdt) * len, cy + Math.sin(a + wdt) * len);
+    ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawWindowRain(ctx, W, H, t) {
+  ctx.save();
+  ctx.lineCap = 'round';
+  for (let i = 0; i < 42; i++) {
+    const x = rnd(i * 7.9) * W;
+    const speed = 0.008 + rnd(i * 3.3) * 0.05;
+    const y = ((rnd(i * 5.7) + t * speed) % 1.15) * H;
+    const r = H * (0.006 + rnd(i * 9.3) * 0.009);
+    const trail = r * (3 + rnd(i * 2.1) * 5);
+    ctx.strokeStyle = 'rgba(190,220,250,0.35)';
+    ctx.lineWidth = Math.max(1, r * 0.5);
+    ctx.beginPath(); ctx.moveTo(x, y - trail); ctx.lineTo(x, y); ctx.stroke();
+    ctx.fillStyle = 'rgba(210,235,255,0.65)';
+    ctx.beginPath(); ctx.arc(x, y, r, 0, 6.2832); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.75)';
+    ctx.beginPath(); ctx.arc(x - r * 0.3, y - r * 0.3, r * 0.3, 0, 6.2832); ctx.fill();
+  }
+  ctx.restore();
+}

@@ -7,6 +7,7 @@
 
 import { DEFAULT_TRANSFORM } from './visual.js';
 import { easeValue } from './fx/easing.js';
+import { clipDuration, sourceOffsetAt, speedAtTime, timelineOffsetAt } from './speedCurve.js';
 
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
 const outCubic = (p) => 1 - (1 - p) ** 3;
@@ -172,8 +173,11 @@ export function previewState(kind, id, p) {
 // clip's source time (seconds of the media, like clip.in / clip.out), so trimming, splitting or changing the speed
 // keeps every keyframe on the same picture.
 export const KEY_PROPS = ['scale', 'x', 'y', 'rot', 'opacity'];
-const sourceTime = (clip, lt) => (clip.in || 0) + lt * (clip.speed || 1);
-export const localTime = (clip, srcT) => (srcT - (clip.in || 0)) / (clip.speed || 1);
+// Local (timeline) <-> source time through the speed sampler: lt * speed for a
+// constant clip, the curve integral for a ramped one — so keyframes stay glued
+// to the same picture when a clip is ramped, exactly as they do at any speed.
+const sourceTime = (clip, lt) => (clip.in || 0) + sourceOffsetAt(clip, lt);
+export const localTime = (clip, srcT) => timelineOffsetAt(clip, srcT - (clip.in || 0));
 
 // How a value travels to a keyframe, stored on the keyframe it arrives at ({ t, v, e }), like Remotion's Easing.
 // No `e` is linear, so older projects play as before. spring: Remotion's spring without bounce (critically
@@ -211,7 +215,7 @@ function interp(list, t) {
 // its own list and sits after the playhead. Its `e` eases the segment that leads into it.
 export function nextArrival(clip, lt, fps = 30) {
   if (!clip.keyframes) return null;
-  const tol = (0.5 / fps) * (clip.speed || 1) + EPS;
+  const tol = (0.5 / fps) * speedAtTime(clip, lt) + EPS;
   let best = null;
   for (const p of KEY_PROPS) {
     const list = clip.keyframes[p] || [];
@@ -273,7 +277,7 @@ const EPS = 1e-4;
 // Keyframe of `prop` at local time lt (within half a frame), or null.
 export function keyAt(clip, prop, lt, fps = 30) {
   const st = sourceTime(clip, lt);
-  const tol = (0.5 / fps) * (clip.speed || 1) + EPS;
+  const tol = (0.5 / fps) * speedAtTime(clip, lt) + EPS;
   return (clip.keyframes?.[prop] || []).find((k) => Math.abs(k.t - st) <= tol) || null;
 }
 
@@ -419,11 +423,11 @@ export function motionData(project) {
   const fps = project.fps || 30;
   for (const c of project.videoClips) {
     if (c.gap || !hasMotion(c)) continue;
-    out[c.id] = motionCurves(c, (c.out - c.in) / (c.speed || 1), fps);
+    out[c.id] = motionCurves(c, clipDuration(c), fps);
   }
   for (const c of project.overlayClips || []) {
     if (!hasMotion(c)) continue;
-    out[c.id] = motionCurves(c, (c.out - c.in) / (c.speed || 1), fps);
+    out[c.id] = motionCurves(c, clipDuration(c), fps);
   }
   return out;
 }
