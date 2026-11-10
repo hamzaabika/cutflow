@@ -1,9 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Check, Copy, ExternalLink, KeyRound, Loader2, Mic, Music, Pause, Play, Plus, Search, Square, Upload, WifiOff, X } from 'lucide-react';
+import { Check, Copy, Copyright, ExternalLink, KeyRound, Loader2, Mic, Music, Pause, Play, Plus, Search, Square, Upload, WifiOff, X } from '../icons.jsx';
 import { formatTime, toFileUrl } from '../store.js';
 import { FavStar, favLibrary, useFavorites } from '../favorites.jsx';
 import TextToSpeech from './TextToSpeech.jsx';
 import PackMusic from './PackMusic.jsx';
+import { SFX_CATS, SFX_ITEMS } from '../sfx.js';
+import { AUDIO_PRESETS, PRESET_CATS, activePreset } from '../fx/audioPresets.js';
+import Card from '../ui/Card.jsx';
 
 // Chip label -> search words. Openverse matches titles and tags, so some genres search better under another word.
 export const MUSIC_TAGS = [
@@ -44,10 +47,12 @@ export const TROLL_TAGS = [
 // and it never counts as a download of the sound.
 function usePreview() {
   const audio = useRef(null);
-  const [state, setState] = useState({ id: null, loading: false, error: '' });
+  const [state, setState] = useState({ id: null, loading: false, error: '', progress: 0 });
   useEffect(() => {
     const a = new Audio();
-    a.onended = () => setState((s) => ({ ...s, id: null }));
+    a.onended = () => setState((s) => ({ ...s, id: null, progress: 0 }));
+    // Preview progress (P5): the playing row paints a thin fill from this.
+    a.ontimeupdate = () => setState((s) => (s.id ? { ...s, progress: a.duration > 0 ? a.currentTime / a.duration : 0 } : s));
     audio.current = a;
     return () => a.pause();
   }, []);
@@ -55,21 +60,21 @@ function usePreview() {
     const a = audio.current;
     if (state.id === item.id && !state.loading) {
       a.pause();
-      return setState({ id: null, loading: false, error: '' });
+      return setState({ id: null, loading: false, error: '', progress: 0 });
     }
     a.pause();
-    setState({ id: item.id, loading: true, error: '' });
+    setState({ id: item.id, loading: true, error: '', progress: 0 });
     // Imported files (favorites) play straight from disk; Soundza previews are fetched by the
     // main process; other library sounds are resolved (and downloaded once).
     const res = item.path ? { path: item.path } : item.previewUrl ? await window.api.soundzaPreview(item) : await window.api.libraryFile(item);
-    if (res.error) return setState({ id: null, loading: false, error: res.error });
+    if (res.error) return setState({ id: null, loading: false, error: res.error, progress: 0 });
     a.src = toFileUrl(res.path);
     a.play().catch(() => {});
-    setState({ id: item.id, loading: false, error: '' });
+    setState({ id: item.id, loading: false, error: '', progress: 0 });
   };
   const stop = () => {
     audio.current?.pause();
-    setState({ id: null, loading: false, error: '' });
+    setState({ id: null, loading: false, error: '', progress: 0 });
   };
   return { ...state, toggle, stop };
 }
@@ -84,14 +89,14 @@ function Row({ item, preview, onAdd, adding, fav = item.path ? null : favLibrary
       <div className="lib-meta">
         <b title={item.title}>{item.title}</b>
         <span className="lib-sub">
-          <span>{item.provider === 'sfxmint' || item.provider === 'soundza' ? (item.category || '').replace(/^./, (c) => c.toUpperCase()) || item.creator : item.creator}{item.duration ? ` · ${formatTime(item.duration).slice(0, 5)}` : ''}</span>
-          {item.license && item.license !== 'unknown' && (
-            <i className={`lic ${item.license}`} title={item.license === 'by' ? 'Free to use with a credit to the artist' : 'Free to use, no credit needed'}>
-              {item.license === 'by' ? 'Credit' : 'Free'}
-            </i>
+          <span>{item.provider === 'sfxmint' || item.provider === 'soundza' ? (item.category || '').replace(/^./, (c) => c.toUpperCase()) || item.creator : item.creator}</span>
+          {item.license === 'by' && (
+            <span className="lic-ico" title="Free to use with a credit to the artist"><Copyright size={13} /></span>
           )}
         </span>
       </div>
+      {item.duration > 0 && <span className="lib-dur">{formatTime(item.duration).slice(0, 5)}</span>}
+      {playing && <span className="lib-prog" style={{ width: `${Math.round((preview.progress || 0) * 100)}%` }} aria-hidden="true" />}
       {fav && <FavStar entry={fav} />}
       <button className="lib-add" onClick={() => onAdd(item)} aria-label={`Add ${item.title} at the playhead`} title="Add at the playhead" disabled={adding === item.id}>
         {adding === item.id ? <Loader2 size={15} className="spin" /> : <Plus size={16} />}
@@ -168,7 +173,7 @@ function SoundzaSearch({ fixedTag, preview, onAdd, adding, onOpenSettings }) {
   if (hasKey === null) return <div className="lib-loading"><Loader2 size={16} className="spin" /> Loading…</div>;
   if (!hasKey) {
     return (
-      <div className="card stock-key">
+      <Card className="stock-key">
         <div className="card-row">
           <span className="card-icon"><KeyRound size={18} /></span>
           <div>
@@ -180,7 +185,7 @@ function SoundzaSearch({ fixedTag, preview, onAdd, adding, onOpenSettings }) {
           <button className="btn btn-sm" onClick={() => window.api.openHelp('https://soundza.com/developers/keys')}><ExternalLink size={13} /> Get a free key</button>
           <button className="btn btn-primary btn-sm" onClick={onOpenSettings}>Open Settings</button>
         </div>
-      </div>
+      </Card>
     );
   }
   return (
@@ -207,8 +212,88 @@ function SoundzaSearch({ fixedTag, preview, onAdd, adding, onOpenSettings }) {
   );
 }
 
+
+// Bundled sound effects (10/10 step 3): Cutflow's own synthesized SFX, shipped in
+// shared/sfx/ and listed from src/sfx.js (generated by scripts/gen-bundled-sfx.cjs).
+// Fully offline: preview plays the file, + drops it on the timeline like any audio
+// asset. Below them, the AudioFx preset packs apply to the selected clip.
+function BundledSfx({ preview, onAddFile, target, updateTarget }) {
+  const [paths, setPaths] = useState(null);
+  const [cat, setCat] = useState('All');
+  const [q, setQ] = useState('');
+  const [adding, setAdding] = useState(null);
+  const [err, setErr] = useState('');
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      const out = {};
+      for (const it of SFX_ITEMS) out[it.id] = await window.api.bundledPath('sfx', it.file);
+      if (live) setPaths(out);
+    })();
+    return () => { live = false; };
+  }, []);
+  const add = async (item) => {
+    if (!item.path) return;
+    setAdding(item.id);
+    setErr('');
+    const r = await onAddFile(item.path);
+    setAdding(null);
+    if (r?.error) setErr(r.error);
+  };
+  const needle = q.trim().toLowerCase();
+  const shown = SFX_ITEMS.filter((it) => (cat === 'All' || it.cat === cat) && (!needle || it.name.toLowerCase().includes(needle)));
+  const clip = target?.clip || null;
+  const active = clip ? activePreset(clip.audioFx) : null;
+  return (
+    <>
+      <div className="tab-title">Bundled sound effects · {SFX_ITEMS.length}</div>
+      <p className="lib-src-note">Made by Cutflow, synthesized on-device — free for any video, no credit needed.</p>
+      {err && <p className="error-text">{err}</p>}
+      <form className="lib-search" onSubmit={(e) => e.preventDefault()}>
+        <Search size={14} aria-hidden="true" />
+        <input type="search" value={q} placeholder="Search bundled effects" aria-label="Search bundled sound effects"
+          onChange={(e) => setQ(e.target.value)} />
+        {q && <button type="button" className="lib-search-clear" aria-label="Clear search" onClick={() => setQ('')}><X size={13} /></button>}
+      </form>
+      <div className="chips scroll-x" role="group" aria-label="Bundled sound effect category">
+        {['All', ...SFX_CATS].map((c) => (
+          <button key={c} className={`chip ${cat === c ? 'on' : ''}`} aria-pressed={cat === c} onClick={() => setCat(c)}>
+            {c}{c !== 'All' ? ` · ${SFX_ITEMS.filter((it) => it.cat === c).length}` : ` · ${SFX_ITEMS.length}`}
+          </button>
+        ))}
+      </div>
+      <div className="lib-list">
+        {!paths && <div className="lib-loading"><Loader2 size={16} className="spin" /> Loading…</div>}
+        {paths && shown.map((it) => (
+          <Row key={it.id} preview={preview} adding={adding}
+            item={{ id: it.id, title: it.name, path: paths[it.id], provider: 'bundled', creator: `Bundled · ${it.cat}`, duration: it.dur }}
+            onAdd={add} />
+        ))}
+        {paths && !shown.length && <p className="empty-note">No bundled effect matches.</p>}
+      </div>
+      <div className="tab-title">Preset packs</div>
+      <p className="lib-src-note">{clip
+        ? 'Apply a pack to the selected clip — it replaces its audio effects.'
+        : 'Select a clip on the timeline to apply a preset pack to its sound.'}</p>
+      {PRESET_CATS.map((pc) => (
+        <div key={pc}>
+          <div className="afx-group-title">{pc} · {AUDIO_PRESETS.filter((pr) => pr.cat === pc).length}</div>
+          <div className="afx-presets" role="group" aria-label={`${pc} audio presets`}>
+            {AUDIO_PRESETS.filter((pr) => pr.cat === pc).map((pr) => (
+              <button key={pr.id} type="button" disabled={!clip}
+                className={`afx-chip ${active?.id === pr.id ? 'on' : ''}`}
+                aria-pressed={active?.id === pr.id} title={`Set the selected clip's audio effects to the ${pr.name} preset`}
+                onClick={() => clip && updateTarget({ audioFx: structuredClone(pr.fx) })}>{pr.name}</button>
+            ))}
+          </div>
+        </div>
+      ))}
+    </>
+  );
+}
+
 // Audio panel: Music, Sound effects and Yours (imported audio and voice-over).
-export default function AudioLibrary({ media, project, onImport, onAddMedia, onLibraryAdd, onAddFile, onTtsAdd, selectedText, onOpenSettings, recorder, onStartRecord, MediaCard, onRemoveMedia, onPeek, peekId, section = 'music:Vlog' }) {
+export default function AudioLibrary({ media, project, onImport, onAddMedia, onLibraryAdd, onAddFile, onTtsAdd, selectedText, onOpenSettings, recorder, onStartRecord, MediaCard, onRemoveMedia, onPeek, peekId, target, updateTarget, section = 'music:Vlog' }) {
   // Split on the FIRST colon only: pack sections carry a second one ('music:pack:Library').
   const [group, sub] = section.includes(':') ? [section.slice(0, section.indexOf(':')), section.slice(section.indexOf(':') + 1)] : [section, ''];
   const view = group === 'yours' && sub === 'favorites' ? 'favorites' : group;
@@ -253,7 +338,9 @@ export default function AudioLibrary({ media, project, onImport, onAddMedia, onL
         </>
       ))}
 
-      {view === 'sfx' && (sub.startsWith('pack:') ? (
+      {view === 'sfx' && (sub === 'bundled' ? (
+        <BundledSfx preview={preview} onAddFile={onAddFile} target={target} updateTarget={updateTarget} />
+      ) : sub.startsWith('pack:') ? (
         <PackMusic group="Sound FX" collection={sub.slice(5)} onAddFile={onAddFile} />
       ) : (
         <>
@@ -344,12 +431,12 @@ export default function AudioLibrary({ media, project, onImport, onAddMedia, onL
       )}
 
       {credits.length > 0 && (
-        <div className="card lib-credits">
+        <Card className="lib-credits">
           <b>Credits needed</b>
           <p>These CC BY sounds are on the timeline. Paste the credits in your video description.</p>
           <pre>{credits.join('\n')}</pre>
           <button className="btn btn-sm" onClick={copyCredits}>{copied ? <><Check size={13} /> Copied</> : <><Copy size={13} /> Copy credits</>}</button>
-        </div>
+        </Card>
       )}
       {(view === 'music' || view === 'credits') && (
         <p className="lib-note">Only CC0, public domain and CC BY sounds are shown: free to use in your videos; CC BY needs a credit.</p>

@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Eraser, Paintbrush, RotateCcw, Trash2, X } from 'lucide-react';
+import { Eraser, Paintbrush, RotateCcw, Trash2, X } from '../icons.jsx';
 import { previewPath, toFileUrl } from '../store.js';
 import { rasterizeCustomMask } from '../customMask.js';
+import Toggle from '../ui/Toggle.jsx';
 
 // Custom removal editor: paint Erase / Restore strokes over the clip's frame. The strokes are
 // stored in source-normalized coordinates (src/customMask.js) and rasterize to a static mask
@@ -121,7 +122,7 @@ export default function CustomMaskEditor({ clip, media, onClose, onSave }) {
           <button className="btn btn-sm" onClick={() => setStrokes([])} disabled={!strokes.length}><Trash2 size={13} /> Clear</button>
           <label className="field row">
             <span>Show result</span>
-            <input type="checkbox" className="switch" checked={showResult} onChange={(e) => setShowResult(e.target.checked)} />
+            <Toggle checked={showResult} onChange={(e) => setShowResult(e.target.checked)} />
           </label>
         </div>
         <div className="cmask-foot">

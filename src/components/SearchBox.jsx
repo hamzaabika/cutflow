@@ -2,7 +2,7 @@
 // button whenever there is text. Every library/panel search uses this component so the
 // styling can never drift back to the browser-default white box again.
 import React from 'react';
-import { Search, X } from 'lucide-react';
+import { Search, X } from '../icons.jsx';
 
 export default function SearchBox({ value, onChange, placeholder, ariaLabel, autoFocus = false }) {
   return (

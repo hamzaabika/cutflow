@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Music, Pause, Play, Plus, X } from 'lucide-react';
+import { Music, Pause, Play, Plus, Unlink, X } from '../icons.jsx';
 import { formatTime, previewPath, toFileUrl } from '../store.js';
 
 // Watches a media item from the Media panel before it is on the timeline: click a card and it
@@ -77,18 +77,28 @@ export default function MediaPeek({ m, fps = 30, onClose, onAdd }) {
     <div className="peek">
       <div className="stage-wrap">
         <div className="stage peek-stage" style={{ aspectRatio: `${w} / ${h}`, width: `min(100cqw, calc(100cqh * ${w / h}))` }}>
-          {still ? <img src={src} alt="" draggable={false} /> : (
+          {m.missing ? (
+            // Lost source (Part 3, 2026-11-10): the peek never plays a cached
+            // copy of a file that is gone from disk.
+            <div className="stage-lost">
+              <div className="stage-lost-box">
+                <Unlink size={30} aria-hidden="true" />
+                <b>Media Not Found</b>
+                <span className="stage-lost-name">{m.name}</span>
+              </div>
+            </div>
+          ) : still ? <img src={src} alt="" draggable={false} /> : (
             <video ref={el} src={src} playsInline preload="auto" style={m.type === 'audio' ? { display: 'none' } : undefined}
               onTimeUpdate={(e) => setT(e.currentTarget.currentTime)} onEnded={() => setPlaying(false)} />
           )}
-          {m.type === 'audio' && (
+          {!m.missing && m.type === 'audio' && (
             <div className="peek-audio">
               {m.wave ? <img src={toFileUrl(m.wave)} alt="" draggable={false} /> : <Music size={40} aria-hidden="true" />}
             </div>
           )}
         </div>
       </div>
-      {!still && (
+      {!still && !m.missing && (
         <input ref={scrubRef} className="peek-scrub" type="range" min={0} max={dur} step={1 / fps} value={t} aria-label="Position"
           style={{ '--p': `${dur ? (t / dur) * 100 : 0}%` }}
           onChange={(e) => seek(Number(e.target.value))} />

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Ban, ChevronDown } from 'lucide-react';
+import { Ban, ChevronDown } from '../icons.jsx';
 import TextPreview from './TextPreview.jsx';
 import { textAnimCategories, textAnimPresets } from '../fx/textAnim.js';
 import { ANIM_UNITS, INHERENT_UNIT_ANIMS } from '../text/units.js';

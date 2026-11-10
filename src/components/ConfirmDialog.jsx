@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import Button from '../ui/Button.jsx';
 
 // A yes / no question in Cutflow's style. Enter confirms, Escape or a click outside cancels.
 export default function ConfirmDialog({ icon: Icon, title, text, confirmLabel = 'OK', cancelLabel = 'Cancel', onConfirm, onCancel, extra }) {
@@ -20,8 +21,8 @@ export default function ConfirmDialog({ icon: Icon, title, text, confirmLabel = 
         {text && <p className="muted">{text}</p>}
         {extra}
         <div className="modal-actions">
-          {onCancel && <button className="btn btn-ghost" onClick={onCancel}>{cancelLabel}</button>}
-          <button ref={ok} className="btn btn-primary" onClick={onConfirm}>{confirmLabel}</button>
+          {onCancel && <Button variant="ghost" onClick={onCancel}>{cancelLabel}</Button>}
+          <Button ref={ok} variant="primary" onClick={onConfirm}>{confirmLabel}</Button>
         </div>
       </div>
     </div>

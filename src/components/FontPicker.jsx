@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ChevronDown, Loader2, Plus, Search, Star, X } from 'lucide-react';
+import { ChevronDown, Loader2, Plus, Search, Star, X } from '../icons.jsx';
 import { CUSTOM_GROUP, allFonts, fontById, fontsReady, importFonts, onFontsChanged, removeFont } from '../fonts.js';
 
 const FAV_KEY = 'clipcraft.favoriteFonts';

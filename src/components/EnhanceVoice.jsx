@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import Toggle from '../ui/Toggle.jsx';
 
 // Voice Enhancer controls (the section body; hosts frame it). The render itself runs in the
 // main process (electron/enhance.cjs) via App's onEnhance, which drives the shared render-job
@@ -28,7 +29,7 @@ export default function EnhanceVoice({ clip, media, set, onEnhance }) {
     <>
       <label className="field row">
         <span>Enhance voice</span>
-        <input type="checkbox" className="switch" aria-label="Enhance voice" checked={on} disabled={!onEnhance && !ready}
+        <Toggle aria-label="Enhance voice" checked={on} disabled={!onEnhance && !ready}
           onChange={(ev) => toggle(ev.target.checked)} />
       </label>
       <div className="seg-tabs small" role="radiogroup" aria-label="Enhance strength">

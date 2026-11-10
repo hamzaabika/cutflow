@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Ban } from 'lucide-react';
+import { Ban } from '../icons.jsx';
 import { ANIMATIONS, DEFAULT_ANIM_DURATION, animOf, previewState } from '../anim.js';
 import { samplePhotoUrl, samplePictureUrl } from '../fx/previews.jsx';
 import Slider from './Slider.jsx';

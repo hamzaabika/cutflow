@@ -1,21 +1,31 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
-  ArrowLeftRight, ArrowLeftToLine, ArrowRightToLine, AudioLines, AudioWaveform, Copy, CopyPlus, Eye, EyeOff, Film, Flag, GripVertical, Layers, Link2, Lock, LockOpen, Magnet, Mic, MoreHorizontal, MousePointer2, Music, Pencil, Plus, Scissors, Slice,
-  Sparkles, Split, Square, StretchHorizontal, Target, Trash2, Type, Undo2, Unlink, Volume2, VolumeX, Redo2, X, ZoomIn, ZoomOut, Captions,
-} from 'lucide-react';
-import { LAYERED, MIN_CLIP, clipLayer, effectObjects, formatTime, freeLen, isLayerLocked, layerCount, layerFree, layerName, layerOf, layerStateOf, toFileUrl, trimActions, uid, videoClipAt, videoLayout, withFxTiming } from '../store.js';
+  ArrowLeftRight, ArrowLeftToLine, ArrowRightToLine, AudioLines, AudioWaveform, BetweenHorizontalStart, Copy, CopyPlus, Eye, EyeOff, Film, Flag, GripVertical, Layers, Link2, Lock, LockOpen, Magnet, Mic, MoreHorizontal, MousePointer2, Music, Pencil, Plus, Scissors, Slice, Sticker,
+  Sparkles, Split, Square, StretchHorizontal, Trash2, Type, Undo2, Unlink, Volume2, VolumeX, Redo2, X, ZoomIn, ZoomOut, Captions, FxGlyph,
+} from '../icons.jsx';
+import { LAYERED, MARKER_COLORS, MIN_CLIP, clipLayer, effectObjects, formatTime, freeLen, isLayerLocked, layerCount, layerFree, layerName, layerOf, layerStateOf, markerColorHex, toFileUrl, trimActions, uid, videoClipAt, videoLayout, withFxTiming } from '../store.js';
+import { clipDuration, hasCurve, sourceOffsetAt, speedAtSource } from '../speedCurve.js';
+import { clipGainAt, hasVolKeys, removeVolKey, upsertVolKey, volKeyLocalPoints } from '../volKeys.js';
 import { animById, animOf, keyTimes, moveKeys } from '../anim.js';
 import { beatSplitTarget, beatsOf, formatBpm } from '../beats.js';
 import { filterName } from '../fx/filters.js';
 import { EFFECTS, TRANSITIONS } from '../effects.js';
-import { FILTERS, clipCss } from '../effects.js';
+import { FILTERS } from '../effects.js';
 import { activeDrag, isFiles, isInternal, laneFor, readPayload } from '../dnd.js';
 import { followScrollTarget, interpolateTime, playheadX } from '../playbackClock.js';
 import AudioMeter from './AudioMeter.jsx';
 import ContextMenu from './ContextMenu.jsx';
+import { bindingHint, getCurrentKeymap } from '../keymap.js';
 
-const HEADER = 192; // lane-head width: title + layer rows share one control grid (lock/eye/speaker/solo/more) and names get 60px
-const HEAD_TITLE_H = 22; // height of a lane head's title strip; layer control rows stack below it
+// Toolbar hint suffix for an action, from the CURRENT keymap — a remapped
+// action's button advertises its real key, an unbound one none at all.
+const keyHint = (id) => {
+  const h = bindingHint(getCurrentKeymap(), id);
+  return h ? ` (${h})` : '';
+};
+
+const HEADER = 224; // lane-head width: the layer name gets the room — the control cluster hides until hover/active (Hamza's screenshot review, 2026-11-10)
+const HEAD_TITLE_H = 0; // lane heads have no title strip (merged into the first layer row — Hamza's UI review, 2026-11-10); layer rows and bands start at the lane's top edge
 const ROW = 34; // height of one stacked row on the Effects / Text tracks
 const ROW_H = { overlay: 44, audio: 40 }; // taller layers for pictures and waveforms
 const rowOf = (lane) => ROW_H[lane] || ROW;
@@ -39,9 +49,13 @@ function stackRows(clips) {
   });
   return { rows, count: Math.max(1, ends.length) };
 }
+// Lane rows render top-to-bottom in this order. Stickers sit above Overlay to
+// match the render order: stickers composite over overlay clips in both the
+// preview and the export (Hamza's order, 2026-11-10).
 const LANES = [
   { id: 'effect', name: 'Effects', icon: Sparkles, noMagnet: true },
   { id: 'text', name: 'Text', icon: Type },
+  { id: 'sticker', name: 'Stickers', icon: Sticker },
   { id: 'overlay', name: 'Overlay', icon: Layers },
   { id: 'video', name: 'Main', icon: Film, main: true },
   { id: 'audio', name: 'Audio', icon: Music },
@@ -50,9 +64,10 @@ const LANES = [
 export default function Timeline({
   project, time, duration, selection, onSelect, onSeek, dispatch, onSplit, onDelete, onDuplicate,
   onDropItem, onDropFiles, canUndo, canRedo, tool, setTool, onTrimSide, onMarker, recorder, onToggleRecord, onClipMenu, overlay, onAddText, clockRef, playing,
-  onDetach, detachOk, onLinkToggle, linkMode, onDetectBeats, onSplitBeats,
+  onDetach, detachOk, onLinkToggle, linkMode, onDetectBeats, onSplitBeats, silenceMarks,
 }) {
   const [pps, setPps] = useState(60); // pixels per second (zoom)
+  const [insertMode, setInsertMode] = useState(false); // Sprint 10: drops ripple-insert instead of placing
   const [drop, setDrop] = useState(null); // { lane, time, index, clipId }
   const [snapAt, setSnapAt] = useState(null); // timeline time of the active snap guide
   const [trimHud, setTrimHud] = useState(null); // { x, text } readout chip while an edge is dragged
@@ -65,6 +80,7 @@ export default function Timeline({
   ppsRef.current = pps;
   const [razorAt, setRazorAt] = useState(null); // where the razor would cut (hover guide)
   const [layerMenu, setLayerMenu] = useState(null); // { x, y, track, layer } — layer (track) header menu, item 13
+  const [markerMenu, setMarkerMenu] = useState(null); // { x, y, marker } — marker colour / bulk-delete menu (step 5)
   const [renaming, setRenaming] = useState(null); // { track, layer, draft } — inline layer rename
   // Right-click on a lane header: the layer under the pointer (header rows share the lane's
   // geometry), or the main track itself for the Main lane.
@@ -112,6 +128,20 @@ export default function Timeline({
       'sep',
       { label: 'Delete layer', icon: Trash2, disabled: st.locked, hint: 'Unlock the layer first',
         onClick: () => dispatch({ type: 'deleteLayer', track: m.track, layer: m.layer }) });
+    // Lane-level actions that lived on the old title strip (merged into the
+    // first layer row in Hamza's 2026-11-10 UI review): adding a layer. Same
+    // handler the strip's button called. The per-lane magnet entries were
+    // removed in the P4 structure pass — snapping is ONE global toggle in the
+    // timeline toolbar (the Magnet button); the store keeps its per-track
+    // ripple defaults (text stays un-magnetised so captions keep timing).
+    const laneDef = LANES.find((l) => l.id === m.track);
+    const extras = [];
+    if (LAYERED[m.track]) {
+      extras.push(m.track === 'text' && onAddText
+        ? { label: 'Add text at the playhead', icon: Plus, onClick: () => onAddText({ text: 'Add text' }) }
+        : { label: `Add a ${laneDef.name.toLowerCase()} layer`, icon: Plus, onClick: () => dispatch({ type: 'addLayer', track: m.track }) });
+    }
+    if (extras.length) items.push('sep', ...extras);
     return items;
   };
   // ---- Reorder layers by dragging a header row (Stage C) ----
@@ -140,13 +170,17 @@ export default function Timeline({
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
   };
-  // One header control row per layer (below the lane's title strip): lock, visibility,
-  // mute + solo on sound-carrying lanes, and the layer menu — the reference's pattern in
-  // our icon language. Rows line up with the layer bands in the lane body.
-  const layerCtlRow = (lane, layer, displayRow) => {
+  // One header control row per layer: lock, visibility, mute + solo on
+  // sound-carrying lanes, and the layer menu — the reference's pattern in our
+  // icon language. Rows line up with the layer bands in the lane body. The
+  // FIRST row of each lane is the merged header (Hamza's UI review,
+  // 2026-11-10): it also carries the lane icon beside the layer name, so a
+  // lane no longer spends a second strip repeating its group name.
+  const layerCtlRow = (lane, layer, displayRow, headIcon) => {
     const st = layerStateOf(project, lane, layer);
     const audioCap = lane === 'audio' || lane === 'video' || lane === 'overlay';
     const name = layerName(project, lane, layer);
+    const HeadIcon = headIcon;
     const dragHere = layerDrag && layerDrag.track === lane && layerDrag.overRow === displayRow;
     return (
       <div key={layer} className={`tl-layer-row ${st.locked ? 'locked' : ''} ${st.hidden ? 'is-hidden' : ''} ${dragHere ? 'drop-hint' : ''}`}
@@ -157,7 +191,15 @@ export default function Timeline({
         ) : (
           <span className="tl-grip-slot" aria-hidden="true" />
         )}
-        <span className="tl-layer-name" title={name}>{name}</span>
+        {renaming && renaming.track === lane && renaming.layer === layer && !LAYERED[lane]
+          ? layerRenameInput(lane, layer)
+          : (
+            <span className="tl-layer-name" title={name}>
+              {HeadIcon && <HeadIcon size={13} aria-hidden="true" className="tl-icon" />}
+              <span className="tl-layer-text">{name}</span>
+            </span>
+          )}
+        <span className="tl-ctls">
         <button className={`tl-ctl ${st.locked ? 'on lock' : ''}`} aria-pressed={st.locked}
           aria-label={`${st.locked ? 'Unlock' : 'Lock'} layer ${name}`} title={st.locked ? 'Unlock layer' : 'Lock layer: clips cannot be selected or edited'}
           onClick={() => setLayer(lane, layer, { locked: !st.locked })}>{st.locked ? <Lock size={12} /> : <LockOpen size={12} />}</button>
@@ -180,14 +222,17 @@ export default function Timeline({
         )}
         <button className="tl-ctl" aria-label={`Layer menu for ${name}`} title="Layer menu"
           onClick={(e) => setLayerMenu({ x: e.clientX, y: e.clientY, track: lane, layer })}><MoreHorizontal size={12} /></button>
+        </span>
       </div>
     );
   };
   // The layers of a lane in display order (top row first), as control rows for the head.
-  const layerCtlRows = (lane) => {
-    if (!LAYERED[lane]) return [layerCtlRow(lane, 0, 0)];
+  // The top row gets the lane's icon: it is the lane's one header row.
+  const layerCtlRows = (l) => {
+    const lane = l.id;
+    if (!LAYERED[lane]) return [layerCtlRow(lane, 0, 0, l.icon)];
     const count = layerCount(project, lane);
-    return Array.from({ length: count }, (_, row) => layerCtlRow(lane, rowToLayer(lane, row, count), row));
+    return Array.from({ length: count }, (_, row) => layerCtlRow(lane, rowToLayer(lane, row, count), row, row === 0 ? l.icon : null));
   };
   // The inline rename field (a plain render helper, not a component, so the input keeps focus
   // across keystrokes). Enter/blur commits, Esc cancels; an empty name restores the default.
@@ -236,16 +281,16 @@ export default function Timeline({
     // The layer under the pointer, for what lands on that lane's own kind of clips.
     const at = LAYERED[overLane] ? { layerLane: overLane, layer: layerAtY(overLane, laneEl, e.clientY) } : {};
     // Videos and photos dropped on the Overlay lane become picture-in-picture clips.
-    if ((lane === 'video' || lane === 'files') && overLane === 'overlay') return { lane: 'overlay', time: t, ...at };
-    const info = { lane, time: t, ...at };
+    if ((lane === 'video' || lane === 'files') && overLane === 'overlay') return { lane: 'overlay', time: t, insert: insertMode, ...at };
+    const info = { lane, time: t, insert: insertMode, ...at };
     if (lane === 'video' || lane === 'files') {
       info.index = layout.filter((l) => (l.start + l.end) / 2 < t).length;
       info.at = info.index < layout.length ? layout[info.index].start : layout.length ? layout[layout.length - 1].end : 0;
     }
     if (lane === 'clip') {
       // An effect dropped on the Effects lane becomes a free effect there.
-      if (activeDrag()?.kind === 'effect' && overLane === 'effect') return { lane: 'effect', time: t };
-      if (overLane !== 'video') return { lane, time: t };
+      if (activeDrag()?.kind === 'effect' && overLane === 'effect') return { lane: 'effect', time: t, insert: insertMode };
+      if (overLane !== 'video') return { lane, time: t, insert: insertMode };
       const hit = layout.filter((l) => t >= l.start && t < l.end).pop();
       if (hit) info.clipId = hit.clip.id;
     }
@@ -309,6 +354,29 @@ export default function Timeline({
     });
   };
 
+  // Volume keyframe drag (Sprint 10): a point on a clip's volume line drags
+  // in time (horizontal) and gain (vertical, read off the line's own box).
+  // Every move recomputes from the gesture-start clip — the generic drag
+  // wrapper folds the whole drag into one undo step, exactly like the
+  // keyframe-diamond drags. A double-click on a point removes it (wired in
+  // VolLine); points are added in the inspector's volume editor.
+  const startVolDrag = (e, track, clip, key, len) => {
+    if (e.button !== 0) return;
+    if (trackLocked(track, clip)) return;
+    const svg = e.currentTarget.closest('svg');
+    const base = removeVolKey(clip, key.t, 0.05);
+    const baseClip = base ? { ...clip, volKeys: base } : clip;
+    drag(e, (d, ev) => {
+      const lt = clamp(key.lt + d, 0, len);
+      let v = key.v;
+      if (svg) {
+        const r = svg.getBoundingClientRect();
+        if (r.height > 0) v = clamp(2 * (1 - (ev.clientY - r.top) / r.height), 0, 2);
+      }
+      dispatch({ type: 'update', track, id: clip.id, patch: { volKeys: upsertVolKey(baseClip, lt, Math.round(v * 100) / 100) } });
+    });
+  };
+
   // Snapping: pull a dragged clip's start or end (or a razor cut) to a nearby edge: other clips, markers,
   // beat markers (when a beat grid is on the project), the playhead, zero. Every caller gates on
   // project.snapping, so the beats join snapping exactly while the toggle is on.
@@ -340,7 +408,7 @@ export default function Timeline({
   };
 
   // Where a clip starts and how long it is, per track — the same expressions the lanes render with.
-  const TRACK_ARRAY = { text: 'textClips', effect: 'effectClips', audio: 'audioClips', overlay: 'overlayClips' };
+  const TRACK_ARRAY = { text: 'textClips', effect: 'effectClips', audio: 'audioClips', overlay: 'overlayClips', sticker: 'stickerClips' };
   const clipSpan = (p, track, id) => {
     if (track === 'video') {
       const l = videoLayout(p.videoClips).find((x) => x.clip.id === id);
@@ -479,7 +547,20 @@ export default function Timeline({
         // content slipped — the clip collapsed instead of trimming.)
         dispatch({ type: 'trimClip', track: 'video', id: clip.id, edge: mode, delta: mode === 'left' ? d : -d });
       } else if (mode === 'right') {
-        dispatch({ type: 'update', track: 'video', id: clip.id, patch: { out: clamp(o.out + d * sp, o.in + MIN_CLIP * sp, isImage ? 3600 : media.duration) } });
+        if (hasCurve(o)) {
+          // Ramped clip: the edge tracks the pointer in timeline seconds; the
+          // new source end is the curve integral of the target length (past the
+          // current end it extrapolates at the tail rate). The store slices
+          // the curve to the new window.
+          const lay = layout.find((l) => l.clip.id === clip.id);
+          const curLen = lay ? lay.end - lay.start : 0;
+          const target = Math.max(MIN_CLIP, curLen + d);
+          const span = o.out - o.in;
+          const newSpan = target <= curLen ? sourceOffsetAt(o, target) : span + (target - curLen) * speedAtSource(o, span);
+          dispatch({ type: 'update', track: 'video', id: clip.id, patch: { out: clamp(o.in + newSpan, o.in + sourceOffsetAt(o, MIN_CLIP), isImage ? 3600 : media.duration) } });
+        } else {
+          dispatch({ type: 'update', track: 'video', id: clip.id, patch: { out: clamp(o.out + d * sp, o.in + MIN_CLIP * sp, isImage ? 3600 : media.duration) } });
+        }
       } else {
         // Reorder on the magnetic main track: drop index from the pointer position among the other clips.
         const others = videoLayout(project.videoClips.filter((c) => c.id !== clip.id));
@@ -566,7 +647,21 @@ export default function Timeline({
         const sp = o.speed || 1;
         const m = mediaById[o.mediaId];
         const len = m?.type === 'image' ? Infinity : m?.duration ?? o.out;
-        if (mode === 'left') {
+        if (hasCurve(o)) {
+          // Ramped clip: convert through the curve integral (edge rates when
+          // extending); the store slices the curve to the new window.
+          const lenT = freeLen(track, o);
+          const span = o.out - o.in;
+          if (mode === 'left') {
+            const dd = clamp(d, -Math.min(o.in / speedAtSource(o, 0), o.start), lenT - MIN_CLIP);
+            const srcDelta = dd >= 0 ? sourceOffsetAt(o, dd) : dd * speedAtSource(o, 0);
+            patch = { in: o.in + srcDelta, start: o.start + dd };
+          } else {
+            const target = Math.max(MIN_CLIP, lenT + d);
+            const newSpan = target <= lenT ? sourceOffsetAt(o, target) : span + (target - lenT) * speedAtSource(o, span);
+            patch = { out: clamp(o.in + newSpan, o.in + sourceOffsetAt(o, MIN_CLIP), len) };
+          }
+        } else if (mode === 'left') {
           const dd = clamp(d, -Math.min(o.in / sp, o.start), (o.out - o.in) / sp - MIN_CLIP);
           patch = { in: o.in + dd * sp, start: o.start + dd };
         } else patch = { out: clamp(o.out + d * sp, o.in + MIN_CLIP * sp, len) };
@@ -701,13 +796,40 @@ export default function Timeline({
   };
 
   const markerEls = markers.map((m) => (
-    <button key={m.id} className="marker" style={{ left: m.time * pps }} aria-label={`Marker at ${formatTime(m.time)}`}
-      title={`Marker ${formatTime(m.time)}${m.label ? ` · ${m.label}` : ''}\nClick to jump here, double-click to remove`}
+    <button key={m.id} className="marker" style={{ left: m.time * pps, color: markerColorHex(m.color) }} aria-label={`Marker at ${formatTime(m.time)}`}
+      title={`Marker ${formatTime(m.time)}${m.label ? ` · ${m.label}` : ''}\nClick to jump here, double-click to remove, right-click for colour and bulk delete`}
       onPointerDown={(e) => e.stopPropagation()} onClick={() => onSeek(m.time)}
+      onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setMarkerMenu({ x: e.clientX, y: e.clientY, marker: m }); }}
       onDoubleClick={() => dispatch({ type: 'removeMarker', id: m.id })}>
       <Flag size={11} fill="currentColor" />
     </button>
   ));
+
+  // Marker menu (step 5): colour per marker, plus bulk delete — one marker,
+  // the markers inside the selected clip, or every marker on the ruler.
+  const markerMenuItems = (mm) => {
+    const m = mm.marker;
+    const items = MARKER_COLORS.map((c) => ({
+      label: `${(m.color || 'amber') === c.id ? '✓ ' : ''}Colour — ${c.name}`,
+      onClick: () => dispatch({ type: 'setMarkerColor', id: m.id, color: c.id }),
+    }));
+    items.push('sep', { label: 'Remove marker', onClick: () => dispatch({ type: 'removeMarker', id: m.id }) });
+    const selClip = selection && !selection.items
+      ? (project.videoClips || []).find((c) => selection.track === 'video' && c.id === selection.id)
+        || (project.overlayClips || []).find((c) => selection.track === 'overlay' && c.id === selection.id)
+        || (project.textClips || []).find((c) => selection.track === 'text' && c.id === selection.id)
+        || (project.audioClips || []).find((c) => selection.track === 'audio' && c.id === selection.id)
+      : null;
+    if (selClip) {
+      const end = selClip.start + (selection.track === 'video' ? (selClip.out - selClip.in) / (selClip.speed || 1) : selClip.duration || 0);
+      items.push({
+        label: 'Remove markers in selected clip',
+        onClick: () => dispatch({ type: 'removeMarkersInRange', from: selClip.start, to: end }),
+      });
+    }
+    items.push({ label: `Remove all markers (${markers.length})`, onClick: () => dispatch({ type: 'clearMarkers' }) });
+    return items;
+  };
 
   // Beat markers: a small violet diamond low in the ruler per beat of the grid —
   // visual only (not buttons): clicking the ruler still scrubs, and the grid is
@@ -720,10 +842,16 @@ export default function Timeline({
   const step = [0.5, 1, 2, 5, 10, 15, 30, 60].find((s) => s * pps >= 90) || 120;
   const ticks = [];
   for (let t = 0; t * pps < width; t += step) ticks.push(t);
+  // Minor ticks at a fifth of the label step — only once the majors sit far
+  // enough apart that the fifths stay readable (and the node count sane):
+  // scrubbing against a bare ruler between labels was guesswork at deep zoom.
+  const minorTicks = step * pps >= 180
+    ? ticks.flatMap((t) => [1, 2, 3, 4].map((k) => t + (k * step) / 5)).filter((t) => t * pps < width)
+    : [];
 
   // A selected clip that lives on a free track (everything but the main track), with its current values.
   const findFree = (it) => {
-    const key = { overlay: 'overlayClips', text: 'textClips', audio: 'audioClips', effect: 'effectClips' }[it.track];
+    const key = { overlay: 'overlayClips', text: 'textClips', audio: 'audioClips', effect: 'effectClips', sticker: 'stickerClips' }[it.track];
     return key ? (project[key] || []).find((c) => c.id === it.id) : null;
   };
   const laneClass = (id) => `tl-lane ${drop && (drop.lane === id || (drop.lane === 'files' && id === 'video')) ? 'drop-target' : ''}`;
@@ -734,6 +862,18 @@ export default function Timeline({
     const has = items.some((x) => x.track === track && x.id === id);
     onSelect(makeSelection(has ? items.filter((x) => !(x.track === track && x.id === id)) : [...items, { track, id }]));
   };
+  // Silence marks awaiting confirmation (10/10 step 4): App holds the
+  // detected ranges in TIMELINE seconds for one clip; a clip renders the
+  // slice of them that falls inside its own window, in clip-relative
+  // seconds for the Clip overlay.
+  const marksFor = (clipId, start, length) => {
+    if (!silenceMarks || silenceMarks.id !== clipId) return null;
+    const rel = (silenceMarks.ranges || [])
+      .map((r) => ({ start: Math.max(0, r.start - start), end: Math.min(length, r.end - start) }))
+      .filter((r) => r.end > r.start);
+    return rel.length ? rel : null;
+  };
+
   const common = { pps, selection, onMenu: onClipMenu, onToggle: toggleSel,
     layerStateFor: (track, clip) => layerStateOf(project, track, clipLayer(track, clip)) };
   // The filter of a picture clip as a chip on the clip, removable from the timeline.
@@ -751,6 +891,7 @@ export default function Timeline({
     return { rows, count };
   };
   const stacks = {
+    sticker: stackRows((project.stickerClips || []).map((c) => ({ id: c.id, start: c.start, duration: c.duration }))),
     effect: stackRows(fxObjects.map((o) => ({ id: o.key, start: o.start, duration: o.duration }))),
     text: layerRows('text', project.textClips),
     overlay: layerRows('overlay', overlays),
@@ -792,7 +933,7 @@ export default function Timeline({
         return (
           <Clip {...common} key={o.key} track={o.free ? 'effect free' : 'effect bound'} selTrack="effect" clip={o.free ? o.clip : { id: o.key }}
             start={o.start} length={o.duration} row={stacks.effect.rows[o.key]}
-            icon={<span className="clip-emoji">{e?.icon || '✨'}</span>} label={o.free ? e?.name || o.fx : `${e?.name || o.fx} · on clip`}
+            icon={<span className="clip-emoji"><FxGlyph group={e?.group} size={12} /></span>} label={o.free ? e?.name || o.fx : `${e?.name || o.fx} · on clip`}
             onDown={o.free ? (ev, mode) => startFreeDrag(ev, 'effect', o.clip, mode)
               : (ev, mode) => startBoundDrag(ev, o, mode)} />
         );
@@ -804,12 +945,26 @@ export default function Timeline({
         const len = freeLen('overlay', c);
         return (
           <Clip {...common} key={c.id} track="overlay" clip={c} start={c.start} length={len} row={stacks.overlay.rows[c.id]} rowH={rowOf('overlay')}
-            icon={<Layers size={12} />} label={m?.name ?? '?'} tags={lookTags('overlay', c)} onDown={(e, mode) => startFreeDrag(e, 'overlay', c, mode)}
+            icon={<Layers size={12} />} label={m?.name ?? '?'} lost={!!m?.missing} tags={lookTags('overlay', c)} onDown={(e, mode) => startFreeDrag(e, 'overlay', c, mode)}
             onKeyDrag={(e, t) => startKeyDrag(e, 'overlay', c, t, len, c.start)}>
             <Filmstrip m={m} clip={c} width={len * pps} pps={pps} />
+            {(hasVolKeys(c) || c.fadeIn > 0 || c.fadeOut > 0) && !c.muted && m?.hasAudio && (
+              <VolLine clip={c} len={len} pps={pps}
+                onDragPoint={(e, k) => startVolDrag(e, 'overlay', c, k, len)}
+                onRemovePoint={(k) => { const keys = removeVolKey(c, k.t, 0.05); if (keys) dispatch({ type: 'update', track: 'overlay', id: c.id, patch: { volKeys: keys } }); }} />
+            )}
           </Clip>
         );
       });
+    }
+    if (id === 'sticker') {
+      // Bundled stickers (10/10 step 3): free clips like text — drag moves, edges trim,
+      // the generic update/delete/duplicate actions resolve through TRACKS.
+      return (project.stickerClips || []).map((c) => (
+        <Clip {...common} key={c.id} track="sticker" clip={c} start={c.start} length={c.duration} row={stacks.sticker.rows[c.id]}
+          icon={<Sticker size={12} />} label={c.name || 'Sticker'}
+          onDown={(e, mode) => startFreeDrag(e, 'sticker', c, mode)} />
+      ));
     }
     if (id === 'text') {
       return project.textClips.map((c) => (
@@ -832,11 +987,17 @@ export default function Timeline({
             const sp = l.clip.speed || 1;
             return (
               <Clip {...common} key={l.clip.id} track="video" clip={l.clip} start={l.start} length={l.end - l.start}
-                label={videoLabel(l.clip, m)} dropHere={drop?.clipId === l.clip.id} tags={lookTags('video', l.clip)}
+                marks={marksFor(l.clip.id, l.start, l.end - l.start)}
+                label={videoLabel(l.clip, m)} lost={!!m?.missing} dropHere={drop?.clipId === l.clip.id} tags={lookTags('video', l.clip)}
                 onDown={(e, mode) => startVideoDrag(e, l.clip, mode)}
                 onKeyDrag={(e, t) => startKeyDrag(e, 'video', l.clip, t, l.end - l.start, l.start)}>
                 <Filmstrip m={m} clip={l.clip} width={(l.end - l.start) * pps} pps={pps} />
                 {m?.wave && !l.clip.muted && <ClipWave m={m} clip={l.clip} pps={pps} />}
+                {(hasVolKeys(l.clip) || l.clip.fadeIn > 0 || l.clip.fadeOut > 0) && !l.clip.muted && m?.hasAudio && (
+                  <VolLine clip={l.clip} len={l.end - l.start} pps={pps}
+                    onDragPoint={(e, k) => startVolDrag(e, 'video', l.clip, k, l.end - l.start)}
+                    onRemovePoint={(k) => { const keys = removeVolKey(l.clip, k.t, 0.05); if (keys) dispatch({ type: 'update', track: 'video', id: l.clip.id, patch: { volKeys: keys } }); }} />
+                )}
               </Clip>
             );
           })}
@@ -845,12 +1006,11 @@ export default function Timeline({
             const def = TRANSITIONS.find((t) => t.id === l.clip.transition.type);
             return (
               <button key={'tr' + l.clip.id} className={`tr-pill ${sel ? 'on' : ''}`}
-                style={{ left: l.start * pps, width: Math.max(22, l.trans * pps) }}
+                style={{ left: l.start * pps }}
                 title={`Transition: ${def?.name || l.clip.transition.type} · ${l.trans.toFixed(1)}s\nClick to edit it`}
                 aria-label={`Transition: ${def?.name || l.clip.transition.type}`} aria-pressed={sel}
                 onPointerDown={(e) => { e.stopPropagation(); onSelect({ track: 'transition', id: l.clip.id }); }}>
                 <ArrowLeftRight size={11} />
-                {l.trans * pps >= 74 && <span className="tr-pill-name">{def?.name || l.clip.transition.type}</span>}
               </button>
             );
           })}
@@ -862,13 +1022,24 @@ export default function Timeline({
     }
     return project.audioClips.map((c) => {
       const m = mediaById[c.mediaId];
-      const bg = m?.wave ? {
+      // Under a speed curve the strip is painted by WaveStrip (sampler-warped);
+      // the single linear background below stays for every other clip.
+      const warped = hasCurve(c) && m?.wave && m.duration > 0;
+      const bg = !warped && m?.wave ? {
         backgroundImage: `url("${toFileUrl(m.wave)}")`, backgroundRepeat: 'no-repeat',
         backgroundSize: `${(m.duration / (c.speed || 1)) * pps}px 70%`, backgroundPosition: `${(-c.in / (c.speed || 1)) * pps}px center`,
       } : null;
       return (
         <Clip {...common} key={c.id} track="audio" clip={c} start={c.start} length={freeLen('audio', c)} bg={bg} row={stacks.audio.rows[c.id]} rowH={rowOf('audio')}
-          icon={<Music size={12} />} label={m?.name ?? '?'} onDown={(e, mode) => startFreeDrag(e, 'audio', c, mode)} />
+          marks={marksFor(c.id, c.start, freeLen('audio', c))}
+          icon={<Music size={12} />} label={m?.name ?? '?'} lost={!!m?.missing} onDown={(e, mode) => startFreeDrag(e, 'audio', c, mode)}>
+          {warped && <WaveStrip m={m} clip={c} len={freeLen('audio', c)} pps={pps} />}
+          {!c.muted && (
+            <VolLine clip={c} len={freeLen('audio', c)} pps={pps}
+              onDragPoint={(e, k) => startVolDrag(e, 'audio', c, k, freeLen('audio', c))}
+              onRemovePoint={(k) => { const keys = removeVolKey(c, k.t, 0.05); if (keys) dispatch({ type: 'update', track: 'audio', id: c.id, patch: { volKeys: keys } }); }} />
+          )}
+        </Clip>
       );
     });
   };
@@ -893,19 +1064,19 @@ export default function Timeline({
       <div className="tl-toolbar">
         <div className="tool-group">
           <div className="seg-icons" role="group" aria-label="Timeline tool">
-            <IconBtn label="Select (V)" active={tool === 'select'} onClick={() => setTool('select')}><MousePointer2 size={16} /></IconBtn>
-            <IconBtn label="Razor: click a clip to cut it (B)" active={tool === 'razor'} onClick={() => setTool('razor')}><Slice size={16} /></IconBtn>
+            <IconBtn label={`Select${keyHint('toolSelect')}`} active={tool === 'select'} onClick={() => setTool('select')}><MousePointer2 size={16} /></IconBtn>
+            <IconBtn label={`Razor: click a clip to cut it${keyHint('toolRazor')}`} active={tool === 'razor'} onClick={() => setTool('razor')}><Slice size={16} /></IconBtn>
           </div>
           <div className="tool-cluster" role="group" aria-label="History">
-            <IconBtn label="Undo (Ctrl+Z)" onClick={() => dispatch({ type: 'undo' })} disabled={!canUndo}><Undo2 size={16} /></IconBtn>
-            <IconBtn label="Redo (Ctrl+Y)" onClick={() => dispatch({ type: 'redo' })} disabled={!canRedo}><Redo2 size={16} /></IconBtn>
+            <IconBtn label={`Undo${keyHint('undo')}`} onClick={() => dispatch({ type: 'undo' })} disabled={!canUndo}><Undo2 size={16} /></IconBtn>
+            <IconBtn label={`Redo${keyHint('redo')}`} onClick={() => dispatch({ type: 'redo' })} disabled={!canRedo}><Redo2 size={16} /></IconBtn>
           </div>
           <div className="tool-cluster" role="group" aria-label="Edit">
-            <IconBtn label="Split at playhead (S / Ctrl+B)" onClick={onSplit} disabled={!canSplit}><Scissors size={16} /></IconBtn>
-            <IconBtn label="Delete left of playhead (Q)" onClick={() => onTrimSide('left')} disabled={!canTrim('left')}><ArrowLeftToLine size={16} /></IconBtn>
-            <IconBtn label="Delete right of playhead (W)" onClick={() => onTrimSide('right')} disabled={!canTrim('right')}><ArrowRightToLine size={16} /></IconBtn>
-            <IconBtn label="Duplicate (Ctrl+D)" onClick={onDuplicate} disabled={!selection}><Copy size={16} /></IconBtn>
-            <IconBtn label="Delete (Del)" onClick={onDelete} disabled={!selection}><Trash2 size={16} /></IconBtn>
+            <IconBtn label={`Split at playhead${keyHint('split')}`} onClick={onSplit} disabled={!canSplit}><Scissors size={16} /></IconBtn>
+            <IconBtn label={`Delete left of playhead${keyHint('trimLeft')}`} onClick={() => onTrimSide('left')} disabled={!canTrim('left')}><ArrowLeftToLine size={16} /></IconBtn>
+            <IconBtn label={`Delete right of playhead${keyHint('trimRight')}`} onClick={() => onTrimSide('right')} disabled={!canTrim('right')}><ArrowRightToLine size={16} /></IconBtn>
+            <IconBtn label={`Duplicate${keyHint('duplicate')}`} onClick={onDuplicate} disabled={!selection}><Copy size={16} /></IconBtn>
+            <IconBtn label={`Delete${keyHint('remove')}`} onClick={onDelete} disabled={!selection}><Trash2 size={16} /></IconBtn>
           </div>
           {(detachOk || linkMode) && (
             <div className="tool-cluster" role="group" aria-label="Clip sound and link">
@@ -915,7 +1086,7 @@ export default function Timeline({
             </div>
           )}
           <div className="tool-cluster" role="group" aria-label="Mark">
-            <IconBtn label="Marker at playhead (M). Press again on a marker to remove it" onClick={onMarker}><Flag size={16} /></IconBtn>
+            <IconBtn label={`Marker at playhead${keyHint('marker')}. Press again on a marker to remove it`} onClick={onMarker}><Flag size={16} /></IconBtn>
           </div>
           <div className="tool-cluster" role="group" aria-label="Beats">
             <IconBtn label={beats.length ? `Beat markers on the ruler (${formatBpm(project.beats.bpm)}) — detect again` : 'Detect beats: listen to the soundtrack and mark its beats on the ruler'}
@@ -945,10 +1116,11 @@ export default function Timeline({
               <Mic size={15} />
             </button>
           )}
-          <IconBtn label={`Auto snapping: ${project.snapping ? 'ON' : 'OFF'}`} active={project.snapping}
-            onClick={() => dispatch({ type: 'setProject', patch: { snapping: !project.snapping }, transient: true })}><Target size={16} /></IconBtn>
+          <IconBtn label={`Snapping: ${project.snapping ? 'ON — drags snap to clip edges, the playhead and markers' : 'OFF'}`} active={project.snapping}
+            onClick={() => dispatch({ type: 'setProject', patch: { snapping: !project.snapping }, transient: true })}><Magnet size={16} /></IconBtn>
+          <IconBtn label={`Insert mode: ${insertMode ? 'ON — dropped clips push the track right' : 'OFF — dropped clips place normally'}`} active={insertMode}
+            onClick={() => setInsertMode((v) => !v)}><BetweenHorizontalStart size={16} /></IconBtn>
           </div>
-          <span className="tl-time"><b>{formatTime(time)}</b> / {formatTime(duration)}</span>
           <div className="tool-cluster" role="group" aria-label="View">
             <IconBtn label="Fit the project in the timeline" onClick={fit}><StretchHorizontal size={16} /></IconBtn>
             <IconBtn label="Zoom out (Ctrl + mouse wheel)" onClick={() => zoomTo(pps / 1.4)}><ZoomOut size={16} /></IconBtn>
@@ -971,6 +1143,9 @@ export default function Timeline({
             <div className="tl-ruler">
               {markerEls}
               {beatEls}
+              {minorTicks.map((t) => (
+                <div key={`minor-${t}`} className="tick minor" style={{ left: t * pps }} />
+              ))}
               {ticks.map((t) => (
                 <div key={t} className="tick" style={{ left: t * pps }}><span>{formatTime(t).slice(0, 5)}</span></div>
               ))}
@@ -978,40 +1153,16 @@ export default function Timeline({
           </div>
 
           {LANES.filter((l) => l.id !== 'effect' || fxObjects.length || activeDrag()?.kind === 'effect').map((l) => {
-            const Icon = l.icon;
             return (
               <div key={l.id} className={`tl-row ${l.main ? 'main' : ''}`} style={{ height: rowHeight(l.id) }}>
                 <div className="tl-head" data-lane={l.id}
                   onContextMenu={(LAYERED[l.id] || l.id === 'video' || l.id === 'effect') ? (e) => openLayerMenu(e, l.id) : undefined}>
-                  <div className="tl-title-row">
-                    <Icon size={14} aria-hidden="true" className="tl-icon" /> <span className="tl-name" title={l.name}>{renaming && renaming.track === l.id && l.id === 'video' ? layerRenameInput(l.id, 0) : l.name}</span>
-                    {/* The title row shares the layer rows' control grid: cell 1 = add,
-                        cell 2 (the eye column) = magnet, the rest stay empty slots. */}
-                    {LAYERED[l.id] ? (l.id === 'text' && onAddText ? (
-                      <button className="layer-add" title="Add text at the playhead" aria-label="Add text at the playhead"
-                        onClick={() => onAddText({ text: 'Add text' })}><Plus size={13} /></button>
-                    ) : (
-                      <button className="layer-add" title={`Add a ${l.name.toLowerCase()} layer`} aria-label={`Add a ${l.name} layer`}
-                        onClick={() => dispatch({ type: 'addLayer', track: l.id })}><Plus size={13} /></button>
-                    )) : (
-                      <span className="tl-ctl-slot" aria-hidden="true" />
-                    )}
-                    {!l.noMagnet ? <button className={`magnet-btn ${magnet[l.id] ? 'on' : ''}`} aria-pressed={!!magnet[l.id]}
-                      aria-label={`${l.name} magnet ${magnet[l.id] ? 'on' : 'off'}`}
-                      title={`${l.name} magnet: ${magnet[l.id] ? 'ON' : 'OFF'}\n${l.id === 'video'
-                        ? (magnet[l.id] ? 'Clips close up after a delete or trim' : 'Deleting or trimming leaves a gap')
-                        : (magnet[l.id] ? 'Delete and trim close the gap' : 'Free placement, nothing moves')}`}
-                      onClick={() => dispatch({ type: 'setMagnet', track: l.id, on: !magnet[l.id] })}>
-                      <Magnet size={13} />
-                    </button> : (
-                      <span className="tl-ctl-slot" aria-hidden="true" />
-                    )}
-                    <span className="tl-ctl-slot" aria-hidden="true" />
-                    <span className="tl-ctl-slot" aria-hidden="true" />
-                    <span className="tl-ctl-slot" aria-hidden="true" />
-                  </div>
+                  {/* One header row per layer, no title strip (Hamza's UI review,
+                      2026-11-10): the first row carries the lane icon + the layer
+                      name + the lock/eye/solo/menu controls. Add-layer and the
+                      lane magnet live in the layer menu now (layerMenuItems). */}
                   <div className="tl-layer-stack">
-                    {layerCtlRows(l.id)}
+                    {layerCtlRows(l)}
                   </div>
                 </div>
                 <div className={laneClass(l.id)} data-lane={l.id} onPointerDown={startBox}>
@@ -1025,7 +1176,7 @@ export default function Timeline({
             );
           })}
 
-          {markers.map((m) => <div key={m.id} className="marker-line" style={{ left: HEADER + m.time * pps }} />)}
+          {markers.map((m) => <div key={m.id} className="marker-line" style={{ left: HEADER + m.time * pps, background: `${markerColorHex(m.color)}73` }} />)}
           {beats.map((t, i) => <div key={`beatline-${i}`} className="beat-line" style={{ left: HEADER + t * pps }} />)}
           {tool === 'razor' && razorAt != null && <div className="razor-line" style={{ left: HEADER + razorAt * pps }} />}
           {tool === 'razor' && razorAt != null && <div className="razor-time" style={{ left: HEADER + razorAt * pps }}>{formatTime(razorAt)}</div>}
@@ -1041,6 +1192,8 @@ export default function Timeline({
       <AudioMeter active={playing} />
       {layerMenu && <ContextMenu x={layerMenu.x} y={layerMenu.y} items={layerMenuItems(layerMenu)}
         onClose={() => setLayerMenu(null)} label="Layer menu" />}
+      {markerMenu && <ContextMenu x={markerMenu.x} y={markerMenu.y} items={markerMenuItems(markerMenu)}
+        onClose={() => setMarkerMenu(null)} label="Marker menu" />}
     </section>
   );
 }
@@ -1073,13 +1226,13 @@ function RecMeter({ analyserRef }) {
   return <span className="rec-meter" aria-hidden="true"><span className="rec-meter-fill" ref={fillRef} /></span>;
 }
 
-function Clip({ pps, selection, track, selTrack, clip, start, length, label, icon, bg, dropHere, onDown, row, rowH = ROW, children, onMenu, onToggle, tags, onKeyDrag, layerStateFor }) {
+function Clip({ pps, selection, track, selTrack, clip, start, length, label, icon, bg, dropHere, onDown, row, rowH = ROW, children, onMenu, onToggle, tags, onKeyDrag, layerStateFor, marks, lost }) {
   const st = selTrack || track;
   const selected = isSelected(selection, st, clip.id);
   const lst = layerStateFor ? layerStateFor(st, clip) : null;
   const stacked = row !== undefined ? { top: HEAD_TITLE_H + row * rowH, bottom: 'auto', height: rowH - 4 } : null;
   return (
-    <div className={`clip ${track} ${selected ? 'selected' : ''} ${dropHere ? 'drop-here' : ''} ${clip.disabled ? 'off' : ''} ${clip.slot && !clip.gap ? 'replaceable' : ''} ${lst?.locked ? 'locked' : ''} ${lst?.hidden ? 'layer-hidden' : ''}`}
+    <div className={`clip ${track} ${selected ? 'selected' : ''} ${dropHere ? 'drop-here' : ''} ${clip.disabled ? 'off' : ''} ${lst?.locked ? 'locked' : ''} ${lst?.hidden ? 'layer-hidden' : ''} ${lost ? 'lost' : ''}`}
       style={{ left: start * pps, width: Math.max(6, length * pps), ...stacked }}
       data-sel-track={st} data-sel-id={clip.id}
       onPointerDown={(e) => {
@@ -1087,12 +1240,16 @@ function Clip({ pps, selection, track, selTrack, clip, start, length, label, ico
         // Ctrl / Shift + click adds the clip to the selection (or takes it out).
         if ((e.ctrlKey || e.shiftKey || e.metaKey) && onToggle) { e.stopPropagation(); onToggle(st, clip.id); return; }
         onDown(e, 'move');
-      }} title={clip.disabled ? `${label} (deactivated)` : label}
+      }} title={lost ? `${label} — media not found` : clip.disabled ? `${label} (deactivated)` : label}
       onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onMenu?.(e, st, clip); }}>
       {bg && <div className="clip-bg" style={bg} />}
       {children}
+      {marks && marks.map((mk, i) => (
+        <div key={i} className="silence-range" title="Silence — removed when you confirm"
+          style={{ left: `${(mk.start / length) * 100}%`, width: `${Math.max(1.5, ((mk.end - mk.start) / length) * 100)}%` }} />
+      ))}
       <div className="handle left" onPointerDown={(e) => e.button === 0 && onDown(e, 'left')} />
-      <span className="clip-label">{clip.slot && !clip.gap && <span className="rep-badge" title="Replaceable: people put their own video here when they use the template">⇄</span>}{icon}<bdi>{label}</bdi>
+      <span className="clip-label">{icon}<bdi>{label}</bdi>{lost && <span className="clip-lost-tag">Media not found</span>}
       {tags?.length > 0 && (
         <span className="clip-tags">
           {tags.map((t) => (
@@ -1136,19 +1293,24 @@ const MAX_TILES = 400;
 // position on the timeline (follows trim, speed and zoom). Uses the sprite from makeVisuals.
 function Filmstrip({ m, clip, width, pps }) {
   if (!m) return null;
-  const look = { filter: clipCss(clip) || undefined, transform: clip.effects?.includes('mirror') && !clip.fxRegions?.mirror && !clip.fxTiming?.mirror && !(clip.fxStrength?.mirror != null && clip.fxStrength.mirror < 1) ? 'scaleX(-1)' : undefined };
+  // Lost source (Part 3, 2026-11-10): no cached frames stand in for a file
+  // that is gone — the strip renders as the red lost hatch instead.
+  if (m.missing) return <div className="filmstrip lost" />;
+  // Thumbnails show the source frame as-is. They used to approximate the clip's Adjust
+  // settings / classic effects with a CSS filter, but that approximation was a second,
+  // divergent look engine (Sprint 6 removed it): the stage preview and the export are
+  // the surfaces that promise the look, and both draw it through the shader passes.
   if (m.type === 'image') {
-    return <div className="filmstrip" style={{ ...look, backgroundImage: `url("${toFileUrl(m.path)}")`, backgroundSize: `auto ${THUMB_H}px`, backgroundRepeat: 'repeat-x' }} />;
+    return <div className="filmstrip" style={{ backgroundImage: `url("${toFileUrl(m.path)}")`, backgroundSize: `auto ${THUMB_H}px`, backgroundRepeat: 'repeat-x' }} />;
   }
   if (!m.thumb || !m.thumbCount) return <div className="filmstrip loading" />;
   const tileW = (THUMB_H * m.thumbW) / m.thumbH;
   const n = Math.min(MAX_TILES, Math.ceil(width / tileW));
-  const sp = clip.speed || 1;
   const url = `url("${toFileUrl(m.thumb)}")`;
   const tiles = [];
   for (let k = 0; k < n; k++) {
     const x = k * tileW;
-    const t = clip.in + ((x + tileW / 2) / pps) * sp;
+    const t = clip.in + sourceOffsetAt(clip, (x + tileW / 2) / pps);
     const idx = Math.max(0, Math.min(m.thumbCount - 1, Math.floor(t / m.thumbInterval)));
     tiles.push(
       <div key={k} className="tile-frame" style={{
@@ -1157,11 +1319,86 @@ function Filmstrip({ m, clip, width, pps }) {
       }} />
     );
   }
-  return <div className="filmstrip" style={look}>{tiles}</div>;
+  return <div className="filmstrip">{tiles}</div>;
+}
+
+// A waveform strip warped by the clip's speed curve. The single background
+// strip every clip used to get maps source time linearly; under a curve that
+// misplaces where sounds fall (the Sprint 4 approximation, documented there).
+// The strip is cut into segments and each segment paints its own slice of
+// the media waveform scaled through the shared sampler — sourceOffsetAt is
+// the same map the playhead, the filmstrip tiles and the export consume, so
+// the strip now agrees with all three. Display only: nothing here feeds
+// playback or export.
+const WAVE_SEG_PX = 56; // target segment width on screen
+const WAVE_SEG_MAX = 48; // and never more segments than this per strip
+function WaveStrip({ m, clip, len, pps }) {
+  const n = Math.max(1, Math.min(WAVE_SEG_MAX, Math.ceil((len * pps) / WAVE_SEG_PX)));
+  const segs = [];
+  for (let j = 0; j < n; j++) {
+    const t0 = (len * j) / n;
+    const t1 = (len * (j + 1)) / n;
+    const s0 = clip.in + sourceOffsetAt(clip, t0);
+    const s1 = clip.in + sourceOffsetAt(clip, t1);
+    if (!(s1 > s0)) continue;
+    const pxPerSrc = ((t1 - t0) * pps) / (s1 - s0); // px per source second inside this segment
+    segs.push(
+      <div key={j} className="wave-seg" style={{
+        left: t0 * pps, width: (t1 - t0) * pps,
+        backgroundImage: `url("${toFileUrl(m.wave)}")`,
+        backgroundSize: `${m.duration * pxPerSrc}px 100%`,
+        backgroundPosition: `${-s0 * pxPerSrc}px 0`,
+      }} />
+    );
+  }
+  return <div className="wave-strip">{segs}</div>;
+}
+
+// The volume line on a sounding clip (Sprint 10): the clip's effective gain
+// trace — volume keyframes (or plain volume) times the fade envelope, the
+// src/volKeys.js clipGainAt the preview plays and the export renders — drawn
+// across the clip's foot. Keyframe points ride on it: drag one to move it in
+// time and gain (one undo step), double-click one to remove it. The line
+// itself never takes pointer events, so every existing clip gesture keeps
+// the surface; only the points are grabbable.
+function VolLine({ clip, len, pps, onDragPoint, onRemovePoint }) {
+  if (!(len > 0)) return null;
+  const H = 30;
+  const W = Math.max(2, len * pps);
+  const Y = (g) => H - (Math.min(2, Math.max(0, g)) / 2) * (H - 4) - 2;
+  const keys = volKeyLocalPoints(clip).filter((k) => k.lt >= -1e-6 && k.lt <= len + 1e-6);
+  const samples = [];
+  const N = 24;
+  for (let i = 0; i <= N; i++) samples.push((len * i) / N);
+  for (const k of keys) samples.push(Math.min(len, Math.max(0, k.lt)));
+  samples.sort((a, b) => a - b);
+  const path = samples
+    .map((lt, i) => `${i ? 'L' : 'M'}${(lt * pps).toFixed(1)},${Y(clipGainAt(clip, lt, len)).toFixed(1)}`)
+    .join(' ');
+  return (
+    <svg className="vol-line" width={W} height={H} viewBox={`0 0 ${W} ${H}`} aria-hidden="true">
+      <path d={path} className="vol-line-path" />
+      {keys.map((k) => (
+        <circle key={k.t} cx={Math.min(len, Math.max(0, k.lt)) * pps} cy={Y(clipGainAt(clip, k.lt, len))} r={3.4}
+          className="vol-key" role="button" aria-label={`Volume keyframe ${Math.round(k.v * 100)} percent`}
+          onPointerDown={(e) => onDragPoint(e, k)}
+          onDoubleClick={(e) => { e.stopPropagation(); onRemovePoint(k); }}>
+          <title>Volume keyframe · drag to move, double-click to remove</title>
+        </circle>
+      ))}
+    </svg>
+  );
 }
 
 // Audio waveform strip under a video clip (follows trim and speed).
 function ClipWave({ m, clip, pps }) {
+  if (hasCurve(clip) && m.duration > 0) {
+    return (
+      <div className="clip-wave">
+        <WaveStrip m={m} clip={clip} len={clipDuration(clip)} pps={pps} />
+      </div>
+    );
+  }
   const sp = clip.speed || 1;
   return (
     <div className="clip-wave" style={{
@@ -1173,7 +1410,8 @@ function ClipWave({ m, clip, pps }) {
 
 function videoLabel(clip, m) {
   const tags = [];
-  if ((clip.speed || 1) !== 1) tags.push(`${clip.speed}×`);
+  if (hasCurve(clip)) tags.push('speed curve');
+  else if ((clip.speed || 1) !== 1) tags.push(`${clip.speed}×`);
   if (clip.effects?.length) tags.push(`${clip.effects.length} effect${clip.effects.length > 1 ? 's' : ''}`);
   if (clip.muted) tags.push('muted');
   return [m?.name ?? '?', ...tags].join(' · ');

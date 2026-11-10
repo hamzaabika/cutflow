@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { RotateCw } from 'lucide-react';
+import { RotateCw } from '../icons.jsx';
 import { clipLen, freeLen, videoLayout } from '../store.js';
 import { transformOf } from '../visual.js';
 import { pictureGeometry } from '../pictureGeometry.js';

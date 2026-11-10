@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { samplePhotoUrl, samplePictureUrl } from '../fx/previews.jsx';
 import { filterExpr } from '../fx/filters.js';
+import { FX_THUMB } from '../fx/thumbIndex.js';
 import { getLut, loadLut, onLutLoaded } from '../fx/lut.js';
 import { fxGL } from '../fx/gl.js';
 
@@ -34,7 +35,18 @@ function sourceCanvas(seedKey = 'default') {
 }
 
 // One tile picture: the source with the filter (or the LUT) applied by the same GPU pass the player uses.
+// Step 5: bundled filters and LUTs have a GENERATED still (the same look rendered
+// by the CPU reference renderer over the standard sample frame —
+// scripts/gen-fx-thumbs.mjs), painted as an <img>; only looks without a still
+// (user-imported LUT files) take the live canvas path below.
 export function LookThumb({ filterId, lutRef }) {
+  const stillKey = lutRef?.bundled ? `lut:${lutRef.bundled}` : filterId ? `filter:${filterId}` : null;
+  const stillUrl = stillKey ? FX_THUMB[stillKey] : null;
+  if (stillUrl) return <img src={stillUrl} alt="" draggable={false} className="look-thumb" aria-hidden="true" />;
+  return <LookThumbLive filterId={filterId} lutRef={lutRef} />;
+}
+
+function LookThumbLive({ filterId, lutRef }) {
   const ref = useRef(null);
   const [tick, setTick] = useState(0);
   useEffect(() => (lutRef ? onLutLoaded(() => setTick((n) => n + 1)) : undefined), [lutRef]);

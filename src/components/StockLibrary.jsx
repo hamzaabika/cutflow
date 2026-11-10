@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ExternalLink, Image as ImageIcon, KeyRound, Layers, Loader2, Plus, Search, Video, WifiOff, X } from 'lucide-react';
+import { ExternalLink, Image as ImageIcon, KeyRound, Layers, Loader2, Plus, Search, Video, WifiOff, X } from '../icons.jsx';
 import { formatTime, toFileUrl } from '../store.js';
 import { FavStar, favStock } from '../favorites.jsx';
 
@@ -37,7 +37,7 @@ export function Thumb({ url, alt }) {
 }
 
 // Stock photos and videos from Pixabay.
-export default function StockLibrary({ onStockAdd, onOpenSettings, hasKey, kind = 'video', chip = 'Trending' }) {
+export default function StockLibrary({ onStockAdd, onOpenSettings, hasKey, kind = 'video', chip = 'Trending', onKindChange }) {
   const [q, setQ] = useState('');
   const [orientation, setOrientation] = useState('');
   const [res, setRes] = useState({ results: [], page: 0, pages: 0, loading: false, error: '' });
@@ -96,6 +96,12 @@ export default function StockLibrary({ onStockAdd, onOpenSettings, hasKey, kind 
         )}
       </div>
       <form className="lib-search" onSubmit={(e) => { e.preventDefault(); load(1); }}>
+        {onKindChange && (
+          <select className="stock-kind-select" value={kind} aria-label="Stock kind" onChange={(e) => onKindChange(e.target.value)}>
+            <option value="video">Videos</option>
+            <option value="photo">Photos</option>
+          </select>
+        )}
         <Search size={14} aria-hidden="true" />
         <input type="search" value={q} placeholder={kind === 'video' ? 'Search all stock videos' : 'Search all stock photos'} aria-label="Search stock media"
           onChange={(e) => setQ(e.target.value)} />

@@ -1,19 +1,23 @@
 import React, { useState } from 'react';
-import { Gauge } from 'lucide-react';
+import { Gauge } from '../icons.jsx';
 import { formatTime } from '../store.js';
+import { clipDuration, hasCurve } from '../speedCurve.js';
 
 // Speed / Duration for one clip (clip menu): the clip's constant speed, edited either as
 // a percentage or as the timeline duration it should end up with. This is NOT speed
 // ramping — the whole clip plays at the one rate, exactly like the inspector's Speed tab.
 // A linked audio partner follows automatically (the store keeps pairs in sync).
+// A clip WITH a speed curve: applying here replaces the curve with the constant rate
+// (the store enforces it); the duration field starts from the curve's real duration.
 const PRESETS = [25, 50, 75, 100, 125, 150, 200, 400];
 const clampSpeed = (s) => Math.min(16, Math.max(0.05, s));
 
 export default function SpeedDialog({ clip, name, onApply, onClose }) {
   const sourceLen = (clip.out - clip.in); // seconds of source the clip plays
+  const curved = hasCurve(clip);
   const cur = clip.speed || 1;
   const [pct, setPct] = useState(Math.round(cur * 100));
-  const [dur, setDur] = useState((sourceLen / cur).toFixed(2));
+  const [dur, setDur] = useState((curved ? clipDuration(clip) : sourceLen / cur).toFixed(2));
   const speed = clampSpeed((Number(pct) || 100) / 100);
 
   const setFromPct = (v) => {
@@ -53,6 +57,9 @@ export default function SpeedDialog({ clip, name, onApply, onClose }) {
           Source used: {formatTime(sourceLen)} · plays in {formatTime(sourceLen / speed)}
           {clip.linkId ? ' · the linked audio follows' : ''}
         </p>
+        {curved && (
+          <p className="muted">This clip currently plays with a speed curve (Inspector ▸ Speed). Applying a constant speed replaces the curve; the source range stays.</p>
+        )}
         <div className="modal-actions">
           <button className="btn" onClick={onClose}>Cancel</button>
           <button className="btn btn-primary" onClick={() => { onApply(speed); onClose(); }}>Apply</button>

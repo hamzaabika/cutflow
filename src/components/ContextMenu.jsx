@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight } from '../icons.jsx';
 
 // Floating menu at (x, y). items: [{ label, icon, shortcut, onClick, disabled, hint } |
 // { label, icon, submenu: [items], disabled, hint } | 'sep'].

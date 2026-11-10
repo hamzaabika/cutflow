@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Layers, Loader2, Plus, Star } from 'lucide-react';
+import { Layers, Loader2, Plus, Star } from '../icons.jsx';
 import { formatTime, toFileUrl } from '../store.js';
 import { FavStar, useFavorites } from '../favorites.jsx';
 import { Thumb } from './StockLibrary.jsx';

@@ -1,8 +1,13 @@
-// Audio effects controls (clip.audioFx). These run in the EXPORT pipeline (ffmpeg) — the
-// preview keeps playing the original sound, and the panel says so. Shared by the audio-track
-// inspector and the video-clip inspector: every audio-bearing clip gets the same section.
+// Audio effects controls (clip.audioFx). The effects are rendered into a preview file
+// through the very chain the export uses (electron/audiofxrender.cjs), and preview and
+// export both play that render — what you hear is what you export. While a fresh render
+// is still landing, the preview plays the original sound and the note below says so.
+// Shared by the audio-track inspector and the video-clip inspector: every audio-bearing
+// clip gets the same section.
 import React from 'react';
-import { AUDIO_PRESETS, activePreset } from '../fx/audioPresets.js';
+import { AUDIO_PRESETS, PRESET_CATS, activePreset } from '../fx/audioPresets.js';
+import KitToggle from '../ui/Toggle.jsx';
+import { coarseRangeKeyDown } from './Slider.jsx';
 
 const Row = ({ label, children }) => (
   <div className="afx-row">
@@ -13,18 +18,19 @@ const Row = ({ label, children }) => (
 const Range = ({ value, min, max, step = 1, fmt, onChange, aria }) => (
   <>
     <input type="range" min={min} max={max} step={step} value={value} aria-label={aria || 'value'}
+      onKeyDown={(e) => coarseRangeKeyDown(e, { value, min, max, step, onChange })}
       onChange={(e) => onChange(Number(e.target.value))} />
     <span className="afx-val">{fmt ? fmt(value) : value}</span>
   </>
 );
 const Toggle = ({ label, checked, onChange, hint }) => (
   <Row label={label}>
-    <input type="checkbox" checked={checked} aria-label={label} title={hint}
+    <KitToggle checked={checked} aria-label={label} title={hint}
       onChange={(e) => onChange(e.target.checked)} />
   </Row>
 );
 
-export default function AudioFxControls({ fx, onChange }) {
+export default function AudioFxControls({ fx, onChange, previewState }) {
   const f = fx || {};
   const eq = f.eq || { low: 0, mid: 0, high: 0 };
   const set = (patch) => onChange({ ...f, ...patch });
@@ -33,14 +39,25 @@ export default function AudioFxControls({ fx, onChange }) {
   const active = activePreset(f);
   return (
     <div className="afx">
-      <div className="afx-note">Audio effects apply on export — the preview plays the original sound.</div>
-      <div className="afx-presets" role="group" aria-label="Audio presets">
-        {AUDIO_PRESETS.map((p) => (
-          <button key={p.id} type="button" className={`afx-chip ${active?.id === p.id ? 'on' : ''}`}
-            aria-pressed={active?.id === p.id} title={`Set the audio effects to the ${p.name} preset`}
-            onClick={() => onChange(structuredClone(p.fx))}>{p.name}</button>
-        ))}
-      </div>
+      {previewState === 'ready' ? (
+        <div className="afx-note">The preview plays the rendered effects — identical to the export.</div>
+      ) : previewState === 'pending' ? (
+        <div className="afx-note">Rendering the effected preview… until it lands, the preview plays the original sound. The export matches the rendered preview.</div>
+      ) : (
+        <div className="afx-note">Effects are rendered into the preview and the export alike — what you hear is what you export.</div>
+      )}
+      {PRESET_CATS.map((cat) => (
+        <div key={cat} className="afx-pack">
+          <div className="afx-group-title">{cat} pack · {AUDIO_PRESETS.filter((p) => p.cat === cat).length}</div>
+          <div className="afx-presets" role="group" aria-label={`${cat} audio presets`}>
+            {AUDIO_PRESETS.filter((p) => p.cat === cat).map((p) => (
+              <button key={p.id} type="button" className={`afx-chip ${active?.id === p.id ? 'on' : ''}`}
+                aria-pressed={active?.id === p.id} title={`Set the audio effects to the ${p.name} preset`}
+                onClick={() => onChange(structuredClone(p.fx))}>{p.name}</button>
+            ))}
+          </div>
+        </div>
+      ))}
       <div className="afx-group">
         <div className="afx-group-title">Filters</div>
         <Row label="High-pass">
@@ -74,9 +91,9 @@ export default function AudioFxControls({ fx, onChange }) {
         <Toggle label="Limiter" checked={!!f.limit} onChange={(v) => set({ limit: v })} />
         <Toggle label="Noise reduction" checked={!!f.denoise} onChange={(v) => set({ denoise: v })} />
         <Toggle label="Loudness normalize" checked={!!f.loudnorm} onChange={(v) => set({ loudnorm: v })}
-          hint="Normalize loudness to −14 LUFS on export (loudnorm)" />
+          hint="Normalize loudness to −14 LUFS (loudnorm), in the preview render and the export" />
         <Row label="Echo">
-          <input type="checkbox" checked={!!f.echo} aria-label="Echo"
+          <KitToggle checked={!!f.echo} aria-label="Echo"
             onChange={(e) => set({ echo: e.target.checked ? { delay: 180, decay: 0.3 } : null })} />
         </Row>
         {f.echo && (

@@ -1,7 +1,8 @@
 import React, { useRef, useState } from 'react';
-import { RotateCcw } from 'lucide-react';
+import { RotateCcw } from '../icons.jsx';
 import { CURVE_CHANNELS, HSL_COLORS, IDENTITY_CURVE, curveFn } from '../fx/grade.js';
 import NumBox from './NumBox.jsx';
+import { coarseRangeKeyDown } from './Slider.jsx';
 
 // Adjust > HSL: pick one of eight colors, then turn its hue, saturation and lightness.
 export function HslPanel({ hsl = {}, onChange, dispatch }) {
@@ -39,6 +40,7 @@ export function HslPanel({ hsl = {}, onChange, dispatch }) {
           </div>
           <input type="range" className="grade-range colored" min="-100" max="100" step="1" value={v[k]} aria-label={`${c.name} ${name}`} style={{ '--track': track }}
             onPointerDown={() => dispatch?.({ type: 'beginGesture' })} onPointerUp={() => dispatch?.({ type: 'endGesture' })}
+            onKeyDown={(e) => coarseRangeKeyDown(e, { value: v[k], min: -100, max: 100, step: 1, onChange: (nv) => set(k, Math.round(nv)), dispatch })}
             onDoubleClick={() => set(k, 0)} onChange={(e) => set(k, Number(e.target.value))} />
         </div>
       ))}

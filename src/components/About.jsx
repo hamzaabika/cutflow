@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { CheckCircle2, Compass, Download, Globe, Instagram, RefreshCw, Sparkles, WifiOff, X } from 'lucide-react';
+import { CheckCircle2, Compass, Download, Globe, Instagram, RefreshCw, Sparkles, WifiOff, X } from '../icons.jsx';
 import { DEV_INSTAGRAM_URL } from './HomeScreen.jsx';
 
 // About Cutflow — version, the developer (Hamza Abika), his links, and a manual update
@@ -28,7 +28,7 @@ export function AboutDialog({ onClose, onWelcome }) {
   const startDownload = () => {
     setDl({ phase: 'downloading', received: 0, total: 0 });
     window.api.updatesDownload?.()
-      .then((r) => setDl(r?.error ? { phase: 'error', error: r.error } : { phase: 'done', fileName: r?.fileName || '' }))
+      .then((r) => setDl(r?.error ? { phase: 'error', error: r.error } : { phase: 'done', fileName: r?.fileName || '', verified: r?.verified === true }))
       .catch(() => setDl({ phase: 'error', error: 'The download did not answer.' }));
   };
   const openInstaller = () => window.api.updatesOpenInstaller?.().then((r) => { if (r?.error) setDl({ phase: 'error', error: r.error }); }).catch(() => {});
@@ -49,8 +49,8 @@ export function AboutDialog({ onClose, onWelcome }) {
         <button className="icon-btn about-close" aria-label="Close" onClick={onClose}><X size={16} /></button>
         <div className="about-hero">
           <div className="about-halo"><img src="./logo.png" alt="" draggable={false} /></div>
-          <h3 id="about-title">Clip<span className="grad">Craft</span></h3>
-          <span className="about-vpill">Version {version || '1.0.0'}</span>
+          <h3 id="about-title">Cut<span className="grad">flow</span></h3>
+          <span className="about-vpill">Version {version || '2.0.0'}</span>
           <p className="about-tag">Cut it your way. A free video editor that works fully offline — no watermark, no account, and your videos never leave your PC.</p>
         </div>
         <div className="about-devcard">
@@ -99,7 +99,7 @@ export function AboutDialog({ onClose, onWelcome }) {
               )}
               {dl?.phase === 'done' && (
                 <>
-                  <span className="about-status ok"><CheckCircle2 size={15} /> Downloaded{dl.fileName ? `: ${dl.fileName}` : ''} (in your Downloads folder)</span>
+                  <span className="about-status ok"><CheckCircle2 size={15} /> Downloaded{dl.fileName ? `: ${dl.fileName}` : ''} (in your Downloads folder){dl.verified ? ' · Integrity verified (SHA-256)' : ''}</span>
                   <div className="about-devlinks">
                     <button className="btn btn-primary btn-sm" onClick={startInstall}><Download size={13} /> Install &amp; restart</button>
                     <button className="btn btn-sm" onClick={openInstaller}>Open installer</button>

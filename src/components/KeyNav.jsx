@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChevronLeft, ChevronRight, Diamond } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Diamond } from '../icons.jsx';
 import { addKeys, keyAt, keyTimes, removeKeys } from '../anim.js';
 
 // Keyframe control of one or more properties: jump to the previous keyframe, add / remove the

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
-import { Save } from 'lucide-react';
+import { Save } from '../icons.jsx';
+import Button from '../ui/Button.jsx';
 
 // Asked when the window closes with a project that never had a file. onChoice('save' | 'discard' | 'cancel').
 // Enter saves, Escape cancels.
@@ -21,9 +22,9 @@ export default function CloseDialog({ name, onChoice }) {
         <h3 id="close-title">Save “{String(name || 'Untitled').slice(0, 80)}” before closing?</h3>
         <p id="close-text" className="muted">This project was never saved. If you close without saving, your changes are lost.</p>
         <div className="modal-actions">
-          <button className="btn btn-ghost" onClick={() => onChoice('cancel')}>Cancel</button>
-          <button className="btn" onClick={() => onChoice('discard')}>Don't save</button>
-          <button ref={saveBtn} className="btn btn-primary" onClick={() => onChoice('save')}><Save size={14} /> Save</button>
+          <Button variant="ghost" onClick={() => onChoice('cancel')}>Cancel</Button>
+          <Button onClick={() => onChoice('discard')}>Don't save</Button>
+          <Button ref={saveBtn} variant="primary" onClick={() => onChoice('save')}><Save size={14} /> Save</Button>
         </div>
       </div>
     </div>

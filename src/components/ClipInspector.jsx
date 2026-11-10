@@ -1,9 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Crop, Pipette, RotateCcw,
-} from 'lucide-react';
+  ChevronDown, Crop, FxGlyph, Pipette, RotateCcw, X,
+} from '../icons.jsx';
 import { clipLen, formatTime, uid } from '../store.js';
-import { FILTERS, TRANSITIONS } from '../effects.js';
+import { EFFECTS, FILTERS, TRANSITIONS } from '../effects.js';
 import { directionGroupFor } from '../fx/collections.js';
 import {
   BLEND_MODES, DEFAULT_CHROMA, DEFAULT_CROP, DEFAULT_MASK, DEFAULT_TRANSFORM, MASK_SHAPES, chromaOf, cropOf, maskOf, scaleXY, transformOf,
@@ -13,28 +13,44 @@ import { hasCustomMask } from '../customMask.js';
 import CustomMaskEditor from './CustomMaskEditor.jsx';
 import Slider from './Slider.jsx';
 import NumBoxBase from './NumBox.jsx';
+import Dropdown from './Dropdown.jsx';
+import Toggle from '../ui/Toggle.jsx';
+import { InspCard, SectionChevron, useSectionOpen } from '../ui/Section.jsx';
+import { BoundFxCards } from './FxControls.jsx';
+import BrandSwatches from './BrandSwatches.jsx';
 import KeyNav from './KeyNav.jsx';
 import AnimationPanel from './AnimationPanel.jsx';
 import GradePanel from './GradePanel.jsx';
 import AudioFxControls from './AudioFx.jsx';
+import { hasAudioFx } from '../fx/audioFxChain.js';
+import { audioFxPathOf } from '../fx/audioFxPreview.js';
 import EnhanceVoice from './EnhanceVoice.jsx';
 import { baseAt, editAt, hasAnyKeys, localTime, nextArrival, segmentEase, setSegmentEase } from '../anim.js';
 import { findClipAnywhere, trackedClips } from '../track.js';
 import CurveEditor from './CurveEditor.jsx';
+import SpeedCurveEditor from './SpeedCurveEditor.jsx';
+import VolKeyEditor from './VolKeyEditor.jsx';
+import { hasCurve } from '../speedCurve.js';
 
 const pct = (v) => `${Math.round(v * 100)}%`;
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
 
-function Section({ title, onReset, children, check, keys }) {
+// One inspector section: a deck card with a micro-label head (optional enable
+// switch, keyframe nav and reset riding along) and a collapsible body — the
+// folded state persists per section id (R3, src/ui/Section.jsx), so the panel
+// reopens the way the user left it. Children stay mounted while folded.
+function Section({ id, title, onReset, children, check, keys }) {
+  const [open, toggle] = useSectionOpen(id || `clip:${title}`);
   return (
-    <section className="ci-section">
+    <section className={`ci-section ${open ? '' : 'collapsed'}`}>
       <div className="ci-head">
         {check}
         <b>{title}</b>
         {keys}
         {onReset && <button className="icon-btn sm" aria-label={`Reset ${title}`} title="Reset" onClick={onReset}><RotateCcw size={13} /></button>}
+        <SectionChevron open={open} onToggle={toggle} label={`${open ? 'Collapse' : 'Expand'} ${title}`} />
       </div>
-      {children}
+      <div className="ci-body">{children}</div>
     </section>
   );
 }
@@ -81,8 +97,8 @@ function AutoRemoval({ clip, media, set, dispatch }) {
   };
   const pctOf = (f) => `${Math.round((f || 0) * 100)}%`;
   return (
-    <Section title="Auto removal"
-      check={<input type="checkbox" aria-label="Auto removal" checked={on || !!job} disabled={!isVideo || !!job} onChange={(e) => toggle(e.target.checked)} />}>
+    <Section id="removebg:auto" title="Auto removal"
+      check={<Toggle aria-label="Auto removal" checked={on || !!job} disabled={!isVideo || !!job} onChange={(e) => toggle(e.target.checked)} />}>
       <p className="dim small">
         {isVideo ? 'AI finds the people in the video and removes the background, without a green screen. Runs on this PC.' : 'Auto removal works on videos.'}
       </p>
@@ -131,7 +147,7 @@ function Stabilize({ clip, media, project, set, dispatch }) {
     set({ mediaId: m.id, in: 0, out: m.duration, stabilize: { level, mediaId: st ? st.mediaId : clip.mediaId, in: from, out: to } });
   };
   return (
-    <Section title="Stabilize">
+    <Section id="video:stabilize" title="Stabilize">
       <p className="dim small">Steadies shaky camera footage, like a gimbal. The picture is zoomed in a little to hide the moving edges.</p>
       <div className="seg-tabs small stab-levels" role="radiogroup" aria-label="Stabilize">
         {STAB_LEVELS.map(([id, name]) => (
@@ -159,7 +175,7 @@ function MotionTracking({ clip, media, set, onTrackPick, track }) {
   const tr = clip.track && clip.track.points && clip.track.points.length ? clip.track : null;
   const low = tr ? tr.points.filter((p) => (p.c ?? 1) < 0.35).length : 0;
   return (
-    <Section title="Motion tracking">
+    <Section id="video:tracking" title="Motion tracking">
       <p className="dim small">Follow a moving point in this clip — a face, a product, a car. Overlay and text clips can then be pinned to it and travel with it.</p>
       {tr ? (
         <>
@@ -201,8 +217,35 @@ export function PinToTrack({ clip, project, set, card = false }) {
   ) : (
     <p className="dim small">No tracked clips yet. Select a video clip and use Track motion in its inspector first.</p>
   );
-  if (card) return <div className="insp-card"><div className="insp-card-title">Pin to track</div>{body}</div>;
-  return <Section title="Pin to track">{body}</Section>;
+  if (card) return <InspCard id="text:pin" title="Pin to track">{body}</InspCard>;
+  return <Section id="video:pin" title="Pin to track">{body}</Section>;
+}
+
+// One effect bound to this clip, managed from the clip's own inspector (R3 —
+// the §9 dead end: a clip's effects used to be read-only text here). The
+// header names the effect and removes it (the same removeEffect action the
+// Effects lane uses); the body is the shared Timing/Strength/Region cards,
+// writing the clip's fxTiming/fxStrength/fxRegions maps exactly as the
+// Effects-lane effect panel does — one behaviour, two doors.
+function FxEntry({ clip, track, fx, dispatch, defaultOpen = false }) {
+  const [open, setOpen] = useState(defaultOpen);
+  const e = EFFECTS.find((x) => x.id === fx);
+  return (
+    <div className="fx-entry">
+      <div className="fx-entry-head">
+        <button type="button" className="fx-entry-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
+          <span className="fx-icon"><FxGlyph group={e?.group} size={15} /></span>
+          <b>{e?.name || fx}</b>
+          <ChevronDown size={14} className={open ? 'rot' : ''} />
+        </button>
+        <button type="button" className="icon-btn sm fx-entry-remove" aria-label={`Remove ${e?.name || fx}`}
+          title="Remove effect" onClick={() => dispatch({ type: 'removeEffect', id: `${track}|${clip.id}|${fx}` })}>
+          <X size={13} />
+        </button>
+      </div>
+      {open && <BoundFxCards track={track} clip={clip} fx={fx} dispatch={dispatch} />}
+    </div>
+  );
 }
 
 // Properties of a picture clip (main track or overlay), the clip properties panel.
@@ -319,7 +362,7 @@ export default function ClipInspector({ clip, media, project, set, dispatch, tra
 
           {sub === 'basic' && (
             <>
-              <Section title="Transform" keys={keys(['scale', 'x', 'y', 'rot'], 'transform')}
+              <Section id="video:transform" title="Transform" keys={keys(['scale', 'x', 'y', 'rot'], 'transform')}
                 onReset={() => set({ transform: { ...DEFAULT_TRANSFORM }, keyframes: dropKeys(['scale', 'x', 'y', 'rot']) })}>
                 {S({ label: 'Scale', value: t.scale, min: 0.05, max: 4, step: 0.01, fmt: pct, numScale: 100, onChange: (scale) => setT({ scale }), extra: keys(['scale'], 'scale') })}
                 <div className="fitfill-row">
@@ -331,7 +374,7 @@ export default function ClipInspector({ clip, media, project, set, dispatch, tra
                 </div>
                 <label className="field row">
                   <span>Uniform scale</span>
-                  <input type="checkbox" className="switch" checked={t.uniform} onChange={(e) => setT({ uniform: e.target.checked })} />
+                  <Toggle checked={t.uniform} onChange={(e) => setT({ uniform: e.target.checked })} />
                 </label>
                 {!t.uniform && (
                   <>
@@ -345,14 +388,7 @@ export default function ClipInspector({ clip, media, project, set, dispatch, tra
                   <NumBox label="Y" value={Number((t.y * H).toFixed(1))} precision={1} suffix="px" onChange={(v) => setT({ y: v / H })} />
                   {keys(['x', 'y'], 'position')}
                 </div>
-                <div className="numrow keyed">
-                  <span className="numrow-label">Rotate</span>
-                  <NumBox label="" value={t.rot} step={1} precision={1} suffix="°" onChange={(rot) => setT({ rot })} />
-                  <input type="range" className="rot-range" min="-180" max="180" step="1" value={t.rot} aria-label="Rotate"
-                    onPointerDown={() => dispatch({ type: 'beginGesture' })} onPointerUp={() => dispatch({ type: 'endGesture' })}
-                    onChange={(e) => setT({ rot: Number(e.target.value) })} />
-                  {keys(['rot'], 'rotation')}
-                </div>
+                {S({ label: 'Rotate', value: t.rot, min: -180, max: 180, step: 1, fmt: (v) => `${Number(v.toFixed(1))}°`, onChange: (rot) => setT({ rot }), extra: keys(['rot'], 'rotation') })}
                 <div className="align-wrap">
                   <div className="align-pad" role="group" aria-label="Align to frame">
                     {alignPad.map((cell, i) => (
@@ -366,27 +402,24 @@ export default function ClipInspector({ clip, media, project, set, dispatch, tra
                 <span className="dim small">Scale {pct(sx)} · ◇ adds a keyframe at the playhead: the clip moves from one keyframe to the next</span>
               </Section>
               {hasAnyKeys(clip) && lt !== null && nextArrival(clip, lt, fps) !== null && (
-                <Section title="Segment easing">
+                <Section id="video:segment-easing" title="Segment easing">
                   <span className="dim small">How the motion travels into the keyframe at {localTime(clip, nextArrival(clip, lt, fps)).toFixed(2)}s. New segments start on Smooth.</span>
                   <CurveEditor compact value={segmentEase(clip, lt, fps)} resetValue="smooth"
                     onChange={(ease) => set(setSegmentEase(clip, lt, ease, fps))} />
                 </Section>
               )}
-              {media && <Stabilize clip={clip} media={media} project={project} set={set} dispatch={dispatch} />}
-              {media && <MotionTracking clip={clip} media={media} set={set} onTrackPick={onTrackPick} track={track} />}
-              {track === 'overlay' && <PinToTrack clip={clip} project={project} set={set} />}
-              <Section title="Blend" onReset={() => set({ blend: 'normal', opacity: 1, keyframes: dropKeys(['opacity']) })}>
+              <Section id="video:blend" title="Blend" onReset={() => set({ blend: 'normal', opacity: 1, keyframes: dropKeys(['opacity']) })}>
                 <label className="field">
                   <span>Mode</span>
-                  <select value={clip.blend || 'normal'} onChange={(e) => set({ blend: e.target.value })}>
-                    {BLEND_MODES.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-                  </select>
+                  <Dropdown value={clip.blend || 'normal'} ariaLabel="Blend mode"
+                    options={BLEND_MODES.map((b) => ({ value: b.id, label: b.name }))}
+                    onChange={(blend) => set({ blend })} />
                 </label>
                 {S({ label: 'Opacity', value: at.opacity, min: 0, max: 1, step: 0.01, fmt: pct, numScale: 100, onChange: (opacity) => setT({ opacity }), extra: keys(['opacity'], 'opacity') })}
                 {['mirror', 'flipv'].map((id) => (
                   <label className="field row" key={id}>
                     <span>{id === 'mirror' ? 'Flip horizontal' : 'Flip vertical'}</span>
-                    <input type="checkbox" className="switch" aria-label={id === 'mirror' ? 'Flip horizontal' : 'Flip vertical'}
+                    <Toggle aria-label={id === 'mirror' ? 'Flip horizontal' : 'Flip vertical'}
                       checked={(clip.effects || []).includes(id)}
                       onChange={(e) => {
                         const fx = clip.effects || [];
@@ -395,7 +428,7 @@ export default function ClipInspector({ clip, media, project, set, dispatch, tra
                   </label>
                 ))}
               </Section>
-              <Section title="Crop" onReset={() => set({ crop: { ...DEFAULT_CROP }, cropAspect: 'free' })}>
+              <Section id="video:crop" title="Crop" onReset={() => set({ crop: { ...DEFAULT_CROP }, cropAspect: 'free' })}>
                 <p className="dim small">Cut away the edges of the picture, in percent of the source. The part that remains fills the clip's place, in the preview and the export.</p>
                 <div className="chips pad-x" role="group" aria-label="Crop aspect">
                   {CROP_ASPECTS.map((a) => {
@@ -424,13 +457,16 @@ export default function ClipInspector({ clip, media, project, set, dispatch, tra
                 </button>
                 <p className="dim small">Drag the frame on the player itself — you can keep playing or scrubbing while you crop.</p>
               </Section>
+              {media && <Stabilize clip={clip} media={media} project={project} set={set} dispatch={dispatch} />}
+              {media && <MotionTracking clip={clip} media={media} set={set} onTrackPick={onTrackPick} track={track} />}
+              {track === 'overlay' && <PinToTrack clip={clip} project={project} set={set} />}
             </>
           )}
 
           {sub === 'removebg' && media && <AutoRemoval clip={clip} media={media} set={set} dispatch={dispatch} />}
           {sub === 'removebg' && (
-            <Section title="Chroma key" onReset={() => set({ chroma: { ...DEFAULT_CHROMA } })}
-              check={<input type="checkbox" aria-label="Chroma key" checked={chroma.on} onChange={(e) => setC({ on: e.target.checked })} />}>
+            <Section id="removebg:chroma" title="Chroma key" onReset={() => set({ chroma: { ...DEFAULT_CHROMA } })}
+              check={<Toggle aria-label="Chroma key" checked={chroma.on} onChange={(e) => setC({ on: e.target.checked })} />}>
               <p className="dim small">Removes a solid background color, such as a green screen.</p>
               <div className="numrow">
                 <span className="numrow-label">Color</span>
@@ -442,13 +478,14 @@ export default function ClipInspector({ clip, media, project, set, dispatch, tra
                   ))}
                 </span>
               </div>
+              <BrandSwatches onPick={(c) => setC({ on: true, color: c })} />
               {S({ label: 'Intensity', value: chroma.intensity, min: 0, max: 100, step: 1, onChange: (intensity) => setC({ intensity }) })}
               {S({ label: 'Feather edge', value: chroma.feather, min: 0, max: 100, step: 1, onChange: (feather) => setC({ feather }) })}
               {S({ label: 'Remove color spill', value: chroma.spill, min: 0, max: 100, step: 1, onChange: (spill) => setC({ spill }) })}
             </Section>
           )}
           {sub === 'removebg' && (
-            <Section title="Custom removal">
+            <Section id="removebg:custom" title="Custom removal">
               <p className="dim small">Paint over the parts to remove by hand, or paint removed parts back. The painted mask applies to the whole clip, and combines with Auto removal and Chroma key (everything painted or keyed away stays away).</p>
               {hasCustomMask(clip) && <p className="dim small">{clip.customMask.strokes.length} stroke{clip.customMask.strokes.length === 1 ? '' : 's'} painted.</p>}
               <div className="fitfill-row">
@@ -460,7 +497,7 @@ export default function ClipInspector({ clip, media, project, set, dispatch, tra
 
           {sub === 'mask' && (
             <>
-              <Section title="Mask" onReset={() => set({ mask: { ...DEFAULT_MASK } })}>
+              <Section id="mask:mask" title="Mask" onReset={() => set({ mask: { ...DEFAULT_MASK } })}>
                 <div className="mask-grid">
                   {[{ id: 'none', name: 'None' }, ...MASK_SHAPES].map((m) => (
                     <button key={m.id} className={`mask-tile ${mask.type === m.id ? 'on' : ''}`} aria-pressed={mask.type === m.id}
@@ -473,7 +510,7 @@ export default function ClipInspector({ clip, media, project, set, dispatch, tra
                 </div>
               </Section>
               {mask.type !== 'none' && (
-                <Section title="Mask settings">
+                <Section id="mask:settings" title="Mask settings">
                   {mask.type === 'text' && (
                     <label className="field">
                       <span>Text</span>
@@ -492,12 +529,12 @@ export default function ClipInspector({ clip, media, project, set, dispatch, tra
                   {S({ label: 'Feather', value: mask.feather, min: 0, max: 100, step: 1, onChange: (feather) => setM({ feather }) })}
                   <label className="field row">
                     <span>Invert</span>
-                    <input type="checkbox" checked={mask.invert} onChange={(e) => setM({ invert: e.target.checked })} />
+                    <Toggle checked={mask.invert} onChange={(e) => setM({ invert: e.target.checked })} />
                   </label>
                 </Section>
               )}
               {mask.type !== 'none' && (
-                <Section title="Outline and glow" onReset={() => setM({ stroke: 0, strokeColor: DEFAULT_MASK.strokeColor, glow: 0, glowColor: DEFAULT_MASK.glowColor, glowStrength: DEFAULT_MASK.glowStrength })}>
+                <Section id="mask:outline" title="Outline and glow" onReset={() => setM({ stroke: 0, strokeColor: DEFAULT_MASK.strokeColor, glow: 0, glowColor: DEFAULT_MASK.glowColor, glowStrength: DEFAULT_MASK.glowStrength })}>
                   <div className="numrow">
                     <span className="numrow-label">Stroke</span>
                     <input type="color" value={mask.strokeColor} aria-label="Stroke color" onChange={(e) => setM({ strokeColor: e.target.value, stroke: mask.stroke || 6 })} />
@@ -507,6 +544,7 @@ export default function ClipInspector({ clip, media, project, set, dispatch, tra
                       ))}
                     </span>
                   </div>
+                  <BrandSwatches onPick={(c) => setM({ strokeColor: c, stroke: mask.stroke || 6 })} />
                   {S({ label: 'Stroke width', value: mask.stroke, min: 0, max: 40, step: 1, fmt: (v) => (v ? `${v}px` : 'Off'), onChange: (stroke) => setM({ stroke }) })}
                   <div className="numrow">
                     <span className="numrow-label">Glow</span>
@@ -517,6 +555,7 @@ export default function ClipInspector({ clip, media, project, set, dispatch, tra
                       ))}
                     </span>
                   </div>
+                  <BrandSwatches onPick={(c) => setM({ glowColor: c, glow: mask.glow || 20 })} />
                   {S({ label: 'Glow size', value: mask.glow, min: 0, max: 80, step: 1, fmt: (v) => (v ? `${v}px` : 'Off'), onChange: (glow) => setM({ glow }) })}
                   {mask.glow > 0 && S({ label: 'Glow strength', value: mask.glowStrength, min: 5, max: 100, step: 1, fmt: (v) => `${v}%`, onChange: (glowStrength) => setM({ glowStrength }) })}
                 </Section>
@@ -530,22 +569,29 @@ export default function ClipInspector({ clip, media, project, set, dispatch, tra
 
       {tab === 'audio' && (
         <>
-          <Section title="Basic">
+          <Section id="audio:basic" title="Basic">
             {S({ label: 'Volume', value: clip.volume ?? 1, max: 2, fmt: pct, numScale: 100, onChange: (volume) => set({ volume }) })}
-            <AudioFxControls fx={clip.audioFx} onChange={(audioFx) => set({ audioFx })} />
+            {S({ label: 'Fade in', value: clip.fadeIn || 0, max: 5, step: 0.1, fmt: (v) => `${v.toFixed(1)}s`, onChange: (fadeIn) => set({ fadeIn }) })}
+            {S({ label: 'Fade out', value: clip.fadeOut || 0, max: 5, step: 0.1, fmt: (v) => `${v.toFixed(1)}s`, onChange: (fadeOut) => set({ fadeOut }) })}
+            <AudioFxControls fx={clip.audioFx} onChange={(audioFx) => set({ audioFx })}
+              previewState={!hasAudioFx(clip.audioFx) ? null : (audioFxPathOf(clip, media) ? 'ready' : 'pending')} />
             <label className="field row">
               <span>Mute</span>
-              <input type="checkbox" checked={!!clip.muted} onChange={(e) => set({ muted: e.target.checked })} />
+              <Toggle checked={!!clip.muted} onChange={(e) => set({ muted: e.target.checked })} />
             </label>
           </Section>
-          <Section title="Enhance voice">
+          <Section id="audio:volkeys" title="Volume keyframes">
+            <VolKeyEditor clip={clip} len={len} set={set} dispatch={dispatch} playheadLt={time - start} />
+          </Section>
+          <Section id="audio:enhance" title="Enhance voice">
             <EnhanceVoice clip={clip} media={media} set={set} onEnhance={onEnhance} />
           </Section>
         </>
       )}
 
       {tab === 'speed' && (
-        <Section title="Standard">
+        <>
+        <Section id="speed:standard" title="Standard">
           <label className="field">
             <span>Speed <b>{clip.speed || 1}×</b></span>
             <div className="chips">
@@ -554,12 +600,17 @@ export default function ClipInspector({ clip, media, project, set, dispatch, tra
               ))}
             </div>
           </label>
+          {hasCurve(clip) && <p className="dim small">This clip has a speed curve (below). Choosing a constant speed here removes it.</p>}
           <div className="numrow">
             <span className="numrow-label">Source</span>
             <NumBox label="In" step={0.1} value={clip.in} onChange={(v) => set({ in: Math.max(0, Math.min(v, clip.out - 0.1)) })} />
             <NumBox label="Out" step={0.1} value={clip.out} onChange={(v) => set({ out: Math.max(clip.in + 0.1, Math.min(v, media?.duration ?? v)) })} />
           </div>
         </Section>
+        <Section id="speed:curve" title="Speed curve">
+          <SpeedCurveEditor clip={clip} set={set} dispatch={dispatch} />
+        </Section>
+        </>
       )}
 
       {maskEdit && media && (
@@ -569,28 +620,12 @@ export default function ClipInspector({ clip, media, project, set, dispatch, tra
       )}
       {tab === 'adjust' && (
         <>
-          {track === 'overlay' && (
-            <Section title="Timeline">
-              <div className="numrow">
-                <span className="numrow-label">Start</span>
-                <NumBox label="" step={0.1} suffix="s" value={clip.start} onChange={(v) => set({ start: Math.max(0, v) })} />
-              </div>
-            </Section>
-          )}
-          {!isVideo && (
-            <Section title="Photo">
-              <div className="numrow">
-                <span className="numrow-label">Duration</span>
-                <NumBox label="" step={0.1} suffix="s" value={clip.out} onChange={(v) => set({ in: 0, out: Math.max(0.1, v) })} />
-              </div>
-            </Section>
-          )}
-          <Section title="Filter" onReset={() => set({ filter: 'none' })}>
-            <select value={clip.filter || 'none'} aria-label="Filter" onChange={(e) => set({ filter: e.target.value })}>
-              {FILTERS.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
-            </select>
+          <Section id="adjust:filter" title="Filter" onReset={() => set({ filter: 'none' })}>
+            <Dropdown value={clip.filter || 'none'} ariaLabel="Filter"
+              options={FILTERS.map((f) => ({ value: f.id, label: f.name }))}
+              onChange={(filter) => set({ filter })} />
           </Section>
-          <Section title="Basic">
+          <Section id="adjust:color" title="Color">
             <GradePanel grade={clip.grade} adjust={clip.adjust} dispatch={dispatch} autoFrom={media ? { media, clip } : undefined}
               onGrade={(grade) => set({ grade })} onAdjust={(adjust) => set({ adjust })}
               onApplyAll={() => dispatch({ type: 'updateMany', updates: [
@@ -598,12 +633,18 @@ export default function ClipInspector({ clip, media, project, set, dispatch, tra
                 ...(project.overlayClips || []).map((c) => ({ track: 'overlay', id: c.id, patch: { grade: { ...(clip.grade || {}) }, adjust: { ...(clip.adjust || {}) } } })),
               ] })} />
           </Section>
+          {!!clip.effects?.length && (
+            <Section id="adjust:effects" title="Effects">
+              {clip.effects.map((fx) => (
+                <FxEntry key={fx} clip={clip} track={track} fx={fx} dispatch={dispatch} defaultOpen={clip.effects.length === 1} />
+              ))}
+            </Section>
+          )}
           {track === 'video' && (
-            <Section title="Transition in">
-              <select value={clip.transition?.type || 'none'} aria-label="Transition in"
-                onChange={(e) => set({ transition: e.target.value === 'none' ? null : { type: e.target.value, duration: clip.transition?.duration || 0.5, ...(/zoom/i.test(e.target.value) ? { ease: 'smooth' } : {}) } })}>
-                {[{ id: 'none', name: 'None' }, ...TRANSITIONS].map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
-              </select>
+            <Section id="adjust:transition" title="Transition in">
+              <Dropdown value={clip.transition?.type || 'none'} ariaLabel="Transition in"
+                options={[{ value: 'none', label: 'None' }, ...TRANSITIONS.map((o) => ({ value: o.id, label: o.name }))]}
+                onChange={(v) => set({ transition: v === 'none' ? null : { type: v, duration: clip.transition?.duration || 0.5, ...(/zoom/i.test(v) ? { ease: 'smooth' } : {}) } })} />
               {clip.transition && S({
                 label: 'Duration', value: clip.transition.duration, min: 0.2, max: 2, step: 0.1, fmt: (v) => `${v.toFixed(1)}s`,
                 onChange: (d) => set({ transition: { ...clip.transition, duration: d } }),
@@ -622,7 +663,22 @@ export default function ClipInspector({ clip, media, project, set, dispatch, tra
               })()}
             </Section>
           )}
-          {!!clip.effects?.length && <div className="dim">Effects: {clip.effects.join(', ')}</div>}
+          {track === 'overlay' && (
+            <Section id="adjust:timeline" title="Timeline">
+              <div className="numrow">
+                <span className="numrow-label">Start</span>
+                <NumBox label="" step={0.1} suffix="s" value={clip.start} onChange={(v) => set({ start: Math.max(0, v) })} />
+              </div>
+            </Section>
+          )}
+          {!isVideo && (
+            <Section id="adjust:photo" title="Photo">
+              <div className="numrow">
+                <span className="numrow-label">Duration</span>
+                <NumBox label="" step={0.1} suffix="s" value={clip.out} onChange={(v) => set({ in: 0, out: Math.max(0.1, v) })} />
+              </div>
+            </Section>
+          )}
         </>
       )}
     </div>

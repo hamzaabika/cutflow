@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { CheckCircle2, ExternalLink, KeyRound, Loader2, Pause, Play, Plus, Type } from 'lucide-react';
+import { CheckCircle2, ExternalLink, KeyRound, Loader2, Pause, Play, Plus, Type } from '../icons.jsx';
 import { toFileUrl } from '../store.js';
 
 // Sign-up page for new ElevenLabs accounts.

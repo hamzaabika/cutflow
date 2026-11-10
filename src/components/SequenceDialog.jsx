@@ -1,5 +1,5 @@
 import React from 'react';
-import { MonitorCog, ShieldCheck } from 'lucide-react';
+import { MonitorCog, ShieldCheck } from '../icons.jsx';
 
 // Shown when media placed on the main track does not match the project sequence
 // (resolution, aspect ratio or frame rate). Nothing changes until the user picks:

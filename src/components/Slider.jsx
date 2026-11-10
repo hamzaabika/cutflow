@@ -9,6 +9,24 @@ import React, { useEffect, useRef, useState } from 'react';
 // numScale: the readout's unit scale for the field (100 on percent readouts — the model
 // holds 2, the field shows and accepts 200). Display formatting (fmt) is unchanged.
 // extra: optional controls shown after the label (e.g. keyframe buttons).
+//
+// Keyboard increments (R3, uniform across the inspector's numeric controls —
+// the same contract NumBox has always had): arrow keys step by `step`;
+// Shift+arrows step by 10×step. NumBox adds wheel-stepping and scrub
+// modifiers (Shift fine / Alt coarse) on top; the range inputs in the grade
+// and audio surfaces share the Shift rule via coarseRangeKeyDown below.
+export function coarseRangeKeyDown(e, { value, min, max, step, onChange, dispatch }) {
+  if (!e.shiftKey) return;
+  const dir = e.key === 'ArrowUp' || e.key === 'ArrowRight' ? 1
+    : e.key === 'ArrowDown' || e.key === 'ArrowLeft' ? -1 : 0;
+  if (!dir) return;
+  e.preventDefault();
+  const v = Math.min(max, Math.max(min, value + dir * step * 10));
+  if (v === value) return;
+  dispatch?.({ type: 'beginGesture' });
+  onChange(v);
+  dispatch?.({ type: 'endGesture' });
+}
 export default function Slider({ label, value, onChange, dispatch, min = 0, max = 1, step = 0.01, fmt, extra, numScale }) {
   const [edit, setEdit] = useState(null); // string while typing, null when showing the value
   const settled = useRef(false); // Enter/Escape settle the edit; the blur that follows must not re-commit
@@ -49,7 +67,7 @@ export default function Slider({ label, value, onChange, dispatch, min = 0, max 
     else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       e.preventDefault();
       const base = parseFloat(String(edit).replace(',', '.'));
-      const cur = (Number.isFinite(base) ? base : value * scale) + (e.key === 'ArrowUp' ? 1 : -1) * step * scale;
+      const cur = (Number.isFinite(base) ? base : value * scale) + (e.key === 'ArrowUp' ? 1 : -1) * step * scale * (e.shiftKey ? 10 : 1);
       commit(cur);
       setEdit(editText(snapClamp(cur / scale)));
     }
@@ -68,6 +86,7 @@ export default function Slider({ label, value, onChange, dispatch, min = 0, max 
       <input type="range" min={min} max={max} step={step} value={value}
         onPointerDown={() => dispatch?.({ type: 'beginGesture' })}
         onPointerUp={() => dispatch?.({ type: 'endGesture' })}
+        onKeyDown={(e) => coarseRangeKeyDown(e, { value, min, max, step, onChange, dispatch })}
         onChange={(e) => onChange(Number(e.target.value))} />
     </label>
   );

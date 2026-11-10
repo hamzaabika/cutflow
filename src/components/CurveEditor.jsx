@@ -4,7 +4,7 @@
 // { p1x, p1y, p2x, p2y } object, or undefined (linear). Rendering math lives in fx/easing.js; this is
 // only the control. The graph's y range (-0.4…1.45) leaves room to SEE overshoot curves pass 1.
 import React, { useEffect, useRef, useState } from 'react';
-import { Pause, Play, RotateCcw } from 'lucide-react';
+import { Pause, Play, RotateCcw } from '../icons.jsx';
 import { EASE_PRESETS, bezierSolver, easeValue, isCustomEase, ptsOf } from '../fx/easing.js';
 
 const PX0 = 14; const PX1 = 114; // plot x range (viewBox units); t 0..1 maps across it

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Check, ChevronDown } from 'lucide-react';
+import { Check, ChevronDown } from '../icons.jsx';
 
 // Dropdown — the app's in-app select. Native <select> popups are drawn by the OS toolkit
 // (on Linux/GTK they render pale-on-white and unreadable against the dark UI), so every

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowUp, Zap, Captions, CircleAlert, CircleCheck, Loader2, MessageCircle, MessageSquarePlus, Palette, RectangleVertical, Scissors, Settings, Square, Undo2, X, Shuffle } from 'lucide-react';
+import { ArrowUp, Zap, Captions, CircleAlert, CircleCheck, Loader2, MessageCircle, MessageSquarePlus, Palette, RectangleVertical, Scissors, Settings, Square, StyleGlyph, Undo2, X, Shuffle } from '../icons.jsx';
 import { runAgent } from '../agent/runAgent.js';
 import { EDIT_STYLES, STYLE_NAMES } from '../agent/motionGuide.js';
 
@@ -20,7 +20,7 @@ function StyleGrid({ value, onPick, disabled }) {
         return (
           <button key={id} type="button" role="option" aria-selected={value === id} disabled={disabled}
             className={`pilot-style ${value === id ? 'on' : ''}`} title={st.look} onClick={() => onPick(value === id ? null : id)}>
-            <span className="pilot-style-emoji" aria-hidden="true">{st.emoji}</span>
+            <span className="pilot-style-emoji" aria-hidden="true"><StyleGlyph id={id} size={17} /></span>
             <b>{st.title}</b>
             <span>{st.tag}</span>
           </button>
@@ -52,8 +52,20 @@ function Rich({ text }) {
   });
 }
 
-export default function CraftAI({ getProject, getHistoryLength, dispatch, settle, onOpenSettings, settingsVersion, app = {} }) {
-  const [open, setOpen] = useState(false);
+export default function CraftAI({ getProject, getHistoryLength, dispatch, settle, onOpenSettings, settingsVersion, app = {}, open: openProp, onToggle }) {
+  // The open state is owned by App; the floating button over the timeline
+  // is the panel's only entrance. (The FAB was removed in the 2026-11-10 UI
+  // review because it covered the audio meter, then restored the same
+  // evening on Hamza's direct order: "keep FlowAI as it was — visible and
+  // clear"; the TopBar toggle that had replaced it was removed on his
+  // order the same evening.) Internal state remains as a fallback for any
+  // mount that does not pass the props.
+  const [openState, setOpenState] = useState(false);
+  const open = openProp !== undefined ? openProp : openState;
+  const setOpen = (v) => {
+    const next = typeof v === 'function' ? v(open) : v;
+    if (onToggle) onToggle(next); else setOpenState(next);
+  };
   const [messages, setMessages] = useState([]); // { role: 'user' | 'assistant', text, steps?, error?, changed? }
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -155,7 +167,7 @@ export default function CraftAI({ getProject, getHistoryLength, dispatch, settle
       {open && (
         <section className="pilot-panel pilot2" aria-label="FlowAI assistant">
           <header className="pilot-head">
-            <span className="pilot-title"><Zap size={16} /> <span className="pilot-wordmark">Craft<span className="grad">AI</span></span></span>
+            <span className="pilot-title"><Zap size={16} /> <span className="pilot-wordmark">Flow<span className="grad">AI</span></span></span>
             <span className="pilot-model" title={config ? `${config.provider} · ${config.model}` : ''}>{config ? config.model : ''}</span>
             <button className={`icon-btn ${showStyles ? 'active' : ''}`} onClick={() => setShowStyles((v) => !v)} aria-pressed={showStyles}
               aria-label="Editing styles" title="Editing styles"><Palette size={16} /></button>
@@ -249,7 +261,7 @@ export default function CraftAI({ getProject, getHistoryLength, dispatch, settle
           {style && (
             <div className="pilot-picked">
               <span className="pilot-picked-pill" title={EDIT_STYLES[style].look}>
-                {EDIT_STYLES[style].emoji} {EDIT_STYLES[style].title}
+                <StyleGlyph id={style} size={12} /> {EDIT_STYLES[style].title}
                 <button type="button" onClick={() => setStyle(null)} aria-label="Remove the style"><X size={12} /></button>
               </span>
               <span className="pilot-picked-hint">Add what you want (length, language, music…) or just send.</span>

@@ -1,28 +1,36 @@
 import React, { useState } from 'react';
 import { CurvesPanel, HslPanel } from './HslCurves.jsx';
 import NumBox from './NumBox.jsx';
+import { coarseRangeKeyDown } from './Slider.jsx';
 import Scopes from './Scopes.jsx';
-import { Loader2, RotateCcw, Wand2 } from 'lucide-react';
+import { Loader2, RotateCcw, Wand2 } from '../icons.jsx';
 import { autoGrade } from '../fx/autocolor.js';
 import { DEFAULT_ADJUST } from '../effects.js';
 import { DEFAULT_GRADE, GRADE_GROUPS } from '../fx/grade.js';
 import { BUNDLED_LUTS, LUT_CREDIT_URL, loadLut, lutKey } from '../fx/lut.js';
 
 // One grade row: name, a slider (colored track for Temp / Tint / Saturation), a number box.
+// This is the panel's ONE row pattern (P5): every parameter — the grade groups,
+// the LUT intensity, and the older Hue / Blur / classic settings in "Other" —
+// renders as slider + NumBox. item.step / item.suffix / item.reset adapt it to
+// non-integer settings (defaults: step 1, no suffix, double-click resets to 0).
 function Row({ item, value, onChange, dispatch }) {
+  const step = item.step ?? 1;
   const pct = ((value - item.min) / (item.max - item.min)) * 100;
+  const norm = (v) => Number((Math.round(v / step) * step).toFixed(4));
   return (
     <div className="grade-row">
       <div className="grade-top">
         <span>{item.name}</span>
-        <NumBox className="grade-numbox" ariaLabel={`${item.name} value`} step={1} min={item.min} max={item.max} value={value}
-          onChange={(v) => onChange(Math.round(v))}
+        <NumBox className="grade-numbox" ariaLabel={`${item.name} value`} step={step} suffix={item.suffix} min={item.min} max={item.max} value={value}
+          onChange={(v) => onChange(norm(v))}
           onDragStart={() => dispatch?.({ type: 'beginGesture' })} onDragEnd={() => dispatch?.({ type: 'endGesture' })} />
       </div>
-      <input type="range" className={`grade-range ${item.track ? 'colored' : ''}`} min={item.min} max={item.max} step="1" value={value}
+      <input type="range" className={`grade-range ${item.track ? 'colored' : ''}`} min={item.min} max={item.max} step={step} value={value}
         aria-label={item.name} style={{ '--track': item.track || `linear-gradient(90deg, var(--primary) ${pct}%, var(--surface-4) ${pct}%)` }}
         onPointerDown={() => dispatch?.({ type: 'beginGesture' })} onPointerUp={() => dispatch?.({ type: 'endGesture' })}
-        onDoubleClick={() => onChange(0)} onChange={(e) => onChange(Number(e.target.value))} />
+        onKeyDown={(e) => coarseRangeKeyDown(e, { value, min: item.min, max: item.max, step, onChange: (v) => onChange(norm(v)), dispatch })}
+        onDoubleClick={() => onChange(item.reset ?? 0)} onChange={(e) => onChange(norm(Number(e.target.value)))} />
     </div>
   );
 }
@@ -61,8 +69,11 @@ function LutSection({ lut, onChange, dispatch }) {
       <div className="lut-row">
         <select value={current} aria-label="LUT" onChange={(e) => choose(e.target.value)}>
           <option value="">None</option>
+          <optgroup label="Cutflow">
+            {BUNDLED_LUTS.filter((b) => !b.credit).map((b) => <option key={b.file} value={lutKey(b.ref)}>{b.name}</option>)}
+          </optgroup>
           <optgroup label="slay">
-            {BUNDLED_LUTS.map((b) => <option key={b.file} value={lutKey(b.ref)}>{b.name}</option>)}
+            {BUNDLED_LUTS.filter((b) => b.credit).map((b) => <option key={b.file} value={lutKey(b.ref)}>{b.name}</option>)}
           </optgroup>
           {own.length > 0 && (
             <optgroup label="Imported">
@@ -84,11 +95,12 @@ function LutSection({ lut, onChange, dispatch }) {
           <input type="range" className="grade-range" min="0" max="100" step="1" value={k} aria-label="LUT intensity"
             style={{ '--track': `linear-gradient(90deg, var(--primary) ${k}%, var(--surface-4) ${k}%)` }}
             onPointerDown={() => dispatch?.({ type: 'beginGesture' })} onPointerUp={() => dispatch?.({ type: 'endGesture' })}
+            onKeyDown={(e) => coarseRangeKeyDown(e, { value: k, min: 0, max: 100, step: 1, onChange: (v) => onChange({ ...lut, intensity: Math.round(v) }), dispatch })}
             onChange={(e) => onChange({ ...lut, intensity: Number(e.target.value) })} />
         </div>
       )}
-      {lut?.ref?.bundled && (
-        <p className="dim small">LUTs by <button className="link-inline" type="button" onClick={() => window.api.openHelp(LUT_CREDIT_URL)}>slay</button> (CC BY 4.0).</p>
+      {lut?.ref?.bundled && BUNDLED_LUTS.find((b) => b.file === lut.ref.bundled)?.credit && (
+        <p className="dim small">LUT by <button className="link-inline" type="button" onClick={() => window.api.openHelp(LUT_CREDIT_URL)}>slay</button> (CC BY 4.0).</p>
       )}
     </section>
   );
@@ -167,14 +179,9 @@ export default function GradePanel({ grade = {}, adjust = {}, onGrade, onAdjust,
       ))}
       <section className="grade-group">
         <div className="grade-title">Other</div>
-        {[['hue', 'Hue', -180, 180, 1], ['blur', 'Blur', 0, 20, 0.5], ...classic].map(([k, name, min, max, step]) => (
-          <div key={k} className="grade-row">
-            <div className="grade-top"><span>{name}</span><b className="grade-val">{Number(a[k]).toFixed(step >= 1 ? 0 : 2)}{k === 'hue' ? '°' : ''}</b></div>
-            <input type="range" className="grade-range" min={min} max={max} step={step} value={a[k]} aria-label={name}
-              style={{ '--track': `linear-gradient(90deg, var(--primary) ${((a[k] - min) / (max - min)) * 100}%, var(--surface-4) ${((a[k] - min) / (max - min)) * 100}%)` }}
-              onPointerDown={() => dispatch?.({ type: 'beginGesture' })} onPointerUp={() => dispatch?.({ type: 'endGesture' })}
-              onDoubleClick={() => onAdjust({ ...a, [k]: DEFAULT_ADJUST[k] })} onChange={(e) => onAdjust({ ...a, [k]: Number(e.target.value) })} />
-          </div>
+        {[['hue', 'Hue', -180, 180, 1, '°'], ['blur', 'Blur', 0, 20, 0.5], ...classic].map(([k, name, min, max, step, suffix]) => (
+          <Row key={k} item={{ id: k, name, min, max, step, suffix, reset: DEFAULT_ADJUST[k] }}
+            value={a[k]} dispatch={dispatch} onChange={(v) => onAdjust({ ...a, [k]: v })} />
         ))}
       </section>
       <p className="dim small">Double-click a slider to set it back to 0.</p>

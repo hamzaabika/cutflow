@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ChevronDown, ChevronUp } from 'lucide-react';
+import { ChevronDown, ChevronUp } from '../icons.jsx';
 
 // NumBox — the app's one numeric field, a scrub field in the editor tradition:
 // - Drag the label or the field horizontally to scrub (pointer capture, ew-resize cursor, live

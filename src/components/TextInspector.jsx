@@ -1,7 +1,10 @@
 import React, { useMemo, useState } from 'react';
-import { AlignCenter, AlignLeft, AlignRight, Bold, CaseUpper, Italic, Search, Star, Underline } from 'lucide-react';
+import { AlignCenter, AlignLeft, AlignRight, Bold, CaseUpper, Italic, Search, Star, Underline } from '../icons.jsx';
 import Slider from './Slider.jsx';
 import NumBox from './NumBox.jsx';
+import KitToggle from '../ui/Toggle.jsx';
+import { InspCard } from '../ui/Section.jsx';
+import BrandSwatches from './BrandSwatches.jsx';
 import { dragProps } from '../dnd.js';
 import TextPreview from './TextPreview.jsx';
 import FontPicker from './FontPicker.jsx';
@@ -62,7 +65,7 @@ export function TemplateGrid({ onPick, activeId, captionOnly, sampleText, dragga
       </label>
       {!category && <div className="chips scroll-x" onWheel={(e) => { e.currentTarget.scrollLeft += e.deltaY; }}>
         {TEMPLATE_CATEGORIES.map((c) => (
-          <button key={c} className={`chip ${cat === c ? 'on' : ''}`} onClick={() => setCat(c)}>{c}</button>
+          <button key={c} className={`chip ${cat === c ? 'on' : ''}`} onClick={() => setCat(c)}>{c}{c === 'Favorites' ? '' : ` · ${c === 'All' ? TEXT_TEMPLATES.length : TEXT_TEMPLATES.filter((x) => x.cat === c || (x.tags || []).includes(c)).length}`}</button>
         ))}
       </div>}
       <div className="tpl-grid">
@@ -109,10 +112,13 @@ function Toggle({ on, onClick, label, children }) {
 
 function Color({ label, value, onChange }) {
   return (
-    <label className="field row">
-      <span>{label}</span>
-      <input type="color" value={value} onChange={(e) => onChange(e.target.value)} />
-    </label>
+    <>
+      <label className="field row">
+        <span>{label}</span>
+        <input type="color" value={value} onChange={(e) => onChange(e.target.value)} />
+      </label>
+      <BrandSwatches onPick={onChange} />
+    </>
   );
 }
 
@@ -173,7 +179,7 @@ export default function TextInspector({ clip, dispatch, project = null }) {
       </div>
       {clip.caption && (
         <label className="apply-all">
-          <input type="checkbox" checked={applyAll} onChange={(e) => setApplyAll(e.target.checked)} />
+          <KitToggle checked={applyAll} onChange={(e) => setApplyAll(e.target.checked)} />
           Apply to all main captions
         </label>
       )}
@@ -182,8 +188,7 @@ export default function TextInspector({ clip, dispatch, project = null }) {
         <div className="fields">
           {project && <PinToTrack clip={clip} project={project} card
             set={(patch) => dispatch({ type: 'update', track: 'text', id: clip.id, patch })} />}
-          <div className="insp-card">
-            <div className="insp-card-title">Type</div>
+          <InspCard id="text:type" title="Type">
           <label className="field">
             <span>Text</span>
             <textarea rows={3} dir="auto" value={clip.text} onChange={(e) => set({ text: e.target.value })} />
@@ -206,28 +211,23 @@ export default function TextInspector({ clip, dispatch, project = null }) {
           {S({ label: 'Letter spacing', value: st.letterSpacing, min: -5, max: 40, step: 1, onChange: (letterSpacing) => set({ letterSpacing }) })}
           {S({ label: 'Line height', value: st.lineHeight, min: 0.8, max: 2.5, step: 0.05, onChange: (lineHeight) => set({ lineHeight }) })}
           {S({ label: 'Max width', value: st.maxWidth, min: 0.2, max: 1, numScale: 100, fmt: (v) => `${Math.round(v * 100)}%`, onChange: (maxWidth) => set({ maxWidth }) })}
-          </div>
-          <div className="insp-card">
-            <div className="insp-card-title">Fill</div>
+          </InspCard>
+          <InspCard id="text:fill" title="Fill">
             <Color label="Color" value={st.color} onChange={(color) => set({ color })} />
             {S({ label: 'Opacity', value: st.opacity ?? 1, numScale: 100, fmt: (v) => `${Math.round(v * 100)}%`, onChange: (opacity) => set({ opacity }) })}
-          </div>
+          </InspCard>
           {colorRoles.length > 0 && (
-            <div className="insp-card">
-              <div className="insp-card-title">Style colors</div>
+            <InspCard id="text:style-colors" title="Style colors">
               {colorRoles}
-            </div>
+            </InspCard>
           )}
-          <div className="insp-card">
-            <div className="insp-card-title">Stroke</div>
+          <InspCard id="text:stroke" title="Stroke">
           {S({ label: 'Width', value: st.stroke.width, min: 0, max: 30, step: 1, onChange: (width) => nested('stroke')({ width }) })}
           <Color label="Stroke color" value={st.stroke.color} onChange={(color) => nested('stroke')({ color })} />
 
-          </div>
-          <div className="insp-card">
-            <div className="insp-card-head"><span className="insp-card-title">Shadow</span>
-              <input type="checkbox" checked={st.shadow.on} onChange={(e) => nested('shadow')({ on: e.target.checked })} aria-label="Shadow" />
-            </div>
+          </InspCard>
+          <InspCard id="text:shadow" title="Shadow"
+            right={<KitToggle checked={st.shadow.on} onChange={(e) => nested('shadow')({ on: e.target.checked })} aria-label="Shadow" />}>
           {st.shadow.on && (
             <>
               <Color label="Shadow color" value={st.shadow.color} onChange={(color) => nested('shadow')({ color })} />
@@ -237,11 +237,9 @@ export default function TextInspector({ clip, dispatch, project = null }) {
             </>
           )}
 
-          </div>
-          <div className="insp-card">
-            <div className="insp-card-head"><span className="insp-card-title">Background</span>
-              <input type="checkbox" checked={st.bg.on} onChange={(e) => nested('bg')({ on: e.target.checked })} aria-label="Background" />
-            </div>
+          </InspCard>
+          <InspCard id="text:background" title="Background"
+            right={<KitToggle checked={st.bg.on} onChange={(e) => nested('bg')({ on: e.target.checked })} aria-label="Background" />}>
           {st.bg.on && (
             <>
               <div className="chips">
@@ -257,9 +255,8 @@ export default function TextInspector({ clip, dispatch, project = null }) {
             </>
           )}
 
-          </div>
-          <div className="insp-card">
-            <div className="insp-card-title">Position & timing</div>
+          </InspCard>
+          <InspCard id="text:position" title="Position & timing">
             <p className="dim small">Or drag the text on the player.</p>
           {S({ label: 'Position X', value: st.x, numScale: 100, fmt: (v) => `${Math.round(v * 100)}%`, onChange: (x) => set({ x }) })}
           {S({ label: 'Position Y', value: st.y, numScale: 100, fmt: (v) => `${Math.round(v * 100)}%`, onChange: (y) => set({ y }) })}
@@ -268,7 +265,7 @@ export default function TextInspector({ clip, dispatch, project = null }) {
             onChange={(v) => set({ start: Math.max(0, v) })} />
           <NumBox layout="field" label="Duration (s)" step={0.1} min={0.1} value={clip.duration}
             onChange={(v) => set({ duration: Math.max(0.1, v) })} />
-          </div>
+          </InspCard>
         </div>
       )}
 

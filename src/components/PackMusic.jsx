@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Loader2, Pause, Play, Plus } from 'lucide-react';
+import { Loader2, Pause, Play, Plus } from '../icons.jsx';
 import SearchBox from './SearchBox.jsx';
 import { formatTime, toFileUrl } from '../store.js';
 import { assetAddWhere } from '../assetsLib.js';

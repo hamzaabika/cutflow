@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AppWindow, Camera, Circle, Loader2, Mic, Monitor, Pause, Play, RefreshCw, Square, SquareDashed, Volume2, X } from 'lucide-react';
+import { AppWindow, Camera, Circle, Loader2, Mic, Monitor, Pause, Play, RefreshCw, Square, SquareDashed, Volume2, X } from '../icons.jsx';
 
 const pad = (v) => String(Math.floor(v)).padStart(2, '0');
 const clock = (s) => `${pad(s / 60)}:${pad(s % 60)}`;
