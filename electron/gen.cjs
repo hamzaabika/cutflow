@@ -251,6 +251,15 @@ function list(outDir) {
     .sort((a, b) => b.createdAt - a.createdAt);
 }
 
+// Deletes one generated file and its description. Only files directly inside outDir count —
+// the same guard avatarRemove uses — so a stray path from the renderer can never delete more.
+function remove(outDir, file) {
+  const full = path.resolve(String(file || ''));
+  if (path.dirname(full) !== path.resolve(outDir)) throw new GenError('Not a generated file.');
+  fs.rmSync(full, { force: true });
+  fs.rmSync(`${full}.json`, { force: true });
+}
+
 // ---- My avatars: photos of people kept in their own folder to reuse in every project. ----
 function avatarList(dir) {
   if (!fs.existsSync(dir)) return [];
@@ -282,5 +291,5 @@ const catalog = () => ({ video: VIDEO_MODELS, image: IMAGE_MODELS, avatar: { mod
 
 module.exports = {
   VIDEO_MODELS, IMAGE_MODELS, AVATAR_MODEL, AUDIO_TYPES, PRO_URL, GenError,
-  isPro, buildRequest, run, list, avatarList, avatarAdd, avatarRemove, catalog,
+  isPro, buildRequest, run, list, remove, avatarList, avatarAdd, avatarRemove, catalog,
 };

@@ -284,11 +284,11 @@ function projectKey(project) {
   for (const c of project.videoClips || []) {
     if (c.gap) { parts.push(`gap|${c.out - c.in}`); continue; }
     const m = mediaById.get(c.mediaId);
-    parts.push(`v|${stamp(m)}|${c.in}|${c.out}|${c.speed || 1}|${c.volume ?? 1}|${c.muted ? 1 : 0}|${JSON.stringify(c.audioFx || null)}`);
+    parts.push(`v|${stamp(m)}|${c.in}|${c.out}|${c.speed || 1}|${c.volume ?? 1}|${c.muted ? 1 : 0}|${JSON.stringify(c.audioFx || null)}|${JSON.stringify(c.volKeys || null)}|${c.fadeIn || 0}|${c.fadeOut || 0}`);
   }
   for (const c of project.audioClips || []) {
     const m = mediaById.get(c.mediaId);
-    parts.push(`a|${stamp(m)}|${c.start}|${c.in}|${c.out}|${c.speed || 1}|${c.volume ?? 1}|${JSON.stringify(c.audioFx || null)}`);
+    parts.push(`a|${stamp(m)}|${c.start}|${c.in}|${c.out}|${c.speed || 1}|${c.volume ?? 1}|${JSON.stringify(c.audioFx || null)}|${JSON.stringify(c.volKeys || null)}|${c.fadeIn || 0}|${c.fadeOut || 0}`);
   }
   return crypto.createHash('sha1').update(`beats1|${parts.join(';')}`).digest('hex').slice(0, 16);
 }

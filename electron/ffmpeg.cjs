@@ -10,11 +10,21 @@ const ffprobePath = require('ffprobe-static').path.replace('app.asar', 'app.asar
 
 const layers = require('./layers.cjs');
 const { audioFxFilters } = require('./audiofx.cjs');
+const sc = require('./speedcurve.cjs');
+const vk = require('./volkeys.cjs');
 
 const IMAGE_EXT = ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'gif'];
 
 const num = (n) => Number(n).toFixed(3);
 const hex = (c, def = '#ffffff') => (c || def).replace('#', '0x');
+
+// The decode source for a media item: its auto-remux copy when one exists and
+// is usable, else the original file. A remux is a stream copy — same streams,
+// same timing — in a fast-seeking container (see electron/remux.cjs), so the
+// decode-side graphs (video export, audio export) read it transparently; the
+// original is never modified and is the fallback the moment the copy is gone.
+const mediaMap = (project) => Object.fromEntries((project.media || []).map((m) => [m.id,
+  (m && typeof m.remux === 'string' && usableCopyFile(m.remux)) ? { ...m, path: m.remux } : m]));
 
 function probe(file) {
   const ext = path.extname(file).slice(1).toLowerCase();
@@ -49,7 +59,15 @@ function probe(file) {
         height: v ? (turned ? v.width : v.height) : 0,
         rotation,
         hdr,
+        // The source's colour description (Sprint 6): the export tags everything
+        // BT.709, so a non-709 source must be CONVERTED, not just retagged — see
+        // colorFix below. Absent when the file carries no tags.
+        colorSpace: v ? v.color_space || '' : '',
+        colorPrimaries: v ? v.color_primaries || '' : '',
+        colorTransfer: v ? v.color_transfer || '' : '',
+        colorRange: v ? v.color_range || '' : '',
         // What the player needs to know to decide on a preview proxy.
+        container: (info.format && info.format.format_name) || '',
         vcodec: v ? v.codec_name : '',
         acodec: a ? a.codec_name : '',
         pixFmt: v ? v.pix_fmt : '',
@@ -63,12 +81,67 @@ function probe(file) {
   });
 }
 
-const clipLen = (c) => (c.out - c.in) / (c.speed || 1);
+// Timeline length of a clip: the speed sampler's duration — the curve integral
+// for a ramped clip, (out - in) / speed for a constant one (see speedcurve.cjs).
+const clipLen = (c) => sc.clipDuration(c);
 
 // HDR (HLG or PQ, BT.2020) to normal BT.709 colors: to linear light, BT.709 primaries, Hable tone curve. Without it
 // the picture comes out pale and yellowish, because every later step reads the HDR values as normal ones.
 const TONEMAP = 'zscale=t=linear:npl=203,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p';
 const toSdr = (m) => (m && m.hdr ? `,${TONEMAP}` : '');
+
+// Non-BT.709 SDR sources (Sprint 6, the colour parity row): the output stage tags
+// every export BT.709 unconditionally. Before this helper existed, a BT.601 / BT.470 /
+// BT.2020-transfer source was decoded with its own matrix and then simply LABELLED
+// 709 — every player then decoded it with the wrong matrix and the colours shifted
+// (a 601 red reads several percent off in 709). colorFix converts the picture to true
+// BT.709 at decode time (the same point where HDR is tonemapped), so the tag the
+// output writes is finally true. Conservative by design: it fires only when probe
+// captured a colour description that is fully characterised and mappable to the
+// colorspace filter's vocabulary; an untagged or partly-unknown source is left
+// exactly as before (decoders assume 601/709 by resolution, as they always have).
+const CS_SPACE = { bt470: 'bt470', bt470bg: 'bt470bg', smpte170m: 'smpte170m', smpte240m: 'smpte240m', fcc: 'fcc', 'bt2020nc': 'bt2020ncl', 'bt2020c': 'bt2020cl' };
+const CS_PRIM = new Set(['bt470m', 'bt470bg', 'smpte170m', 'smpte240m', 'film', 'bt2020', 'smpte428', 'smpte431', 'smpte432', 'ebu3213', 'jedec-p22']);
+const CS_TRC = new Set(['gamma22', 'gamma28', 'smpte170m', 'smpte240m', 'linear', 'log100', 'log316', 'iec61966-2-4', 'bt1361e', 'iec61966-2-1', 'bt2020-10', 'bt2020-12', 'smpte428']);
+function colorFix(m) {
+  if (!m || m.hdr) return '';
+  const cs = m.colorSpace || '';
+  const cp = m.colorPrimaries || '';
+  const ct = m.colorTransfer || '';
+  if (cs === 'unknown' || cp === 'unknown' || ct === 'unknown') return '';
+  const off = (v) => !!v && v !== 'bt709';
+  if (!off(cs) && !off(cp) && !off(ct)) return '';
+  if (off(cs) && !CS_SPACE[cs]) return '';
+  if (off(cp) && !CS_PRIM.has(cp)) return '';
+  if (off(ct) && !CS_TRC.has(ct)) return '';
+  // EVERY input component is pinned, not just the non-709 ones: a file may tag only
+  // its matrix (smptebars media probes as space=bt470bg with primaries/transfer
+  // absent) while its frames carry primaries=unknown — and the colorspace filter
+  // REFUSES unknown frame props ("Unsupported input primaries 2"), killing the
+  // whole export. Components the source does not claim are pinned to BT.709, the
+  // assumption the rest of the pipeline already makes for untagged material.
+  const parts = ['all=bt709',
+    `ispace=${off(cs) ? CS_SPACE[cs] : 'bt709'}`,
+    `iprimaries=${off(cp) ? cp : 'bt709'}`,
+    `itrc=${off(ct) ? ct : 'bt709'}`,
+    `irange=${m.colorRange === 'pc' ? 'pc' : 'tv'}`,
+    'range=tv'];
+  return `,colorspace=${parts.join(':')}`;
+}
+
+// Where a chain may apply colorFix: AFTER its last scale, never before it. Measured
+// on the bundled FFmpeg: a scale filter placed after the conversion silently undoes
+// it (swscale re-derives its matrix from the stream's ORIGINAL colour props, so the
+// converted values are reinterpreted back — a converted export landed 11.3 mean abs
+// from the reference instead of 0.6). Scale-then-convert is exact. Every chain below
+// therefore converts as its last colour step: clipVideoFilters on the plain path,
+// and the end of the YUV chain in layers.buildLayer on the layered path (before its
+// format=rgba step; everything past that is RGBA and composite() re-encodes with an
+// explicit BT.709 matrix). The fx-pass decoder needs none: it outputs RGBA frames
+// decoded following the source's own props, which is the same correct picture.
+// A clip carrying a pre-rendered override is exempt: the fx-pass decoder already
+// converted its frames at decode time, so converting again would double-apply.
+const colorFixFor = (clip, m) => (clip && clip.videoOverride ? '' : colorFix(m));
 
 function transitionDur(clips, i) {
   const t = clips[i] && clips[i].transition;
@@ -85,37 +158,82 @@ function atempo(speed) {
   return out;
 }
 
-// Filters for the look of a clip (flip, color filter, adjustments, effects) on a picture of size W x H.
-function lookFilters(clip, W, H) {
-  const f = [];
-  const fx = clip.effects || [];
-  // A classic effect carrying a region, a timing window, or a strength below 1, is baked
-  // by the effects pass through its shader form instead (src/fx/apply.js
-  // classicViaShader) — the flat look filters here must not paint it a second time.
-  const viaShader = (id) => !!(clip.fxRegions?.[id] || !!clip.fxTiming?.[id] || (clip.fxStrength?.[id] != null && clip.fxStrength[id] < 1));
-  if (fx.includes('mirror') && !viaShader('mirror')) f.push('hflip');
-  if (fx.includes('flipv') && !viaShader('flipv')) f.push('vflip');
-  // clip.filter is drawn by the effects pass (GPU, src/fx/filters.js), like in the player.
-  const a = { brightness: 0, contrast: 1, saturation: 1, hue: 0, blur: 0, ...(clip.adjust || {}) };
-  if (a.brightness || a.contrast !== 1 || a.saturation !== 1) {
-    f.push(`eq=brightness=${num(a.brightness * 0.5)}:contrast=${num(a.contrast)}:saturation=${num(a.saturation)}`);
+const f6 = (n) => String(Math.round(n * 1e6) / 1e6);
+
+// The setpts for a speed-ramped clip's picture, built from the shared sampler's
+// segments (speedcurve.cjs): within segment k the input time T (seconds from the
+// window start) maps to tlStart + (T - srcOff) / speed — one piecewise setpts in
+// the same chain position the constant path's setpts=(PTS-STARTPTS)/speed holds,
+// so the plain and layered paths consume it identically. A single-segment curve
+// degenerates to the constant form.
+function speedSetpts(clip) {
+  const segs = sc.curveSegments(clip);
+  if (segs.length === 1) return `setpts=(PTS-STARTPTS)/${f6(segs[0].speed)}`;
+  const T = '((PTS-STARTPTS)*TB)';
+  let tl = 0;
+  const parts = segs.map((s) => {
+    const p = { ...s, tlStart: tl };
+    tl += s.tlDur;
+    return p;
+  });
+  let expr = null;
+  for (let k = parts.length - 1; k >= 0; k--) {
+    const s = parts[k];
+    const seg = `(${f6(s.tlStart)}+(${T}-${f6(s.srcOff)})/${f6(s.speed)})`;
+    expr = k === parts.length - 1 ? seg : `if(lt(${T},${f6(parts[k + 1].srcOff)}),${seg},${expr})`;
   }
-  if (a.hue) f.push(`hue=h=${num(a.hue)}`);
-  const blur = Math.round((a.blur + (fx.includes('blur') && !viaShader('blur') ? 6 : 0)) * (W / 640));
-  if (blur > 0) f.push(`boxblur=${Math.min(blur, Math.floor(Math.min(W, H) / 2) - 1)}`);
-  if (fx.includes('vignette') && !viaShader('vignette')) f.push('vignette=PI/4');
-  if (fx.includes('grain') && !viaShader('grain')) f.push('noise=alls=18:allf=t');
-  if (fx.includes('pixel') && !viaShader('pixel')) f.push(`scale=iw/24:ih/24,scale=${W}:${H}:flags=neighbor`);
-  return f;
+  return `setpts='(${expr})/TB'`;
 }
 
+// Retimes a clip's sound along its speed curve: the (already source-trimmed)
+// stream `head` is split per sampled segment, each piece is trimmed to the
+// segment's source window and atempo'd by the segment's exact average rate, and
+// the pieces concat back in order before `tail` runs — the audio twin of
+// speedSetpts, from the same segments, so sound and picture land together.
+//
+// WSOLA (atempo) is not length-faithful on short inputs — a 0.075 s segment can
+// come back ~20% short, and with dozens of segments the sound would drift
+// audibly off the picture mid-clip. So each piece is trimmed with a tail of
+// extra source (SEG_TAIL, clamped to the window) for the stretcher to work
+// with, and its output is cut to the segment's exact timeline length: segment
+// boundaries land where the sampler puts them, and lengths cannot accumulate
+// error. (Measured: per-segment boundaries within ~0.04 s — one stretcher
+// grain — and the total exact; scripts/test-speed-curve.mjs proves it.)
+const SEG_TAIL = 0.25;
+function curveAudioGraph(clip, head, tail, outLabel, tag) {
+  const segs = sc.curveSegments(clip);
+  if (segs.length === 1) {
+    return [head, ...atempo(segs[0].speed), ...tail].join(',') + `[${outLabel}]`;
+  }
+  const span = sc.spanOf(clip);
+  const parts = [`${head},asplit=${segs.length}${segs.map((_, k) => `[${tag}s${k}]`).join('')}`];
+  segs.forEach((s, k) => {
+    const tempo = atempo(s.speed);
+    const end = Math.min(span, s.srcOff + s.srcDur + SEG_TAIL);
+    parts.push(`[${tag}s${k}]atrim=start=${num(s.srcOff)}:end=${num(end)},asetpts=PTS-STARTPTS${tempo.length ? `,${tempo.join(',')}` : ''},atrim=end=${num(s.tlDur)},asetpts=PTS-STARTPTS[${tag}p${k}]`);
+  });
+  parts.push(`${segs.map((_, k) => `[${tag}p${k}]`).join('')}concat=n=${segs.length}:v=0:a=1[${tag}r]`);
+  parts.push(tail.length ? `[${tag}r]${tail.join(',')}[${outLabel}]` : `[${tag}r]anull[${outLabel}]`);
+  return parts.join(';');
+}
+
+// The look of a clip (Adjust settings, GPU filter, grade, effects) is painted by the
+// effects pass, never here: since the Sprint 6 unification there is exactly one engine
+// for it (src/fx/apply.js pixelPasses — src/fx/adjust.js for clip.adjust, TRACK_CLASSIC
+// for the classic effects), and a clip that carries any of it reaches this graph with a
+// pre-rendered override file. (The FFmpeg look-filter approximations that used to live
+// here — eq with halved brightness, boxblur, noise, vignette — disagreed with both the
+// preview and the shader forms and were deleted.)
+
 // The plain picture path: fit in the frame over the background color, look, constant frame rate.
-function clipVideoFilters(clip, W, H, fps, background) {
+function clipVideoFilters(clip, m, W, H, fps, background) {
+  const fix = colorFixFor(clip, m);
   return [
     `scale=${W}:${H}:force_original_aspect_ratio=decrease`,
     `pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=${hex(background, '#000000')}`,
     'setsar=1',
-    ...lookFilters(clip, W, H),
+    // Non-709 sources convert HERE — after the last scale (see colorFixFor).
+    ...(fix ? [fix.slice(1)] : []),
     `fps=${fps}`,
     'format=yuv420p',
   ].join(',');
@@ -132,6 +250,22 @@ function enhancePathOf(clip) {
   return fs.existsSync(e.path) ? e.path : null;
 }
 
+// The AudioFx preview derivative for a clip (electron/audiofxrender.cjs), when it was rendered
+// for the clip's current range, from its current sound source (the enhanced render when Voice
+// Enhance replaces the sound, else the media file), with the chain the clip's current audioFx
+// produce. The file already carries the chain's output, so a chain that consumes it must NOT
+// apply audioFxFilters again — that is what makes preview and export the same render. Stale
+// on any fx / trim / source change: chains then fall back to applying the filters inline.
+function audioFxPathOf(clip, m) {
+  const r = clip && clip.audioFxRender;
+  if (!r || !r.path || !r.chain) return null;
+  if (audioFxFilters(clip.audioFx).join(',') !== r.chain) return null;
+  if (Math.abs((r.from ?? -1) - (clip.in || 0)) > 0.02 || Math.abs((r.to ?? -1) - (clip.out ?? -1)) > 0.02) return null;
+  const src = enhancePathOf(clip) || (m && m.path);
+  if (src && r.src !== src) return null;
+  return fs.existsSync(r.path) ? r.path : null;
+}
+
 // Audio stream [a<i>] for main-track clip i (silence for photos, muted or silent clips).
 // enhIdx: input index of the clip's enhanced file, when the Voice Enhancer replaces its sound.
 // swresample's default mono->stereo upmix renders a mono source 3.01 dB down per channel,
@@ -142,7 +276,19 @@ function enhancePathOf(clip) {
 // (electron/enhance.cjs writes -ac 2), so the enhanced path never takes the pan.
 const monoUp = (m, enhanced) => (!enhanced && m && m.channels === 1 ? 'pan=stereo|c0=c0|c1=c0' : null);
 
-function clipAudioFilter(clip, m, idx, i, enhIdx = -1, seeked = false) {
+// A clip's fade envelope as afade filters (Sprint 10): the same linear ramps
+// the preview applies through volKeys.fadeEnv — afade's default curve is the
+// same triangle. Fades live on audio-track clips AND on picture clips (a
+// video clip's own sound), one model for both; they multiply AFTER the
+// volume / volume-keyframe stage (the gain stack in src/volKeys.js).
+function audioFades(clip, len) {
+  const out = [];
+  if (clip.fadeIn > 0) out.push(`afade=t=in:st=0:d=${num(Math.min(clip.fadeIn, len))}`);
+  if (clip.fadeOut > 0) out.push(`afade=t=out:st=${num(Math.max(0, len - clip.fadeOut))}:d=${num(Math.min(clip.fadeOut, len))}`);
+  return out;
+}
+
+function clipAudioFilter(clip, m, idx, i, enhIdx = -1, seeked = false, fxIdx = -1) {
   const len = clipLen(clip);
   if (clip.gap || !m || m.type === 'image' || !m.hasAudio || clip.muted) {
     return `anullsrc=r=48000:cl=stereo,atrim=duration=${num(len)},aformat=sample_fmts=fltp[a${i}]`;
@@ -150,24 +296,34 @@ function clipAudioFilter(clip, m, idx, i, enhIdx = -1, seeked = false) {
   // Perf B1 (2026-11-01): when the caller input-seeked this clip's input (-ss before -i),
   // the stream already starts at clip.in, so the trim runs from 0 — identical samples,
   // without decoding the skipped prefix. The enhanced branch is pre-trimmed by the
-  // enhance render and always reads from 0.
-  const src = enhIdx >= 0
-    ? [`[${enhIdx}:a]atrim=start=0:end=${num(clip.out - clip.in)}`, 'asetpts=PTS-STARTPTS']
-    : seeked
-      ? [`[${idx}:a]atrim=start=0:end=${num(clip.out - clip.in)}`, 'asetpts=PTS-STARTPTS']
-      : [`[${idx}:a]atrim=start=${num(clip.in)}:end=${num(clip.out)}`, 'asetpts=PTS-STARTPTS'];
-  const up = monoUp(m, enhIdx >= 0);
-  return [...src, ...(up ? [up] : []), ...atempo(clip.speed || 1),
-    `volume=${clip.volume ?? 1}`, 'aresample=48000', 'aformat=sample_fmts=fltp:channel_layouts=stereo',
-    ...audioFxFilters(clip.audioFx),
-    `apad=whole_dur=${num(len)}`, `atrim=duration=${num(len)}`].join(',') + `[a${i}]`;
+  // enhance render and always reads from 0. The AudioFx derivative (fxIdx) is likewise
+  // pre-trimmed and pre-effected: it replaces the source AND the inline audioFxFilters.
+  const src = fxIdx >= 0
+    ? [`[${fxIdx}:a]atrim=start=0:end=${num(clip.out - clip.in)}`, 'asetpts=PTS-STARTPTS']
+    : enhIdx >= 0
+      ? [`[${enhIdx}:a]atrim=start=0:end=${num(clip.out - clip.in)}`, 'asetpts=PTS-STARTPTS']
+      : seeked
+        ? [`[${idx}:a]atrim=start=0:end=${num(clip.out - clip.in)}`, 'asetpts=PTS-STARTPTS']
+        : [`[${idx}:a]atrim=start=${num(clip.in)}:end=${num(clip.out)}`, 'asetpts=PTS-STARTPTS'];
+  const up = fxIdx >= 0 ? null : monoUp(m, enhIdx >= 0);
+  const tail = [
+    ...vk.volChainFor(clip, len), ...audioFades(clip, len), 'aresample=48000', 'aformat=sample_fmts=fltp:channel_layouts=stereo',
+    ...(fxIdx >= 0 ? [] : audioFxFilters(clip.audioFx)),
+    `apad=whole_dur=${num(len)}`, `atrim=duration=${num(len)}`];
+  // A speed curve retimes the sound segment by segment (the presented stream
+  // starts at the clip's in-point in every branch above, so the sampler's
+  // source offsets address it directly); anything else keeps the one atempo.
+  if (sc.hasCurve(clip)) {
+    return curveAudioGraph(clip, [...src, ...(up ? [up] : [])].join(','), tail, `a${i}`, `ca${i}`);
+  }
+  return [...src, ...(up ? [up] : []), ...atempo(clip.speed || 1), ...tail].join(',') + `[a${i}]`;
 }
 
 // Main-track audio only (no music), as 16 kHz mono WAV — the input for auto captions.
 // Audio to transcribe, as 16 kHz mono WAV. source: 'all' (video clips + audio track), 'video' or 'audio'.
 // Every piece is placed at its timeline position, so caption times match the timeline.
 function buildTimelineAudioArgs(project, outWav, source = 'all') {
-  const mediaById = Object.fromEntries(project.media.map((m) => [m.id, m]));
+  const mediaById = mediaMap(project);
   const inputs = [];
   const filters = [];
   const mix = [];
@@ -199,10 +355,12 @@ function buildTimelineAudioArgs(project, outWav, source = 'all') {
     inputs.push('-ss', num(c.in), '-i', mediaById[c.mediaId].path);
     const idx = n++;
     const ms = Math.round(c.start * 1000);
-    filters.push(
-      `[${idx}:a]atrim=start=0:end=${num(c.out - c.in)},asetpts=PTS-STARTPTS,${[...atempo(c.speed || 1), `volume=${c.volume ?? 1}`].join(',')},` +
-        `aresample=16000,aformat=sample_fmts=fltp:channel_layouts=mono,adelay=${ms}:all=1[x${j}]`
-    );
+    const alen = clipLen(c);
+    filters.push(sc.hasCurve(c)
+      ? curveAudioGraph(c, `[${idx}:a]atrim=start=0:end=${num(c.out - c.in)},asetpts=PTS-STARTPTS`,
+        [...vk.volChainFor(c, alen), ...audioFades(c, alen), 'aresample=16000', 'aformat=sample_fmts=fltp:channel_layouts=mono', `adelay=${ms}:all=1`], `x${j}`, `tx${j}`)
+      : `[${idx}:a]atrim=start=0:end=${num(c.out - c.in)},asetpts=PTS-STARTPTS,${[...atempo(c.speed || 1), ...vk.volChainFor(c, alen), ...audioFades(c, alen)].join(',')},` +
+        `aresample=16000,aformat=sample_fmts=fltp:channel_layouts=mono,adelay=${ms}:all=1[x${j}]`);
     mix.push(`[x${j}]`);
   });
 
@@ -293,6 +451,13 @@ function narrowClip(clip, m, from, to) {
   if (clip.gap) return { ...c, in: 0, out: to - from, speed: 1 };
   if (clip.videoOverride) return { ...c, videoOverride: { ...clip.videoOverride, start: clip.videoOverride.start + from, end: clip.videoOverride.start + to } };
   if (m.type === 'image') return { ...c, in: 0, out: to - from, speed: 1 };
+  if (sc.hasCurve(clip)) {
+    // The narrowed window's edges map through the curve and the copy keeps the
+    // window's slice of it, so transition frames show the ramped motion.
+    const fromOff = sc.sourceOffsetAt(clip, from);
+    const toOff = sc.sourceOffsetAt(clip, to);
+    return { ...c, in: clip.in + fromOff, out: clip.in + toOff, speedCurve: sc.sliceCurve(clip, fromOff, toOff) };
+  }
   const sp = clip.speed || 1;
   return { ...c, in: clip.in + from * sp, out: clip.in + to * sp };
 }
@@ -305,7 +470,8 @@ function narrowClip(clip, m, from, to) {
 function matteSource(clip, m, fps, addInput, tag, filters) {
   if (!clip.bgRemove || !m || m.type !== 'video' || !m.matte || !fs.existsSync(m.matte)) return null;
   const idx = addInput(['-ss', num(clip.in), '-i', m.matte]);
-  filters.push(`[${idx}:v]trim=duration=${num(clip.out - clip.in)},setpts=(PTS-STARTPTS)/${clip.speed || 1},fps=${fps},` +
+  const timing = sc.hasCurve(clip) ? speedSetpts(clip) : `setpts=(PTS-STARTPTS)/${clip.speed || 1}`;
+  filters.push(`[${idx}:v]trim=duration=${num(clip.out - clip.in)},${timing},fps=${fps},` +
     `tpad=stop_mode=clone:stop_duration=1[mt${tag}]`);
   return `mt${tag}`;
 }
@@ -325,7 +491,8 @@ function pictureSource(clip, m, len, fps, addInput) {
     return { idx, chain: `[${idx}:v]trim=duration=${num(len)},setpts=PTS-STARTPTS`, own: true, audioSeeked: false };
   }
   const idx = addInput(['-ss', num(clip.in), '-i', m.path]);
-  return { idx, chain: `[${idx}:v]trim=duration=${num(clip.out - clip.in)},setpts=(PTS-STARTPTS)/${clip.speed || 1}${toSdr(m)}`, own: true, audioSeeked: true };
+  const timing = sc.hasCurve(clip) ? speedSetpts(clip) : `setpts=(PTS-STARTPTS)/${clip.speed || 1}`;
+  return { idx, chain: `[${idx}:v]trim=duration=${num(clip.out - clip.in)},${timing}${toSdr(m)}`, own: true, audioSeeked: true };
 }
 
 // opts.raw: only the main track's picture, as raw RGBA frames on stdout (frames for the effects pass).
@@ -333,7 +500,12 @@ function pictureSource(clip, m, len, fps, addInput) {
 function buildExportArgs(project, outFile, opts = {}) {
   const { width: W, height: H, fps } = project;
   const bg = project.background || '#000000';
-  const mediaById = Object.fromEntries(project.media.map((m) => [m.id, m]));
+  const eff = effectiveExport(project);
+  // A GIF maps no audio, so its graph builds none: an audio branch that is built but
+  // never consumed fails FFmpeg's graph binding (and trips a scheduler assertion in
+  // this FFmpeg build when sunk instead). Video construction is identical either way.
+  const wantAudio = eff.format !== 'gif';
+  const mediaById = mediaMap(project);
   const inputs = [];
   const filters = [];
   let nInputs = 0;
@@ -350,7 +522,7 @@ function buildExportArgs(project, outFile, opts = {}) {
     if (clip.gap) {
       // A gap on the main track: the project background, in silence.
       filters.push(`color=c=${hex(bg, '#000000')}:s=${W}x${H}:r=${fps}:d=${num(len)},format=yuv420p[v${i}]`);
-      if (!opts.raw) filters.push(clipAudioFilter(clip, null, -1, i));
+      if (!opts.raw && wantAudio) filters.push(clipAudioFilter(clip, null, -1, i));
       return;
     }
     // Clips with a transform, mask, chroma key, opacity or blend go through the layered render; the rest keep the plain path.
@@ -365,7 +537,7 @@ function buildExportArgs(project, outFile, opts = {}) {
       const cmFile = project.customMaskFiles && project.customMaskFiles[clip.id];
       const customMaskIdx = cmFile ? addInput(['-loop', '1', '-framerate', String(fps), '-t', num(len), '-i', cmFile]) : null;
       const matteLabel = matteSource(clip, m, fps, addInput, tag, filters);
-      const layer = layers.buildLayer({ clip, media: m, W, H, fps, len, tag, srcLabel, maskIdx, decoIdx, motion, matteLabel, customMaskIdx }, { lookFilters, num, hex });
+      const layer = layers.buildLayer({ clip, media: m, W, H, fps, len, tag, srcLabel, maskIdx, decoIdx, motion, matteLabel, customMaskIdx }, { num, hex, colorFixFor });
       filters.push(...layer.filters);
       filters.push(`color=c=${hex(bg, '#000000')}:s=${W}x${H}:r=${fps}:d=${num(len)},format=yuv420p[bg${tag}]`);
       filters.push(...layers.composite({ base: `bg${tag}`, layer: layer.out, blend: clip.blend, tag, out: `v${i}` }));
@@ -375,14 +547,16 @@ function buildExportArgs(project, outFile, opts = {}) {
       filters.push(`${src.chain},fps=${fps}[s${i}]`);
       renderLayered(`s${i}`);
     } else {
-      filters.push(`${src.chain},${clipVideoFilters(clip, W, H, fps, bg)}[v${i}]`);
+      filters.push(`${src.chain},${clipVideoFilters(clip, m, W, H, fps, bg)}[v${i}]`);
     }
     // Sound comes from the media even when the picture was pre-rendered. A dedicated
     // audio input (picture came from an override file) is input-seeked too (B1).
     const audioIdx = src.own || m.type === 'image' || !m.hasAudio || clip.muted ? src.idx : addInput(['-ss', num(clip.in), '-i', m.path]);
     const enhP = !opts.raw && enhancePathOf(clip);
     const enhIdx = enhP ? addInput(['-i', enhP]) : -1;
-    if (!opts.raw) filters.push(clipAudioFilter(clip, m, src.own ? src.idx : audioIdx, i, enhIdx, src.own ? !!src.audioSeeked : true));
+    const fxP = !opts.raw && audioFxPathOf(clip, m);
+    const fxIdx = fxP ? addInput(['-i', fxP]) : -1;
+    if (!opts.raw && wantAudio) filters.push(clipAudioFilter(clip, m, src.own ? src.idx : audioIdx, i, enhIdx, src.own ? !!src.audioSeeked : true, fxIdx));
   });
 
   // 2) Join clips: xfade/acrossfade where a transition is set, plain concat otherwise.
@@ -402,20 +576,20 @@ function buildExportArgs(project, outFile, opts = {}) {
         `[v${i}]trim=start=${num(td)},setpts=PTS-STARTPTS,setsar=1[jB${i}]`,
         `[jA${i}][jT${i}][jB${i}]concat=n=3:v=1:a=0[jv${i}]`,
       );
-      filters.push(`[${ca}][a${i}]acrossfade=d=${num(td)}[ja${i}]`);
+      if (wantAudio) filters.push(`[${ca}][a${i}]acrossfade=d=${num(td)}[ja${i}]`);
     } else if (td > 0) {
       // xfade needs both inputs on the same time base (after an animated transition the video so far has another one).
       filters.push(
         `[${cv}]settb=1/${fps}[xa${i}]`, `[v${i}]settb=1/${fps}[xb${i}]`,
         `[xa${i}][xb${i}]xfade=transition=${clips[i].transition.type}:duration=${num(td)}:offset=${num(start)}[jv${i}]`,
       );
-      filters.push(`[${ca}][a${i}]acrossfade=d=${num(td)}[ja${i}]`);
+      if (wantAudio) filters.push(`[${ca}][a${i}]acrossfade=d=${num(td)}[ja${i}]`);
     } else {
       filters.push(`[${cv}][v${i}]concat=n=2:v=1:a=0[jv${i}]`);
-      filters.push(`[${ca}][a${i}]concat=n=2:v=0:a=1[ja${i}]`);
+      if (wantAudio) filters.push(`[${ca}][a${i}]concat=n=2:v=0:a=1[ja${i}]`);
     }
     cv = `jv${i}`;
-    ca = `ja${i}`;
+    if (wantAudio) ca = `ja${i}`;
     end = start + clipLen(clips[i]);
   }
   const total = end;
@@ -426,13 +600,18 @@ function buildExportArgs(project, outFile, opts = {}) {
       total,
     };
   }
+  // GIF honesty cap: palette generation over a long range produces huge files and doubles
+  // the encode work; refuse with the remedy named instead of grinding or silently capping.
+  if (eff.format === 'gif' && total > GIF_MAX_SECONDS) {
+    throw new Error(`GIF export is limited to ${GIF_MAX_SECONDS} s of timeline — this project is ${total.toFixed(1)} s. Trim the timeline or split it into shorter exports.`);
+  }
   const overlayAudio = [];
 
   // 3) Overlay clips (picture in picture): layered like main clips, padded in time to the whole video, composited in order.
   (project.overlayClips || []).filter((c) => mediaById[c.mediaId] && mediaById[c.mediaId].type !== 'audio').forEach((c, j) => {
     const m = mediaById[c.mediaId];
     const sp = c.speed || 1;
-    const len = (c.out - c.in) / sp;
+    const len = clipLen(c);
     const start = Math.max(0, c.start);
     if (start >= total - 0.01) return;
     const tag = `o${j}`;
@@ -447,17 +626,38 @@ function buildExportArgs(project, outFile, opts = {}) {
     const customMaskIdx = cmFile ? addInput(['-loop', '1', '-framerate', String(fps), '-t', num(len), '-i', cmFile]) : null;
     const motion = project.motion && project.motion[c.id];
     const matteLabel = matteSource(c, m, fps, addInput, tag, filters);
-    const layer = layers.buildLayer({ clip: c, media: m, W, H, fps, len, tag, srcLabel: `os${j}`, maskIdx, decoIdx, motion, matteLabel, customMaskIdx }, { lookFilters, num, hex });
+    const layer = layers.buildLayer({ clip: c, media: m, W, H, fps, len, tag, srcLabel: `os${j}`, maskIdx, decoIdx, motion, matteLabel, customMaskIdx }, { num, hex, colorFixFor });
     filters.push(...layer.filters);
     // Transparent frames before and after, so the layer lines up with the video frame for frame.
     const after = Math.max(0, total - start - len);
     filters.push(`[${layer.out}]tpad=start_duration=${num(start)}:stop_duration=${num(after)}:start_mode=add:stop_mode=add:color=black@0,trim=duration=${num(total)}[op${j}]`);
     filters.push(...layers.composite({ base: cv, layer: `op${j}`, blend: c.blend, tag, out: `ov${j}` }));
     cv = `ov${j}`;
-    if (m.hasAudio && !c.muted && m.type === 'video') {
+    if (wantAudio && m.hasAudio && !c.muted && m.type === 'video') {
       const enhP = enhancePathOf(c);
-      overlayAudio.push({ idx: enhP ? addInput(['-i', enhP]) : idx, c, len, start, sp, enh: !!enhP });
+      const fxP = audioFxPathOf(c, m);
+      overlayAudio.push({ idx: fxP ? addInput(['-i', fxP]) : enhP ? addInput(['-i', enhP]) : idx, c, len, start, sp, enh: !!(enhP || fxP), fx: !!fxP });
     }
+  });
+
+  // 3b) Bundled stickers (10/10 step 3): still PNG layers over the overlays and under
+  // the text — the same stacking order the preview uses. main.cjs resolves each clip's
+  // sticker file name to an absolute path on project.stickerFiles before the export;
+  // a clip whose file did not resolve is skipped, never fatal.
+  (project.stickerClips || []).filter((c) => project.stickerFiles && project.stickerFiles[c.id]).forEach((c, j) => {
+    const len = Math.max(0.05, c.duration || 3);
+    const start = Math.max(0, c.start || 0);
+    if (start >= total - 0.01) return;
+    const tag = `s${j}`;
+    const m = { type: 'image', path: project.stickerFiles[c.id], width: c.w || 480, height: c.h || 480 };
+    const src = pictureSource(c, m, len, fps, addInput);
+    filters.push(`${src.chain},fps=${fps}[ss${j}]`);
+    const layer = layers.buildLayer({ clip: c, media: m, W, H, fps, len, tag, srcLabel: `ss${j}` }, { num, hex, colorFixFor });
+    filters.push(...layer.filters);
+    const after = Math.max(0, total - start - len);
+    filters.push(`[${layer.out}]tpad=start_duration=${num(start)}:stop_duration=${num(after)}:start_mode=add:stop_mode=add:color=black@0,trim=duration=${num(total)}[sp${j}]`);
+    filters.push(...layers.composite({ base: cv, layer: `sp${j}`, blend: c.blend, tag, out: `sv${j}` }));
+    cv = `sv${j}`;
   });
 
   // 4) Text layer: frames drawn by the UI's canvas text renderer (same code as the preview), packed in text.mov.
@@ -469,60 +669,122 @@ function buildExportArgs(project, outFile, opts = {}) {
   }
 
   // 5) Music track and overlay sound: trim, fade, delay to timeline position, mix with the main audio.
+  if (wantAudio) {
   const music = project.audioClips.filter((c) => mediaById[c.mediaId]);
   const mixLabels = [`[${ca}]`];
   music.forEach((c, j) => {
     const enhP = enhancePathOf(c);
-    // B1: the media input is input-seeked to c.in (the enhanced render is pre-trimmed),
-    // so the trim runs from 0 in both cases.
-    const idx = addInput(enhP ? ['-i', enhP] : ['-ss', num(c.in), '-i', mediaById[c.mediaId].path]);
-    const len = (c.out - c.in) / (c.speed || 1); // timeline length (audio clips carry a speed, e.g. detached ones)
+    const fxP = audioFxPathOf(c, mediaById[c.mediaId]);
+    // B1: the media input is input-seeked to c.in (the enhanced render and the AudioFx
+    // derivative are pre-trimmed), so the trim runs from 0 in every case.
+    const idx = addInput(fxP ? ['-i', fxP] : enhP ? ['-i', enhP] : ['-ss', num(c.in), '-i', mediaById[c.mediaId].path]);
+    const len = clipLen(c); // timeline length (audio clips carry a speed, e.g. detached ones)
     const delay = Math.round(c.start * 1000);
-    const up = monoUp(mediaById[c.mediaId], !!enhP);
-    const chain = [`atrim=start=0:end=${num(c.out - c.in)}`, 'asetpts=PTS-STARTPTS', ...(up ? [up] : []), ...atempo(c.speed || 1), `volume=${c.volume ?? 1}`];
-    if (c.fadeIn > 0) chain.push(`afade=t=in:st=0:d=${num(Math.min(c.fadeIn, len))}`);
-    if (c.fadeOut > 0) chain.push(`afade=t=out:st=${num(Math.max(0, len - c.fadeOut))}:d=${num(Math.min(c.fadeOut, len))}`);
-    chain.push(...audioFxFilters(c.audioFx));
-    chain.push('aresample=48000', 'aformat=sample_fmts=fltp:channel_layouts=stereo', `adelay=${delay}|${delay}`);
-    filters.push(`[${idx}:a]${chain.join(',')}[m${j}]`);
+    const up = monoUp(mediaById[c.mediaId], !!(enhP || fxP));
+    const head = [`atrim=start=0:end=${num(c.out - c.in)}`, 'asetpts=PTS-STARTPTS', ...(up ? [up] : [])];
+    const tail = [...vk.volChainFor(c, len), ...audioFades(c, len)];
+    if (!fxP) tail.push(...audioFxFilters(c.audioFx)); // a valid derivative already carries the chain
+    tail.push('aresample=48000', 'aformat=sample_fmts=fltp:channel_layouts=stereo', `adelay=${delay}|${delay}`);
+    filters.push(sc.hasCurve(c)
+      ? curveAudioGraph(c, `[${idx}:a]${head.join(',')}`, tail, `m${j}`, `mu${j}`)
+      : `[${idx}:a]${[...head, ...atempo(c.speed || 1), ...tail].join(',')}[m${j}]`);
     mixLabels.push(`[m${j}]`);
   });
-  overlayAudio.forEach(({ idx, c, len, start, sp, enh }, j) => {
+  overlayAudio.forEach(({ idx, c, len, start, sp, enh, fx }, j) => {
     const delay = Math.round(start * 1000);
     const up = monoUp(mediaById[c.mediaId], !!enh);
-    // B1: idx always names an input seeked to c.in (or the pre-trimmed enhanced render),
+    // B1: idx always names an input seeked to c.in (or a pre-trimmed enhanced / effected render),
     // so the trim runs from 0.
-    const chain = [`atrim=start=0:end=${num(c.out - c.in)}`, 'asetpts=PTS-STARTPTS', ...(up ? [up] : []), ...atempo(sp), `volume=${c.volume ?? 1}`,
-      'aresample=48000', 'aformat=sample_fmts=fltp:channel_layouts=stereo', ...audioFxFilters(c.audioFx), `adelay=${delay}|${delay}`];
-    filters.push(`[${idx}:a]${chain.join(',')}[oa${j}]`);
+    const head = [`atrim=start=0:end=${num(c.out - c.in)}`, 'asetpts=PTS-STARTPTS', ...(up ? [up] : [])];
+    const tail = [...vk.volChainFor(c, len), ...audioFades(c, len),
+      'aresample=48000', 'aformat=sample_fmts=fltp:channel_layouts=stereo', ...(fx ? [] : audioFxFilters(c.audioFx)), `adelay=${delay}|${delay}`];
+    filters.push(sc.hasCurve(c)
+      ? curveAudioGraph(c, `[${idx}:a]${head.join(',')}`, tail, `oa${j}`, `ov${j}`)
+      : `[${idx}:a]${[...head, ...atempo(sp), ...tail].join(',')}[oa${j}]`);
     mixLabels.push(`[oa${j}]`);
   });
   if (mixLabels.length > 1) {
     filters.push(`${mixLabels.join('')}amix=inputs=${mixLabels.length}:duration=first:normalize=0[amix]`);
     ca = 'amix';
   }
+  }
 
   // 6) Output stage: the effective export settings' resolution cap (downscale only) and fps resample,
   // applied to the finished picture — every layer above stays at project size.
-  const eff = effectiveExport(project);
   let outLabel = cv;
   const stage = [];
   if (eff.outW !== W || eff.outH !== H) stage.push(`scale=${eff.outW}:${eff.outH}:flags=lanczos`);
   if (eff.outFps !== fps) stage.push(`fps=${eff.outFps}`);
   if (stage.length) { filters.push(`[${cv}]${stage.join(',')},format=yuv420p[ovfinal]`); outLabel = 'ovfinal'; }
 
+  // VAAPI encodes from GPU surfaces: as the graph's last step the finished
+  // picture is converted to NV12 and uploaded, and the encode runs on the
+  // device named by the head option in the final args. Only the MP4/MOV
+  // stage consumes an encoder — GIF and WebM never reach it.
+  const vaapi = opts.encoder === 'h264_vaapi' && opts.vaapiDevice && eff.format !== 'gif' && eff.format !== 'webm' ? opts.vaapiDevice : null;
+  if (vaapi) {
+    filters.push(`[${outLabel}]format=nv12,hwupload[ovhw]`);
+    outLabel = 'ovhw';
+  }
+
+  // 7) Per-format output stage. MP4 and MOV share the H.264/H.265 codec stage (MOV is the
+  // same streams in the QuickTime muxer, faststart included); WebM is VP9 + Opus with no
+  // movflags or colour tags (the WebM muxer rejects both); GIF takes the palette branch
+  // and drops the audio map entirely — a GIF has no sound.
+  if (eff.format === 'gif') {
+    filters.push(
+      `[${outLabel}]fps=${eff.gifFps},scale=${eff.gifW}:${eff.gifH}:flags=lanczos,split[gifa][gifb]`,
+      '[gifa]palettegen=stats_mode=diff[gifp]',
+      '[gifb][gifp]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle[gifout]',
+    );
+    return {
+      args: ['-y', '-hide_banner', ...inputs, '-filter_complex', filters.join(';'),
+        '-map', '[gifout]', '-loop', '0', '-t', num(total), '-progress', 'pipe:1', '-nostats', outFile],
+      total,
+    };
+  }
+  const maps = ['-map', `[${outLabel}]`, '-map', `[${ca}]`];
+  let codecArgs;
+  if (eff.format === 'webm') {
+    codecArgs = [...webmCodecArgs(eff), '-pix_fmt', 'yuv420p', '-c:a', 'libopus', '-b:a', `${eff.audioKbps}k`];
+  } else {
+    codecArgs = [
+      ...videoCodec2(opts.encoder, eff), ...(vaapi ? [] : ['-pix_fmt', 'yuv420p']),
+      // The pipeline works in BT.709 SDR throughout (HDR inputs are tone-mapped to BT.709 above);
+      // tag it explicitly — untagged yuv420p otherwise probes as color_* "unknown".
+      '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709', '-color_range', 'tv',
+      '-c:a', 'aac', '-b:a', `${eff.audioKbps}k`,
+    ];
+    // Soft subtitle track (mov_text): the renderer serialized the caption clips to an SRT
+    // (subtitles.js) and the export:run handler staged it as project.subtitleFile. Muxed as
+    // a switchable stream NEXT TO the burned-in text — both, by design. Caption styling
+    // does not survive mov_text (plain text + timings only); that is documented in the UI.
+    if (eff.subtitleTrack && project.subtitleFile && fs.existsSync(project.subtitleFile)) {
+      const sIdx = addInput(['-i', project.subtitleFile]);
+      maps.push('-map', `${sIdx}:s`);
+      codecArgs.push('-c:s', 'mov_text');
+      if (typeof project.subtitleLang === 'string' && /^[a-z]{2,3}(-[A-Za-z0-9]+)?$/.test(project.subtitleLang)) {
+        codecArgs.push('-metadata:s:s:0', `language=${project.subtitleLang}`);
+      }
+    }
+    codecArgs.push('-movflags', '+faststart');
+  }
   const args = [
     '-y', '-hide_banner',
+    ...(vaapi ? ['-vaapi_device', vaapi] : []),
     ...inputs,
     '-filter_complex', filters.join(';'),
-    '-map', `[${outLabel}]`, '-map', `[${ca}]`,
-    ...videoCodec2(opts.encoder, eff), '-pix_fmt', 'yuv420p',
-    // The pipeline works in BT.709 SDR throughout (HDR inputs are tone-mapped to BT.709 above);
-    // tag it explicitly — untagged yuv420p otherwise probes as color_* "unknown".
-    '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709', '-color_range', 'tv',
-    '-c:a', 'aac', '-b:a', `${eff.audioKbps}k`,
+    ...maps,
+    // Pin the output frame rate to the effective one. The assembled graph's final
+    // link carries no frame_rate the CLI can read (concat/xfade outputs don't set
+    // one), and when the CLI cannot read a rate it falls back to 25 fps vsync —
+    // silently re-gridding EVERY export of a non-25 fps project (a 30 fps project
+    // came out as an 85-frame 25 fps file over 3.4 s, its frames re-timed; measured
+    // in Sprint 9). The graph already delivers exactly eff.outFps (the stage above
+    // resamples when the user picked a different rate), so the pin only names it.
+    '-r', String(eff.outFps),
+    ...codecArgs,
     '-t', num(total),
-    '-movflags', '+faststart',
     '-progress', 'pipe:1', '-nostats',
     outFile,
   ];
@@ -530,9 +792,13 @@ function buildExportArgs(project, outFile, opts = {}) {
 }
 
 // Audio-only export: main track (with crossfades), overlay sound and the audio track, mixed like the video export.
-// format: 'mp3' | 'wav' | 'm4a'.
-function buildAudioExportArgs(project, outFile, format = 'mp3') {
-  const mediaById = Object.fromEntries(project.media.map((m) => [m.id, m]));
+// format: 'mp3' | 'wav' | 'm4a'. The codec stage honours the resolved export settings
+// (effectiveExport().audioKbps) — MP3/M4A encode at the chosen rate, never a hardcoded one;
+// WAV is lossless PCM, where a bitrate does not apply. opts.floatWav renders the WAV as
+// 32-bit float instead (the master-stage intermediate in runAudioExport, so the final
+// encode quantizes exactly once).
+function buildAudioExportArgs(project, outFile, format = 'mp3', opts = {}) {
+  const mediaById = mediaMap(project);
   const inputs = [];
   const filters = [];
   const mix = [];
@@ -548,8 +814,9 @@ function buildAudioExportArgs(project, outFile, format = 'mp3') {
       const has = m && m.type === 'video' && m.hasAudio && !clip.muted && !clip.gap;
       if (has) sound = true;
       const enhP = has && enhancePathOf(clip);
+      const fxP = has && audioFxPathOf(clip, m);
       // B1: seek the media input to the clip start; clipAudioFilter trims from 0.
-      filters.push(clipAudioFilter(clip, m, has ? addInput(['-ss', num(clip.in), '-i', m.path]) : -1, i, enhP ? addInput(['-i', enhP]) : -1, true));
+      filters.push(clipAudioFilter(clip, m, has ? addInput(['-ss', num(clip.in), '-i', m.path]) : -1, i, enhP ? addInput(['-i', enhP]) : -1, true, fxP ? addInput(['-i', fxP]) : -1));
     });
     let ca = 'a0';
     for (let i = 1; i < clips.length; i++) {
@@ -565,44 +832,152 @@ function buildAudioExportArgs(project, outFile, format = 'mp3') {
     sound = true;
     const delay = Math.round(Math.max(0, c.start) * 1000);
     const enhP = enhancePathOf(c);
-    const upO = monoUp(m, !!enhP);
-    filters.push(`[${addInput(enhP ? ['-i', enhP] : ['-ss', num(c.in), '-i', m.path])}:a]atrim=start=0:end=${num(c.out - c.in)},asetpts=PTS-STARTPTS,${[...(upO ? [upO] : []), ...atempo(c.speed || 1), `volume=${c.volume ?? 1}`, ...audioFxFilters(c.audioFx)].join(',')},${fmt},adelay=${delay}|${delay}[oa${j}]`);
+    const fxP = audioFxPathOf(c, m);
+    const upO = monoUp(m, !!(enhP || fxP));
+    const oIdx = addInput(fxP ? ['-i', fxP] : enhP ? ['-i', enhP] : ['-ss', num(c.in), '-i', m.path]);
+    const oHead = [`atrim=start=0:end=${num(c.out - c.in)}`, 'asetpts=PTS-STARTPTS', ...(upO ? [upO] : [])];
+    const oTail = [...vk.volChainFor(c, clipLen(c)), ...audioFades(c, clipLen(c)), ...(fxP ? [] : audioFxFilters(c.audioFx)), 'aresample=48000', 'aformat=sample_fmts=fltp:channel_layouts=stereo', `adelay=${delay}|${delay}`];
+    filters.push(sc.hasCurve(c)
+      ? curveAudioGraph(c, `[${oIdx}:a]${oHead.join(',')}`, oTail, `oa${j}`, `ao${j}`)
+      : `[${oIdx}:a]${[...oHead, ...atempo(c.speed || 1), ...oTail].join(',')}[oa${j}]`);
     mix.push(`[oa${j}]`);
   });
   project.audioClips.filter((c) => mediaById[c.mediaId]).forEach((c, j) => {
     sound = true;
-    const len = (c.out - c.in) / (c.speed || 1);
+    const len = clipLen(c);
     const delay = Math.round(c.start * 1000);
     const enhP = enhancePathOf(c);
-    const up = monoUp(mediaById[c.mediaId], !!enhP);
-    const chain = [`atrim=start=0:end=${num(c.out - c.in)}`, 'asetpts=PTS-STARTPTS', ...(up ? [up] : []), ...atempo(c.speed || 1), `volume=${c.volume ?? 1}`];
-    if (c.fadeIn > 0) chain.push(`afade=t=in:st=0:d=${num(Math.min(c.fadeIn, len))}`);
-    if (c.fadeOut > 0) chain.push(`afade=t=out:st=${num(Math.max(0, len - c.fadeOut))}:d=${num(Math.min(c.fadeOut, len))}`);
-    chain.push(...audioFxFilters(c.audioFx));
-    filters.push(`[${addInput(enhP ? ['-i', enhP] : ['-ss', num(c.in), '-i', mediaById[c.mediaId].path])}:a]${chain.join(',')},${fmt},adelay=${delay}|${delay}[m${j}]`);
+    const fxP = audioFxPathOf(c, mediaById[c.mediaId]);
+    const up = monoUp(mediaById[c.mediaId], !!(enhP || fxP));
+    const aIdx = addInput(fxP ? ['-i', fxP] : enhP ? ['-i', enhP] : ['-ss', num(c.in), '-i', mediaById[c.mediaId].path]);
+    const head = [`atrim=start=0:end=${num(c.out - c.in)}`, 'asetpts=PTS-STARTPTS', ...(up ? [up] : [])];
+    const tail = [...vk.volChainFor(c, len), ...audioFades(c, len)];
+    if (!fxP) tail.push(...audioFxFilters(c.audioFx)); // a valid derivative already carries the chain
+    tail.push('aresample=48000', 'aformat=sample_fmts=fltp:channel_layouts=stereo', `adelay=${delay}|${delay}`);
+    filters.push(sc.hasCurve(c)
+      ? curveAudioGraph(c, `[${aIdx}:a]${head.join(',')}`, tail, `m${j}`, `am${j}`)
+      : `[${aIdx}:a]${[...head, ...atempo(c.speed || 1), ...tail].join(',')}[m${j}]`);
     mix.push(`[m${j}]`);
   });
   if (!sound) throw new Error('Nothing to export: no clip on the timeline has sound.');
   filters.push(mix.length === 1 ? `${mix[0]}anull[out]` : `${mix.join('')}amix=inputs=${mix.length}:duration=longest:normalize=0[out]`);
-  const codec = { mp3: ['-c:a', 'libmp3lame', '-b:a', '192k'], wav: ['-c:a', 'pcm_s16le'], m4a: ['-c:a', 'aac', '-b:a', '192k'] }[format];
+  const eff = effectiveExport(project);
+  const codec = {
+    mp3: ['-c:a', 'libmp3lame', '-b:a', `${eff.audioKbps}k`],
+    wav: ['-c:a', opts.floatWav ? 'pcm_f32le' : 'pcm_s16le'],
+    m4a: ['-c:a', 'aac', '-b:a', `${eff.audioKbps}k`],
+  }[format];
   if (!codec) throw new Error(`Unknown audio format: ${format}`);
-  return ['-y', '-hide_banner', '-loglevel', 'error', ...inputs, '-filter_complex', filters.join(';'), '-map', '[out]', ...codec, outFile];
+  return ['-y', '-hide_banner', '-loglevel', 'error', ...inputs, '-filter_complex', filters.join(';'), '-map', '[out]', ...codec, '-progress', 'pipe:1', '-nostats', outFile];
 }
 
-function exportAudio(project, outFile, format) {
-  return new Promise((resolve, reject) => {
-    let args;
-    try {
-      args = buildAudioExportArgs(project, outFile, format);
-    } catch (e) {
-      return reject(e);
-    }
-    const p = spawn(ffmpegPath, args, { windowsHide: true });
+// The audio mix's timeline length — the progress denominator for the audio job. Mirrors the
+// builder above: the main track's concat/crossfade recurrence, extended by any overlay or
+// audio-track clip that ends later (the mix itself runs duration=longest).
+function audioExportTotal(project) {
+  const mediaById = Object.fromEntries((project.media || []).map((m) => [m.id, m]));
+  let total = 0;
+  const clips = (project.videoClips || []).filter((c) => c.gap || mediaById[c.mediaId]);
+  if (clips.length) {
+    let end = clipLen(clips[0]);
+    for (let i = 1; i < clips.length; i++) end = end - transitionDur(clips, i) + clipLen(clips[i]);
+    total = end;
+  }
+  for (const c of project.overlayClips || []) {
+    const m = mediaById[c.mediaId];
+    if (m && m.type === 'video' && m.hasAudio && !c.muted) total = Math.max(total, Math.max(0, c.start || 0) + clipLen(c));
+  }
+  for (const c of project.audioClips || []) {
+    if (mediaById[c.mediaId]) total = Math.max(total, (c.start || 0) + clipLen(c));
+  }
+  return total;
+}
+
+// ---- Master loudness stage (audio-only export) ----
+// The mix is measured with loudnorm's analysis pass and gained to the product's master
+// target — the same -14 LUFS / -1 dBTP the per-clip loudnorm uses (audiofx.cjs), applied
+// once to the whole mix instead of per clip. A measurement fed forward as a plain gain
+// (the matrix §3 design: measure, then a volume filter), never a second dynamic pass over
+// clips that may already carry per-clip loudnorm. Silence / unmeasurable input -> gain 0.
+const MASTER_LOUDNORM = { I: -14, TP: -1 };
+function measureMasterGain(file) {
+  return new Promise((resolve) => {
+    const p = spawn(ffmpegPath, ['-hide_banner', '-i', file, '-af', 'loudnorm=print_format=json', '-f', 'null', '-'], { windowsHide: true });
     let err = '';
-    p.stderr.on('data', (d) => (err += d));
-    p.on('error', reject);
-    p.on('close', (code) => (code === 0 ? resolve(outFile) : reject(new Error(err.slice(-3000)))));
+    p.stderr.on('data', (d) => { err += d; });
+    p.on('error', () => resolve(0));
+    p.on('close', () => {
+      const m = err.match(/"input_i"\s*:\s*"([^"]+)"[\s\S]*?"input_tp"\s*:\s*"([^"]+)"/);
+      if (!m) return resolve(0);
+      const I = Number(m[1]);
+      const TP = Number(m[2]);
+      if (!Number.isFinite(I)) return resolve(0); // silence measures as -inf: nothing to normalize
+      let gain = MASTER_LOUDNORM.I - I;
+      if (Number.isFinite(TP)) gain = Math.min(gain, MASTER_LOUDNORM.TP - TP);
+      resolve(Math.max(-24, Math.min(24, gain)));
+    });
   });
+}
+
+// Audio-only export as a JOB, the runExport pattern: { promise, cancel }, progress events,
+// cancel checked at every phase boundary, and a cancelled job leaves no partial file.
+// Phases: (A) the timeline mixdown rendered once as a float WAV through buildAudioExportArgs,
+// (B) the master loudnorm measurement on that mixdown, (C) master gain + the real encode at
+// the resolved settings. Rendering the mixdown once is what lets the master stage measure
+// the actual mix instead of guessing from the graph.
+function runAudioExport(project, outFile, format = 'mp3', onProgress, runOpts = {}) {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fve-audio-'));
+  const mixWav = path.join(tmpDir, 'mix.wav');
+  let proc = null;
+  let canceled = false;
+  const cancelError = () => new Error('Export canceled');
+  const spawnPhase = (args, total, from, to) => new Promise((resolve, reject) => {
+    if (canceled) return reject(cancelError());
+    proc = spawn(ffmpegPath, graphFile(args, tmpDir), { windowsHide: true });
+    if (runOpts.nice) { try { os.setPriority(proc.pid, runOpts.nice); } catch { /* not permitted everywhere */ } }
+    let log = '';
+    const progress = createProgressParser(total, (v) => onProgress?.(from + v * (to - from)));
+    proc.stdout.on('data', (d) => progress.feed(d));
+    proc.stderr.on('data', (d) => { log += d; if (log.length > 20000) log = log.slice(-20000); });
+    proc.on('error', reject);
+    proc.on('close', (code) => {
+      if (canceled) return reject(cancelError());
+      return code === 0 ? resolve() : reject(new Error(`FFmpeg failed (code ${code}):\n${log.slice(-3000)}`));
+    });
+  });
+  const promise = (async () => {
+    try {
+      const total = audioExportTotal(project);
+      await spawnPhase(buildAudioExportArgs(project, mixWav, 'wav', { floatWav: true }), total, 0, 0.7);
+      const gain = await measureMasterGain(mixWav);
+      if (canceled) throw cancelError();
+      const eff = effectiveExport(project);
+      const codec = {
+        mp3: ['-c:a', 'libmp3lame', '-b:a', `${eff.audioKbps}k`],
+        wav: ['-c:a', 'pcm_s16le'],
+        m4a: ['-c:a', 'aac', '-b:a', `${eff.audioKbps}k`],
+      }[format];
+      if (!codec) throw new Error(`Unknown audio format: ${format}`);
+      const master = Math.abs(gain) >= 0.05 ? ['-af', `volume=${gain.toFixed(2)}dB,alimiter=limit=0.98:level=false`] : [];
+      await spawnPhase(['-y', '-hide_banner', '-loglevel', 'error', '-i', mixWav, ...master, ...codec, '-progress', 'pipe:1', '-nostats', outFile], total, 0.7, 1);
+      onProgress?.(1);
+      return outFile;
+    } catch (e) {
+      if (canceled) {
+        try { fs.rmSync(outFile, { force: true }); } catch { /* nothing to clean */ }
+        throw cancelError();
+      }
+      throw e;
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  })();
+  return { promise, cancel: () => { canceled = true; proc?.kill('SIGKILL'); } };
+}
+
+// Back-compat thin wrapper: the promise half of the audio job.
+function exportAudio(project, outFile, format) {
+  return runAudioExport(project, outFile, format).promise;
 }
 
 // Windows limits a command line to 32767 characters: a long filter graph (many animated clips) goes in a file.
@@ -623,16 +998,24 @@ function graphFile(args, dir = os.tmpdir()) {
 // stamp (older saves, smoke fixtures) fall back to the historical behavior: CRF (project.crf || 20),
 // veryfast, AAC 192k, project size and fps.
 const X264_PRESETS = ['ultrafast', 'superfast', 'veryfast', 'faster', 'fast', 'medium', 'slow', 'slower', 'veryslow'];
+const EXPORT_FORMATS = ['mp4', 'mov', 'webm', 'gif'];
+const GIF_MAX_SECONDS = 30; // palette generation on longer ranges is impractical; the error says so
 function effectiveExport(project) {
   const e = project.export;
   const W = project.width || 1280;
   const H = project.height || 720;
   const fps = project.fps || 30;
-  if (!e || typeof e !== 'object') {
-    return { codecFamily: 'h264', mode: 'crf', crf: project.crf || 20, bitrateMbps: null, encoderPreset: 'veryfast', audioKbps: 192, outW: W, outH: H, outFps: fps };
-  }
   const clampN = (v, lo, hi, dflt) => (Number.isFinite(Number(v)) ? Math.min(hi, Math.max(lo, Number(v))) : dflt);
-  return {
+  // GIF geometry mirrors resolveExport: from the (already capped) output size, scaled so
+  // the longest side fits the GIF size preset; never an upscale.
+  const withGif = (base) => {
+    const k = Math.min(1, base.gifSize / Math.max(base.outW, base.outH));
+    return { ...base, gifW: Math.max(2, Math.round(base.outW * k)), gifH: Math.max(2, Math.round(base.outH * k)) };
+  };
+  if (!e || typeof e !== 'object') {
+    return withGif({ codecFamily: 'h264', mode: 'crf', crf: project.crf || 20, bitrateMbps: null, encoderPreset: 'veryfast', audioKbps: 192, outW: W, outH: H, outFps: fps, format: 'mp4', subtitleTrack: false, gifSize: 640, gifFps: 15 });
+  }
+  return withGif({
     codecFamily: e.codecFamily === 'h265' ? 'h265' : 'h264',
     mode: e.mode === 'bitrate' ? 'bitrate' : 'crf',
     crf: clampN(e.crf, 0, 51, 20),
@@ -643,31 +1026,42 @@ function effectiveExport(project) {
     outW: Math.max(2, Math.min(W, Math.round(e.outW || W))),
     outH: Math.max(2, Math.min(H, Math.round(e.outH || H))),
     outFps: clampN(e.outFps, 1, 240, fps),
-  };
+    format: EXPORT_FORMATS.includes(e.format) ? e.format : 'mp4',
+    subtitleTrack: !!e.subtitleTrack,
+    gifSize: e.gifSize === 320 ? 320 : 640,
+    gifFps: clampN(e.gifFps, 1, 60, 15),
+  });
 }
 
-// Which encoders the bundled FFmpeg actually has (checked once, synchronously — buildExportArgs is sync).
-let encoderSet = null;
-function hasEncoder(name) {
-  if (!encoderSet) {
-    encoderSet = new Set();
+// Which encoders a given FFmpeg binary carries (its `-encoders` list, parsed
+// once per binary and cached). hasEncoder() is the bundled binary — the one
+// every pipeline stage except a proven hardware encode runs on.
+const encoderSets = new Map();
+function binaryHasEncoder(bin, name) {
+  if (!encoderSets.has(bin)) {
+    const set = new Set();
     try {
-      const out = execFileSync(ffmpegPath, ['-hide_banner', '-encoders'], { windowsHide: true }).toString();
+      const out = execFileSync(bin, ['-hide_banner', '-encoders'], { windowsHide: true }).toString();
       for (const line of out.split('\n')) {
         const m = line.trim().match(/^\S+\s+(\S+)\s/);
-        if (m) encoderSet.add(m[1]);
+        if (m) set.add(m[1]);
       }
-    } catch { /* empty set: everything falls back to libx264 */ }
+    } catch { /* unusable binary: empty set, everything falls back to libx264 */ }
+    encoderSets.set(bin, set);
   }
-  return encoderSet.has(name);
+  return encoderSets.get(bin).has(name);
 }
+function hasEncoder(name) { return binaryHasEncoder(ffmpegPath, name); }
 const hasLibx265 = () => hasEncoder('libx265');
+const hasVp9 = () => hasEncoder('libvpx-vp9');
 
-const HW_ENCODERS = {
-  h264_nvenc: (crf) => ['-c:v', 'h264_nvenc', '-preset', 'p4', '-rc', 'vbr', '-cq', String(crf + 3), '-b:v', '0'],
-  h264_qsv: (crf) => ['-c:v', 'h264_qsv', '-preset', 'veryfast', '-global_quality', String(crf + 3)],
-  h264_amf: (crf) => ['-c:v', 'h264_amf', '-quality', 'speed', '-rc', 'cqp', '-qp_i', String(crf + 2), '-qp_p', String(crf + 2)],
-};
+// The hardware H.264 candidates, in probe order (see pickEncoderInfo). The
+// argument builders themselves live in videoCodec2 — the export's single
+// codec-arg source; this list only names what gets probed. VAAPI is the
+// Linux/Intel path (the reference laptop's HD 620 speaks nothing else);
+// it needs a DRM render node and a surface upload in the graph, both wired
+// in buildExportArgs / probeEncodeArgs.
+const HW_LADDER = ['h264_nvenc', 'h264_qsv', 'h264_vaapi', 'h264_amf'];
 // The full codec argument set for an effective export config. Hardware encoders get their mapped
 // equivalents of the same intent: NVENC preset levels p1..p7 for the x264 speed names, QSV takes the
 // names directly, AMF collapses to its three quality levels; rate control follows the mode (CQ for
@@ -698,29 +1092,101 @@ function videoCodec2(encoder, eff) {
       ? ['-c:v', 'h264_amf', '-quality', quality, '-rc', 'vbr_peak', ...rate.hw]
       : ['-c:v', 'h264_amf', '-quality', quality, '-rc', 'cqp', '-qp_i', String(eff.crf + 2), '-qp_p', String(eff.crf + 2)];
   }
+  if (encoder === 'h264_vaapi') {
+    // VAAPI rate control: -qp is its constant-quality knob (the CRF intent, a
+    // few steps above the number like QSV's global_quality); bitrate intent is
+    // a plain target. The x264 preset names have no VAAPI equivalent — the
+    // driver picks its own speed/quality balance. The matching device option
+    // and surface upload are added by buildExportArgs, not here.
+    return eff.mode === 'bitrate'
+      ? ['-c:v', 'h264_vaapi', '-b:v', `${eff.bitrateMbps}M`]
+      : ['-c:v', 'h264_vaapi', '-qp', String(eff.crf + 3)];
+  }
   return ['-c:v', 'libx264', '-preset', eff.encoderPreset, ...(eff.mode === 'bitrate' ? rate.sw : ['-crf', String(eff.crf)])];
 }
-function videoCodec(encoder, crf) {
-  return videoCodec2(encoder, { codecFamily: 'h264', mode: 'crf', crf, bitrateMbps: null, encoderPreset: 'veryfast' });
+
+
+// WebM's codec stage: libvpx-vp9 carrying the SAME quality intent as the H.264 settings —
+// CRF mode becomes VP9's constrained-quality mode (-b:v 0 + -crf), bitrate mode a plain
+// target; the x264 speed names map onto VP9's cpu-used ladder under deadline=good (deadline
+// "best" is not shippable on CPU). Audio is Opus at the resolved audio rate (output stage).
+const VP9_CPU_USED = { ultrafast: 5, superfast: 5, veryfast: 4, faster: 3, fast: 2, medium: 1, slow: 0, slower: 0, veryslow: 0 };
+function webmCodecArgs(eff) {
+  const base = ['-c:v', 'libvpx-vp9', '-deadline', 'good', '-cpu-used', String(VP9_CPU_USED[eff.encoderPreset] ?? 2), '-row-mt', '1'];
+  return eff.mode === 'bitrate' ? [...base, '-b:v', `${eff.bitrateMbps}M`] : [...base, '-b:v', '0', '-crf', String(eff.crf)];
 }
 
-// The encoder exports use, picked once with a short test encode (NVIDIA, then Intel, then AMD). FVE_ENCODER forces
-// one (tests). A hardware encoder that fails during an export is dropped for libx264 (see runExport).
-let encoderPick = null;
-function pickEncoder() {
-  if (process.env.FVE_ENCODER) return Promise.resolve(process.env.FVE_ENCODER);
-  encoderPick ||= (async () => {
-    for (const name of Object.keys(HW_ENCODERS)) {
-      try {
-        await runFfmpeg(['-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=30:duration=0.5', ...videoCodec(name, 20), '-pix_fmt', 'yuv420p', '-f', 'null', '-']);
-        return name;
-      } catch {
-        // not on this PC
+// The encoder exports use, picked once by PROOF, not by presence: a hardware
+// encoder is picked only when a binary that carries it completes a real
+// one-frame test encode on this machine. The bundled ffmpeg-static build
+// carries NO hardware encoders at all (its -encoders list is libx264 /
+// libx265 / libvpx / libaom only), so the pick also considers a system
+// FFmpeg — but a system binary is trusted with the final encode ONLY, after
+// its own test encode passes; every other pipeline stage keeps the bundled
+// binary, and a failed hardware export falls back to libx264 on the bundled
+// binary (see runExport), so a broken system build can never lose an export
+// the bundled one would have finished. FVE_ENCODER forces the encoder name
+// (tests); FVE_FFMPEG_HW pins the first binary candidate.
+let encoderPickPromise = null;
+const cpuPick = () => ({ encoder: 'libx264', binary: ffmpegPath, device: null });
+function vaapiDevice() {
+  for (let i = 128; i < 140; i++) {
+    const d = `/dev/dri/renderD${i}`;
+    if (fs.existsSync(d)) return d;
+  }
+  return null;
+}
+function encoderBinaries() {
+  const list = [];
+  if (process.env.FVE_FFMPEG_HW) list.push(process.env.FVE_FFMPEG_HW);
+  list.push(ffmpegPath);
+  if (process.platform === 'linux') list.push('/usr/bin/ffmpeg', '/usr/local/bin/ffmpeg');
+  if (process.platform === 'darwin') list.push('/opt/homebrew/bin/ffmpeg', '/usr/local/bin/ffmpeg');
+  list.push('ffmpeg'); // PATH lookup; spawn/execFile resolve it, absence just fails the probe
+  return [...new Set(list)];
+}
+function probeEncodeArgs(encoder, device) {
+  const eff = { codecFamily: 'h264', mode: 'crf', crf: 20, bitrateMbps: null, encoderPreset: 'veryfast' };
+  const src = ['-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=30'];
+  if (encoder === 'h264_vaapi') {
+    return ['-vaapi_device', device, ...src, '-vf', 'format=nv12,hwupload', ...videoCodec2(encoder, eff), '-frames:v', '1', '-f', 'null', '-'];
+  }
+  return [...src, ...videoCodec2(encoder, eff), '-pix_fmt', 'yuv420p', '-frames:v', '1', '-f', 'null', '-'];
+}
+function pickEncoderInfo() {
+  if (process.env.FVE_ENCODER) {
+    const encoder = process.env.FVE_ENCODER;
+    if (encoder === 'libx264') return Promise.resolve(cpuPick());
+    const device = encoder === 'h264_vaapi' ? vaapiDevice() : null;
+    const binary = encoderBinaries().find((b) => binaryHasEncoder(b, encoder)) || ffmpegPath;
+    return Promise.resolve({ encoder, binary, device });
+  }
+  encoderPickPromise ||= (async () => {
+    for (const name of HW_LADDER) {
+      const device = name === 'h264_vaapi' ? vaapiDevice() : null;
+      if (name === 'h264_vaapi' && !device) continue; // no DRM render node: cannot work here
+      for (const bin of encoderBinaries()) {
+        if (!binaryHasEncoder(bin, name)) continue;
+        try {
+          await runFfmpegOn(bin, probeEncodeArgs(name, device));
+          return { encoder: name, binary: bin, device };
+        } catch {
+          // not on this PC, or not with this binary
+        }
       }
     }
-    return 'libx264';
+    return cpuPick();
   })();
-  return encoderPick;
+  return encoderPickPromise;
+}
+// The public contract (main.cjs caps, the Export summary): just the name.
+function pickEncoder() {
+  return pickEncoderInfo().then((info) => info.encoder);
+}
+// After a hardware failure mid-export the pick is demoted to the CPU for the
+// rest of the process (runExport). Also the test reset.
+function resetEncoderPick() {
+  encoderPickPromise = Promise.resolve(cpuPick());
 }
 
 // ---- Export progress parsing ----
@@ -792,9 +1258,11 @@ function runExport(project, outFile, onProgress, runOpts = {}) {
   };
   let proc = null;
   let canceled = false;
-  const once = (encoder) => new Promise((resolve, reject) => {
-    const { args, total } = buildExportArgs(withAssets, outFile, { encoder });
-    proc = spawn(ffmpegPath, graphFile(args, tmpDir), { windowsHide: true });
+  const once = (info) => new Promise((resolve, reject) => {
+    const { args, total } = buildExportArgs(withAssets, outFile, { encoder: info.encoder, vaapiDevice: info.device });
+    // A proven hardware pick may live in a system FFmpeg (see pickEncoderInfo);
+    // everything else — and every CPU encode — runs the bundled binary.
+    proc = spawn(info.binary || ffmpegPath, graphFile(args, tmpDir), { windowsHide: true });
     // Perf mode (Low-End): run the encoder below normal priority so the PC stays
     // responsive during exports. Scheduling only — the graph and output are identical.
     if (runOpts.nice) { try { os.setPriority(proc.pid, runOpts.nice); } catch { /* not permitted on every platform */ } }
@@ -806,25 +1274,37 @@ function runExport(project, outFile, onProgress, runOpts = {}) {
       if (log.length > 20000) log = log.slice(-20000);
     });
     proc.on('error', reject);
-    proc.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`FFmpeg failed (code ${code}):
-${log.slice(-3000)}`))));
+    proc.on('close', (code) => {
+      // A cancel outranks the exit code: a killed encode exits non-zero (or, racing the
+      // final flush, even 0) and either way the job's verdict is "canceled".
+      if (canceled) return reject(new Error('Export canceled'));
+      return code === 0 ? resolve() : reject(new Error(`FFmpeg failed (code ${code}):\n${log.slice(-3000)}`));
+    });
   });
   const promise = (async () => {
     try {
-      const encoder = await pickEncoder();
+      const info = await pickEncoderInfo();
+      // Cancel token, checked at the phase boundary: a cancel that landed while the
+      // encoder probe ran (proc still null, nothing to kill) must prevent the spawn —
+      // previously it killed nothing and the export started anyway.
+      if (canceled) throw new Error('Export canceled');
       try {
-        await once(encoder);
+        await once(info);
       } catch (e) {
-        if (canceled || encoder === 'libx264') throw e;
+        if (canceled || info.encoder === 'libx264') throw e;
         // The graphics card's encoder failed on this export (driver, size limit…): redo it on the CPU, and keep
         // using the CPU from now on.
-        encoderPick = Promise.resolve('libx264');
+        resetEncoderPick();
         onProgress?.(0);
-        await once('libx264');
+        await once(cpuPick());
       }
       onProgress?.(1);
       return outFile;
     } finally {
+      // A cancelled export leaves no partial file behind: the path is the export's own
+      // target (the encoder would have overwritten it anyway), never a finished output —
+      // a completed encode resolves before cancel can be observed here.
+      if (canceled) { try { fs.rmSync(outFile, { force: true }); } catch { /* nothing to clean */ } }
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   })();
@@ -841,14 +1321,17 @@ function toM4a(input, output) {
   });
 }
 
-function runFfmpeg(args) {
+function runFfmpegOn(bin, args) {
   return new Promise((resolve, reject) => {
-    const p = spawn(ffmpegPath, ['-y', '-hide_banner', '-loglevel', 'error', ...args], { windowsHide: true });
+    const p = spawn(bin, ['-y', '-hide_banner', '-loglevel', 'error', ...args], { windowsHide: true });
     let err = '';
     p.stderr.on('data', (d) => (err += d));
     p.on('error', reject);
     p.on('close', (code) => (code === 0 ? resolve() : reject(new Error(err.slice(-2000)))));
   });
+}
+function runFfmpeg(args) {
+  return runFfmpegOn(ffmpegPath, args);
 }
 
 // Timeline visuals, cached in `cacheDir` by path + size + mtime:
@@ -856,11 +1339,16 @@ function runFfmpeg(args) {
 //   (thumbW x thumbH each). A fast keyframe-only pass is reported first, then an exact pass.
 // - an audio waveform image spanning the whole file.
 // onUpdate(partial) is called as each piece becomes available. Failures are non-fatal.
-async function makeVisuals(item, cacheDir, onUpdate = () => {}) {
+async function makeVisuals(item, cacheDir, onUpdate = () => {}, opts = {}) {
   const st = fs.statSync(item.path);
   // v3 (W4, 2026-11-01): visuals now include a dedicated full-frame poster (below) — the
   // version bump makes media cached under v2 regenerate once so posters appear everywhere.
-  const key = require('crypto').createHash('sha1').update(`${item.path}|${st.size}|${st.mtimeMs}|v3`).digest('hex').slice(0, 16);
+  // opts.lite (Performance mode / Low-End): a cheaper sprite (half the frames, shorter,
+  // keyframe pass only — the exact full-decode pass is skipped) and a narrower waveform.
+  // The lite files cache under their own key suffix so the two modes never collide.
+  // v4 (P4, 2026-11-10): the waveform render changed (teal, ~0.75 amplitude) —
+  // the bump makes media cached under v3 regenerate once so clips repaint.
+  const key = require('crypto').createHash('sha1').update(`${item.path}|${st.size}|${st.mtimeMs}|v4${opts.lite ? '|lite1' : ''}`).digest('hex').slice(0, 16);
   fs.mkdirSync(cacheDir, { recursive: true });
   const metaFile = path.join(cacheDir, `${key}-visuals.json`);
   if (fs.existsSync(metaFile)) {
@@ -872,9 +1360,11 @@ async function makeVisuals(item, cacheDir, onUpdate = () => {}) {
   }
   const out = {};
   if (item.type === 'video' && item.duration > 0) {
-    const count = Math.min(120, Math.max(8, Math.ceil(item.duration)));
+    const count = opts.lite
+      ? Math.min(60, Math.max(8, Math.ceil(item.duration / 2)))
+      : Math.min(120, Math.max(8, Math.ceil(item.duration)));
     const interval = item.duration / count;
-    const th = 90;
+    const th = opts.lite ? 60 : 90;
     const tw = Math.max(2, Math.round((th * (item.width || 16)) / (item.height || 9) / 2) * 2);
     // tpad clones the last frame so fps always produces `count` frames and the tile is complete.
     const vf = `tpad=stop_mode=clone:stop_duration=${(interval * 2).toFixed(3)},fps=1/${interval.toFixed(4)},` +
@@ -883,12 +1373,17 @@ async function makeVisuals(item, cacheDir, onUpdate = () => {}) {
     const fast = path.join(cacheDir, `${key}-sprite-fast.jpg`);
     await runFfmpeg(['-skip_frame', 'nokey', '-i', item.path, '-an', '-vf', vf, '-frames:v', '1', '-q:v', '6', fast]).catch(() => {});
     if (fs.existsSync(fast)) onUpdate({ ...meta, thumb: fast });
-    const exact = path.join(cacheDir, `${key}-sprite.jpg`);
-    await runFfmpeg(['-i', item.path, '-an', '-vf', vf, '-frames:v', '1', '-q:v', '5', exact]).catch(() => {});
-    if (fs.existsSync(exact)) {
-      Object.assign(out, meta, { thumb: exact });
-      onUpdate({ ...meta, thumb: exact });
-    } else if (fs.existsSync(fast)) Object.assign(out, meta, { thumb: fast });
+    if (!opts.lite) {
+      // The exact pass decodes every sampled frame — the expensive half of the
+      // sprite's cost. Lite mode keeps the keyframe sprite and skips it.
+      const exact = path.join(cacheDir, `${key}-sprite.jpg`);
+      await runFfmpeg(['-i', item.path, '-an', '-vf', vf, '-frames:v', '1', '-q:v', '5', exact]).catch(() => {});
+      if (fs.existsSync(exact)) {
+        Object.assign(out, meta, { thumb: exact });
+        onUpdate({ ...meta, thumb: exact });
+      }
+    }
+    if (!out.thumb && fs.existsSync(fast)) Object.assign(out, meta, { thumb: fast });
     // W4: a dedicated POSTER frame for project cards. The sprite frames are only 90 px
     // tall (a portrait frame is ~52x90) — showing one at card size is the blurry smear
     // Hamza reported. The poster is one frame at 640 px on its long edge, taken a little
@@ -905,9 +1400,16 @@ async function makeVisuals(item, cacheDir, onUpdate = () => {}) {
   }
   if (item.hasAudio && item.duration > 0) {
     const wave = path.join(cacheDir, `${key}-wave.png`);
-    const w = Math.min(8000, Math.max(600, Math.round(item.duration * 60)));
+    const w = opts.lite
+      ? Math.min(2000, Math.max(300, Math.round(item.duration * 20)))
+      : Math.min(8000, Math.max(600, Math.round(item.duration * 60)));
+    // P4 (2026-11-10): the wave renders in the timeline's teal (#2dd4bf) on a
+    // dark ground, and a volume=0.6 stage before the sqrt-scaled picture keeps
+    // speech peaks at ~0.75 of the strip height — the old chain (compand
+    // makeup gain straight into sqrt, then a CSS brightness lift) drew a
+    // permanently clipped-looking white block.
     await runFfmpeg(['-i', item.path, '-vn', '-filter_complex',
-      `aformat=channel_layouts=mono,compand=gain=4,showwavespic=s=${w}x96:colors=white:scale=sqrt`, '-frames:v', '1', wave]).catch(() => {});
+      `aformat=channel_layouts=mono,compand=gain=4,volume=0.6,showwavespic=s=${w}x96:colors=0x2dd4bf:scale=sqrt`, '-frames:v', '1', wave]).catch(() => {});
     if (fs.existsSync(wave)) {
       out.wave = wave;
       onUpdate({ wave });
@@ -1030,6 +1532,7 @@ async function makeLightProxy(item, cacheDir) {
     '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'fastdecode', '-crf', '27', '-g', '15', '-keyint_min', '15', '-sc_threshold', '0',
     '-c:a', 'aac', '-b:a', '96k', '-movflags', '+faststart', part]);
   fs.renameSync(part, out);
+  await assertCopyComplete(out, item);
   return out;
 }
 
@@ -1093,4 +1596,5 @@ async function sampleFrames(item, from, to, count = 8) {
 
 module.exports = {
   sampleFrames,
-  toSdr, stillInput, graphFile, pickEncoder, hasLibx265, effectiveExport, makeScene, needsProxy, usableCopyFile, makeProxy, makeLightProxy, makeQualityProxy, ffmpegPath, ffprobePath, probe, lookFilters, fitSize, narrowClip, buildExportArgs, buildAudioExportArgs, exportAudio, runExport, toM4a, renderMainAudio, renderTimelineAudio, detectSilences, makeVisuals, parseProgressValues, createProgressParser };
+  audioFxPathOf, enhancePathOf,
+  toSdr, colorFix, stillInput, graphFile, pickEncoder, pickEncoderInfo, resetEncoderPick, binaryHasEncoder, encoderBinaries, probeEncodeArgs, vaapiDevice, hasEncoder, hasLibx265, hasVp9, effectiveExport, makeScene, needsProxy, usableCopyFile, makeProxy, makeLightProxy, makeQualityProxy, ffmpegPath, ffprobePath, probe, fitSize, narrowClip, buildExportArgs, buildAudioExportArgs, buildTimelineAudioArgs, exportAudio, runAudioExport, audioExportTotal, runExport, toM4a, renderMainAudio, renderTimelineAudio, detectSilences, makeVisuals, parseProgressValues, createProgressParser };

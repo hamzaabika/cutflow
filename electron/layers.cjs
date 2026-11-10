@@ -92,7 +92,8 @@ function isLayered(clip, motion) {
 //   maskIdx: index of a looped mask PNG input (the same frame size as the project), or null.
 //   matteLabel: label of the AI background matte (grayscale, timed like srcLabel), or null: it becomes the alpha.
 //   customMaskIdx: index of a looped custom-removal PNG input (grayscale keep-map in SOURCE geometry), or null.
-// h: { lookFilters(clip, w, h) -> [filter], num, hex } from ffmpeg.cjs.
+// h: { num, hex, colorFixFor } from ffmpeg.cjs. The clip's look (adjust / filter / effects) is NOT
+// applied here — the effects pass bakes it into the clip's override file beforehand.
 // Returns { filters: [string], out: label } where `out` is a W x H RGBA stream, transparent outside the picture.
 // Order inside the layer: crop (source geometry) -> fit + look + chroma -> matte / custom mask (alpha
 // multiplies, so removals union) -> pad to the frame -> shape mask -> deco -> opacity -> transform.
@@ -121,7 +122,15 @@ function buildLayer(o, h) {
   const cropFilter = cropped
     ? `crop=w='iw*${h.num(1 - crop.l - crop.r)}':h='ih*${h.num(1 - crop.t - crop.b)}':x='iw*${h.num(crop.l)}':y='ih*${h.num(crop.t)}'`
     : null;
-  const chain = [...(cropFilter ? [cropFilter] : []), `scale=${fw}:${fh}`, 'setsar=1', ...h.lookFilters(clip, fw, fh)];
+  // Non-BT.709 sources convert at the END of this YUV chain (ffmpeg.cjs colorFix):
+  // after the fit scale — a scale after the conversion would undo it — and before
+  // format=rgba, whose YUV -> RGB step otherwise reads the values with the wrong
+  // matrix (measured: an unconverted 601 overlay landed 10.6 mean abs from the
+  // reference conversion, i.e. the layered path retagged like the plain path did).
+  // Everything after format=rgba is RGBA, where scales do no matrix work, and
+  // composite() re-encodes with the explicit BT.709 matrix (TO_YUV709 below).
+  const fix = h.colorFixFor ? h.colorFixFor(clip, media) : '';
+  const chain = [...(cropFilter ? [cropFilter] : []), `scale=${fw}:${fh}`, 'setsar=1', ...(fix ? [fix.slice(1)] : [])];
   if (chroma.on) {
     const p = chromaParams(chroma);
     chain.push('format=yuva420p', `chromakey=color=${h.hex(chroma.color)}:similarity=${h.num(p.similarity)}:blend=${h.num(p.blend)}`);

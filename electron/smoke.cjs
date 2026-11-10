@@ -14,94 +14,6 @@ module.exports = async function smoke(win, app, dir) {
   const errors = [];
   wc.on('console-message', (_e, level, msg) => level >= 2 && errors.push(msg));
   const result = { errors };
-  if (process.env.FVE_SMOKE_MODE === 'templates-pack' || process.env.FVE_SMOKE_MODE === 'templates-use') {
-    // Templates. "pack": build a small project from generated clips, mark two clips replaceable and write the
-    // package (plus preview.mp4) into <dir>/packages. "use": with FVE_TEMPLATES_URL pointing at a local copy of the
-    // site that publishes it, open it from the Templates tab and replace a clip (the file dialog is answered here).
-    const q = run;
-    const until = async (js, ms = 20000) => { for (let t = 0; t < ms; t += 250) { if (await q(js)) return true; await wait(250); } return false; };
-    const { execFileSync } = require('child_process');
-    const ff = require('./ffmpeg.cjs').ffmpegPath;
-    const media = path.join(dir, 'media');
-    fs.mkdirSync(media, { recursive: true });
-    const clipA = path.join(media, 'clip-a.mp4');
-    const clipB = path.join(media, 'clip-b.mp4');
-    const photo = path.join(media, 'mine.png');
-    if (!fs.existsSync(clipA)) {
-      execFileSync(ff, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=size=360x640:rate=30:duration=3', '-pix_fmt', 'yuv420p', clipA]);
-      execFileSync(ff, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'smptebars=size=360x640:rate=30:duration=3', '-pix_fmt', 'yuv420p', clipB]);
-      execFileSync(ff, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=0xff3d8b:size=360x640', '-frames:v', '1', photo]);
-    }
-    try {
-      await wait(800);
-      if (process.env.FVE_SMOKE_MODE === 'templates-pack') {
-        const items = await q(`window.api.probePaths(${JSON.stringify([clipA, clipB])})`);
-        const p = {
-          name: 'Smoke trip', ratio: '9:16', resolution: 720, width: 720, height: 1280, fps: 30, background: '#000000',
-          media: items.map((m, i) => ({ ...m, id: `m${i}` })),
-          videoClips: [
-            { id: 'v1', mediaId: 'm0', in: 0, out: 1.5, speed: 1, volume: 1, filter: 'none', adjust: {}, effects: [], transition: null },
-            { id: 'v2', mediaId: 'm1', in: 0, out: 1, speed: 1, volume: 1, filter: 'none', adjust: {}, effects: [], transition: null },
-            { id: 'v3', mediaId: 'm0', in: 1, out: 2, speed: 1, volume: 1, filter: 'none', adjust: {}, effects: [], transition: null },
-          ],
-          overlayClips: [], textClips: [{ id: 't1', text: 'Summer', start: 0, duration: 3.5, y: 0.5 }], audioClips: [], stickerClips: [], effectClips: [],
-        };
-        result.at='load';
-      await q(`window.__fve.load(${JSON.stringify(p)})`);
-        await wait(300);
-        await q(`window.__fve.dispatch({ type: 'updateMany', updates: [{ track: 'video', id: 'v1', patch: { slot: true } }, { track: 'video', id: 'v3', patch: { slot: true } }] })`);
-        await wait(300);
-        result.badges = await q(`document.querySelectorAll('.clip.replaceable .rep-badge').length`);
-        result.strip = await q(`document.querySelectorAll('.ts-strip .ts-slot').length`);
-        await shot('tpl-1-marked.png');
-        await q(`document.querySelector('.export-split .caret').click()`);
-        await wait(200);
-        // W1 (2026-11-01): the Export menu no longer offers "Template package…" (Hamza's
-        // order) — assert its absence, then exercise the retained package writer through
-        // its IPC directly, exactly as the removed menu entry did.
-        result.menuHasTemplate = await q(`[...document.querySelectorAll('.ctx-menu button, [role=menu] button, .context-menu button')].some((b) => /Template package/.test(b.textContent))`);
-        await q(`document.body.click()`);
-        const packRes = await q(`(async () => { const p = window.__fve.exportData().project; const meta = { ratio: p.ratio, width: p.width, height: p.height, duration: 3.5, slots: 2 }; return window.api.templatesPack(JSON.stringify(p), meta); })()`);
-        result.ready = !!(packRes && !packRes.error && packRes.dir);
-        const parent = path.join(dir, 'packages');
-        const pkg = path.join(parent, fs.readdirSync(parent)[0]);
-        fs.copyFileSync(clipA, path.join(pkg, 'preview.mp4'));
-        result.package = fs.readdirSync(pkg).sort();
-        result.meta = JSON.parse(fs.readFileSync(path.join(pkg, 'template.json'), 'utf8')).meta;
-        await shot('tpl-2-package.png');
-      } else {
-        const { dialog } = require('electron');
-        dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [photo] });
-        await q(`window.__fve.tab('templates')`);
-        result.cards = await until(`document.querySelectorAll('.tst-grid .tst-card').length > 0`);
-        result.thumb = await until(`!!document.querySelector('.tst-grid .tst-card img')`);
-        result.categories = await q(`[...document.querySelectorAll('.side-nav .side-btn')].map((b) => b.textContent.trim())`);
-        if (!result.cards) result.panel = await q(`document.querySelector('.library').innerText.slice(0, 400)`);
-        await shot('tpl-3-store.png');
-        await q(`document.querySelector('.tst-grid .tst-card').click()`);
-        result.preview = await until(`(document.querySelector('.tst-player video')?.readyState || 0) >= 2`);
-        result.detail = await q(`document.querySelector('.tst-info')?.innerText`);
-        await shot('tpl-4-detail.png');
-        await q(`[...document.querySelectorAll('.tst-info .btn')].find((b) => /Use template/.test(b.textContent)).click()`);
-        result.loaded = await until(`window.__fve.exportData().project.videoClips.length === 3 && document.querySelectorAll('.ts-strip .ts-slot').length === 2`, 30000);
-        const before = await q(`window.__fve.exportData().project.videoClips.map((c) => (c.out - c.in) / (c.speed || 1))`);
-        await q(`document.querySelector('.ts-strip .ts-replace').click()`);
-        result.replaced = await until(`window.__fve.exportData().project.videoClips[0].filled === true`);
-        const after = await q(`window.__fve.exportData().project`);
-        result.newMedia = after.media.find((m) => m.id === after.videoClips[0].mediaId)?.name;
-        result.lengthKept = Math.abs((after.videoClips[0].out - after.videoClips[0].in) / (after.videoClips[0].speed || 1) - before[0]) < 1e-6;
-        result.mediaFromCache = after.media.filter((m) => m.path.includes('templates-test')).length;
-        result.textKept = after.textClips[0]?.text;
-        result.saveState = await q(`document.querySelector('.save-state')?.textContent || ''`);
-        await wait(2500);
-        await shot('tpl-5-replaced.png');
-      }
-    } catch (e) {
-      result.error = e.message;
-    }
-    fs.writeFileSync(path.join(dir, 'result.json'), JSON.stringify(result, null, 2));
-    return app.quit();
-  }
   if (process.env.FVE_SMOKE_MODE === 'restore') {
     // A session that ended without saving: the next start offers the project back.
     try {
@@ -3590,10 +3502,10 @@ module.exports = async function smoke(win, app, dir) {
       await run(`window.__fve.exportNow()`);
       for (let i = 0; i < 240; i++) {
         await wait(500);
-        const st = await run(`document.querySelector('.modal h3')?.textContent || ''`);
+        const st = await run(`document.querySelector('.xjob-state, .xjob-err-title')?.textContent || ''`);
         if (/complete|failed/i.test(st)) { result.exportStatus = st; break; }
       }
-      result.exportError = await run(`document.querySelector('.error-log')?.textContent || null`);
+      result.exportError = await run(`document.querySelector('.xjob-error, .error-log')?.textContent || null`);
       await shot('text-3-export.png');
     } catch (e) {
       result.error = e.message;
@@ -3701,6 +3613,13 @@ module.exports = async function smoke(win, app, dir) {
   }
   try {
     await wait(800);
+    // Enter the editor first: the app boots to Home, and this flow's probes
+    // (.tc, .play-btn) live in the editor. Every mode flow clicks through;
+    // the default flow never did, so it loaded its project into the Home
+    // screen and died on the transport timecode read (drift fix, 10/10
+    // step 4 — the pattern is the mode flows' own, e.g. 'overlay' above).
+    await run(`(() => { const b = document.querySelector('button[aria-label="New 16:9 project"]'); if (b) b.click(); return !!b; })()`).catch(() => {});
+    for (let t = 0; t < 15000 && !(await run(`!!document.querySelector('.play-btn')`).catch(() => false)); t += 250) await wait(250);
     const project = fs.readFileSync(path.join(dir, 'project.json'), 'utf8');
     await run(`window.__fve.load(${project});`);
     await run(`window.__fve.tab('transitions'); window.__fve.select({ track: 'video', id: 'c2' }); window.__fve.seek(1.25);`);

@@ -21,7 +21,8 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { FxJobs } = require('./fxjobs.cjs');
-const { probe, runExport, exportAudio, toM4a, renderTimelineAudio, detectSilences, makeVisuals, needsProxy, usableCopyFile, makeProxy, makeLightProxy, makeQualityProxy, hasLibx265, pickEncoder } = require('./ffmpeg.cjs');
+const { probe, runExport, runAudioExport, toM4a, renderTimelineAudio, detectSilences, makeVisuals, needsProxy, usableCopyFile, makeProxy, makeLightProxy, makeQualityProxy, hasLibx265, hasVp9, pickEncoder } = require('./ffmpeg.cjs');
+const { remuxDecision, isFaststart, makeRemux } = require('./remux.cjs');
 const { qualityTargetSize, pruneDeadCopies } = require('./quality.cjs');
 const whisper = require('./whisper.cjs');
 const cloudCaptions = require('./cloudCaptions.cjs');
@@ -43,6 +44,7 @@ const IMAGE_EXT = ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'gif'];
 
 let win;
 let currentExport = null;
+let currentAudioJob = null;
 
 function createWindow() {
   win = new BrowserWindow({
@@ -59,6 +61,8 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
+      // Pinned explicitly rather than relying on the Electron default (already true here).
+      sandbox: true,
       // Dev server pages are http://localhost and must still read local media files.
       webSecurity: !process.env.VITE_DEV_SERVER_URL,
       // UI tests keep their local storage (the unsaved-project copy) in memory, away from the real one.
@@ -171,6 +175,7 @@ async function probeAll(files) {
 const visualsQueue = [];
 const visualsQueued = new Set();
 const proxyRetried = new Set(); // "path|quality" keys already given their one retry this session
+const remuxAttempted = new Set(); // "path|size|mtime" keys whose auto-remux was attempted this session
 const previewProxyState = new Map(); // path -> { failed, retried } for the preview copy (QA2 RC3)
 const forceProxyPaths = new Set(); // paths the user explicitly asked to retry (Retry buttons)
 let visualsActive = 0;
@@ -230,17 +235,53 @@ async function processVisualItem(it) {
       send(pruned.patch);
       it = pruned.item;
     }
-    await makeVisuals(it, cache, send).catch(() => {});
+    // Facts first: codec details for the proxy decisions, the container for
+    // the remux decision. Probed once here when the renderer's subset lacks
+    // them, patched back so the renderer's own decodability judgement
+    // (needsPreviewCopy) works on facts instead of guessing "unknown", and
+    // reused by every generation step below.
+    let info = it;
+    const lackedFacts = it.vcodec === undefined || it.pixFmt === undefined || it.hdr === undefined || it.container === undefined;
+    if (lackedFacts) {
+      info = { ...it, ...(await probe(it.path).catch(() => ({}))) };
+      if (info.vcodec !== undefined) {
+        send({ vcodec: info.vcodec, pixFmt: info.pixFmt, profile: info.profile, hdr: info.hdr, acodec: info.acodec, channels: info.channels, fps: info.fps, rotation: info.rotation, container: info.container });
+      }
+    }
+    // Auto-remux (electron/remux.cjs): a stream-copied fast-seek twin for
+    // containers that seek poorly. The DECISION uses the original's facts;
+    // the generation steps below then decode FROM the copy (identical
+    // streams, faster and frame-accurate seeks), and the export graphs read
+    // it through mediaMap in ffmpeg.cjs. One attempt per file version per
+    // session; a failure is a state (remuxFailed), never a loop — the
+    // original keeps serving throughout.
+    let srcInfo = info;
+    if (info.type === 'video') {
+      if (typeof it.remux === 'string' && usableCopyFile(it.remux)) {
+        srcInfo = { ...info, path: it.remux };
+      } else {
+        const tokens = String(info.container || '').split(',');
+        const fst = (tokens.includes('mp4') || tokens.includes('mov')) ? isFaststart(it.path) : null;
+        if (remuxDecision(info, fst).needed) {
+          let akey = it.path;
+          try { const s = fs.statSync(it.path); akey = `${it.path}|${s.size}|${s.mtimeMs}`; } catch { /* path alone */ }
+          if (!remuxAttempted.has(akey)) {
+            remuxAttempted.add(akey);
+            try {
+              const rp = await makeRemux(info, cache);
+              it = { ...it, remux: rp };
+              send({ remux: rp, remuxFailed: false });
+              srcInfo = { ...info, path: rp };
+            } catch {
+              send({ remuxFailed: true });
+            }
+          }
+        }
+      }
+    }
+    await makeVisuals(srcInfo, cache, send, { lite: settings.getPerfMode() === 'low-end' }).catch(() => {});
     // Preview proxy for video the player cannot decode well (projects saved earlier lack the codec details).
     try {
-      const lackedCodec = it.vcodec === undefined || it.pixFmt === undefined || it.hdr === undefined;
-      const info = lackedCodec ? { ...it, ...(await probe(it.path)) } : it;
-      // Items that arrived without codec details (older projects, the renderer's
-      // visuals subset) get them patched back, so the renderer's own decodability
-      // judgement (needsPreviewCopy) works on facts instead of guessing "unknown".
-      if (lackedCodec && info.vcodec !== undefined) {
-        send({ vcodec: info.vcodec, pixFmt: info.pixFmt, profile: info.profile, hdr: info.hdr, acodec: info.acodec, channels: info.channels, fps: info.fps, rotation: info.rotation });
-      }
       let proxyPath = it.proxy;
       if (needsProxy(info)) {
         // Preview-copy failure is a STATE, not a silent catch (QA2 RC3): the first
@@ -264,7 +305,7 @@ async function processVisualItem(it) {
             send({ optimizing: true, proxyFailed: false });
           }
           try {
-            proxyPath = await makeProxy(info, cache);
+            proxyPath = await makeProxy(srcInfo, cache);
             previewProxyState.delete(it.path);
             send({ proxy: proxyPath, proxyFailed: false, optimizing: false });
           } catch {
@@ -278,10 +319,26 @@ async function processVisualItem(it) {
           }
         }
       }
+      // The light copy (Sprint 9): the player's universal fallback below Full —
+      // store.js previewPathFor consults item.lightProxy for every level, but until
+      // now nothing generated one, so the fallback never existed and a missing
+      // level copy fell straight back to the full-size original. It is the
+      // cheapest copy to build (540 px shorter side, fastdecode), so it is made
+      // first and the level copies below refine from it. Only when it would
+      // actually be smaller than the source; a failed build is a state (false),
+      // like a failed level copy, not a silent retry loop.
+      const quality = settings.getQuality();
+      if (info.type === 'video' && quality !== 'full' && it.lightProxy == null
+        && Math.min(info.width || 0, info.height || 0) > 540) {
+        try {
+          send({ lightProxy: await makeLightProxy(srcInfo, cache) });
+        } catch {
+          send({ lightProxy: false });
+        }
+      }
       // Playback quality below Full: the level's scaled copy (see quality.cjs). While it is missing the
       // player falls back to smaller copies / the original; the patch swaps it in when ready. A source
       // that already fits the level needs no copy: the level resolves to the full-quality chain itself.
-      const quality = settings.getQuality();
       if (info.type === 'video' && quality !== 'full') {
         const prev = it.proxies && typeof it.proxies === 'object' ? it.proxies : {};
         // A failed copy (proxies[q] === false) used to be final until the file
@@ -299,7 +356,7 @@ async function processVisualItem(it) {
           } else {
             send({ optimizing: true });
             try {
-              send({ proxies: { ...prev, [quality]: await makeQualityProxy(info, cache, quality) }, optimizing: false });
+              send({ proxies: { ...prev, [quality]: await makeQualityProxy(srcInfo, cache, quality) }, optimizing: false });
             } catch {
               send({ proxies: { ...prev, [quality]: false }, optimizing: false }); // retried once per session (see above)
             }
@@ -324,7 +381,11 @@ const proxyFiles = () => {
 const proxyStatus = () => {
   const quality = settings.getQuality();
   const files = proxyFiles();
-  return { on: quality !== 'full', quality, files: files.length, bytes: files.reduce((n, f) => n + fs.statSync(f).size, 0) };
+  const fxSeg = fxJobs.cacheStats();
+  return {
+    on: quality !== 'full', quality, files: files.length, bytes: files.reduce((n, f) => n + fs.statSync(f).size, 0),
+    fxSegments: { files: fxSeg.entries, bytes: fxSeg.bytes, capMB: settings.getFxCacheCapMB() },
+  };
 };
 ipcMain.handle('proxy:status', () => proxyStatus());
 ipcMain.handle('proxy:set', (_e, on) => {
@@ -333,6 +394,12 @@ ipcMain.handle('proxy:set', (_e, on) => {
 });
 ipcMain.handle('proxy:setQuality', (_e, q) => {
   settings.setQuality(q);
+  return proxyStatus();
+});
+// The fx segment cache cap (Settings → Playback quality): stored in MB; the
+// eviction in fxjobs.cjs reads it on the next publish.
+ipcMain.handle('proxy:setFxCacheCap', (_e, mb) => {
+  settings.setFxCacheCapMB(mb);
   return proxyStatus();
 });
 // Performance mode: a bundle applied on selection — Low-End defaults playback to the
@@ -529,16 +596,31 @@ ipcMain.handle('soundza:preview', async (_e, item) => {
 
 // Project files the user picked in a Save or Open dialog: only these are written without asking (auto save).
 const projectFiles = new Set();
-// Written through a temporary file, so a crash while saving never leaves half a project.
-const writeProject = (file, json) => {
-  fs.writeFileSync(`${file}.part`, json, 'utf8');
-  fs.renameSync(`${file}.part`, file);
+// Transactional writes with rotating backups (electron/draftsafety.cjs): a save lands
+// completely or the previous good state survives untouched, the payload is validated
+// before anything is touched, and the last few states stay beside the file as .bakN.
+const draftsafety = require('./draftsafety.cjs');
+const writeProject = (file, json) => draftsafety.writeProjectTx(file, json);
+// Version history (electron/versions.cjs): snapshots of the project document per
+// project id — explicit saves always record, background writers are throttled and
+// content-deduped inside the store. History must never break a save: fully guarded.
+const versionsStore = require('./versions.cjs');
+const versionsDir = () => (process.env.FVE_SMOKE ? path.join(process.env.FVE_SMOKE, 'versions-test') : path.join(app.getPath('userData'), 'versions'));
+const recordProjectVersion = (json, boundFile, force, source, idOverride) => {
+  try {
+    const p = draftsafety.parseProjectJson(json);
+    const id = idOverride || p?.id;
+    if (!id) return;
+    versionsStore.recordVersion(versionsDir(), id, json, { source, boundFile: boundFile || null, force: !!force });
+  } catch { /* a history failure is silent; the save itself already succeeded */ }
 };
 // Saves to the project's file, or asks where the first time (and for "Save as").
 ipcMain.handle('project:save', async (_e, json, file, opts = {}) => {
   try {
     if (file && projectFiles.has(file) && !opts.saveAs) {
       writeProject(file, json);
+      recordProjectVersion(json, file, true, 'save');
+      bridgeNote(json, file);
       return file;
     }
     const name = String(opts.name || 'project').replace(/[\\/:*?"<>|]+/g, '').trim() || 'project';
@@ -550,6 +632,8 @@ ipcMain.handle('project:save', async (_e, json, file, opts = {}) => {
     if (res.canceled) return null;
     writeProject(res.filePath, json);
     projectFiles.add(res.filePath);
+    recordProjectVersion(json, res.filePath, true, opts.saveAs ? 'save-as' : 'save');
+    bridgeNote(json, res.filePath);
     return res.filePath;
   } catch (e) {
     return { error: `Could not save the project: ${e.message}` };
@@ -560,11 +644,31 @@ ipcMain.handle('project:autosave', (_e, file, json) => {
   if (!projectFiles.has(file)) return false;
   try {
     writeProject(file, json);
+    recordProjectVersion(json, file, false, 'autosave');
+    bridgeNote(json, file);
     return true;
   } catch {
     return false;
   }
 });
+
+// Loads a project file with the draft-safety fallback chain (draftsafety.cjs): the
+// file itself, then its rotating .bakN backups, then the autosave slot bound to it —
+// a damaged file opens as its newest surviving state instead of an error, and the
+// result says where it came from (recoveredFrom) so the interface can tell the user.
+// Also reports the project's missing source media (the relink flow). Returns one of
+// { json, recoveredFrom, missing } | { missingFile: true } | { corrupt: true }.
+const loadProjectFile = async (file) => {
+  const pf = require('./projectfile.cjs');
+  const entry = autosaveStore.slotForFile(autosaveDir(), file);
+  const slot = entry ? autosaveStore.readSlot(autosaveDir(), entry.id) : null;
+  const slotJson = slot?.project ? JSON.stringify(slot.project) : null;
+  const r = draftsafety.readProjectWithFallback(file, slotJson, slot?.updatedAt || null);
+  if (r.missing) return { missingFile: true };
+  if (r.corrupt) return { corrupt: true };
+  const json = await pf.refreshSizes(pf.checkGenerated(r.json, mediaCacheDir()), probe);
+  return { json, recoveredFrom: r.recoveredFrom || null, missing: pf.findMissingMedia(json) };
+};
 
 ipcMain.handle('project:open', async () => {
   const res = await dialog.showOpenDialog(win, {
@@ -573,20 +677,41 @@ ipcMain.handle('project:open', async () => {
     filters: [{ name: 'Project', extensions: ['json'] }],
   });
   if (res.canceled) return null;
-  const pf = require('./projectfile.cjs');
   const file = res.filePaths[0];
+  const loaded = await loadProjectFile(file);
+  if (loaded.missingFile) return null;
+  if (loaded.corrupt) return { file, corrupt: true };
   projectFiles.add(file);
-  return { file, json: await pf.refreshSizes(pf.checkGenerated(fs.readFileSync(file, 'utf8'), mediaCacheDir()), probe) };
+  bridgeNote(loaded.json, file);
+  return { file, ...loaded };
 });
 
-// Reopen a known project file by path (Home screen recents): same refresh as project:open,
-// no dialog. Returns null when the file is gone or unreadable.
+// Reopen a known project file by path (Home screen recents): same load as project:open,
+// no dialog. Returns null when the file is gone (and no backup survived it).
 ipcMain.handle('project:openPath', async (_e, filePath) => {
   try {
-    if (!filePath || !fs.existsSync(filePath)) return null;
-    const pf = require('./projectfile.cjs');
+    if (!filePath) return null;
+    const loaded = await loadProjectFile(filePath);
+    if (loaded.missingFile) return null;
+    if (loaded.corrupt) return { file: filePath, corrupt: true };
     projectFiles.add(filePath);
-    return { file: filePath, json: await pf.refreshSizes(pf.checkGenerated(fs.readFileSync(filePath, 'utf8'), mediaCacheDir()), probe) };
+    bridgeNote(loaded.json, filePath);
+    return { file: filePath, ...loaded };
+  } catch {
+    return null;
+  }
+});
+
+// Read a project file WITHOUT adopting it (Home's duplicate of a file-only recent):
+// the same draft-safety load, but the file is not registered, nothing is noted as the
+// bridge's live project, and no binding changes — the renderer copies the document
+// into a fresh autosave slot under a fresh id.
+ipcMain.handle('project:readPath', async (_e, filePath) => {
+  try {
+    if (!filePath) return null;
+    const loaded = await loadProjectFile(filePath);
+    if (loaded.missingFile || loaded.corrupt) return null;
+    return { file: filePath, json: loaded.json };
   } catch {
     return null;
   }
@@ -597,7 +722,14 @@ ipcMain.handle('project:openPath', async (_e, filePath) => {
 // a new project) flushes its slot, and every project the user touched is listed there.
 const autosaveStore = require('./autosave.cjs');
 const autosaveDir = () => (process.env.FVE_SMOKE ? path.join(process.env.FVE_SMOKE, 'autosave-test') : path.join(app.getPath('userData'), 'autosave'));
-ipcMain.handle('slots:write', (_e, record) => autosaveStore.writeSlot(autosaveDir(), record));
+ipcMain.handle('slots:write', (_e, record) => {
+  const entry = autosaveStore.writeSlot(autosaveDir(), record);
+  // Slot writes are also version-history fodder (throttled + deduped in the store), so
+  // a project that was never saved to a file still has earlier states to go back to.
+  if (entry && record?.projectJson) recordProjectVersion(record.projectJson, record.file || null, false, 'slot', record.id);
+  if (entry && record?.projectJson) bridgeNote(record.projectJson, record.file || null);
+  return entry;
+});
 ipcMain.handle('slots:list', () => autosaveStore.listSlots(autosaveDir()));
 ipcMain.handle('slots:forFile', (_e, filePath) => autosaveStore.slotForFile(autosaveDir(), filePath));
 ipcMain.handle('slots:read', (_e, id) => {
@@ -605,9 +737,332 @@ ipcMain.handle('slots:read', (_e, id) => {
   // A slot bound to a project file adopts that file as known (same trust as project:openPath),
   // so the auto-save-to-file writes keep working for a project reopened from its slot.
   if (slot?.file && fs.existsSync(slot.file)) projectFiles.add(slot.file);
+  // Missing source media rides along so opening the slot can offer the relink flow.
+  if (slot?.project) slot.missing = require('./projectfile.cjs').findMissingMedia(JSON.stringify(slot.project));
+  if (slot?.project) bridgeNote(slot.project, slot.file || null);
   return slot;
 });
+
+// ---- Version history (electron/versions.cjs) --------------------------------------
+// list: the project's snapshots (newest first). read: one snapshot, refreshed through
+// the same hygiene as a project open, ready to load as the project. record: an
+// explicit restore point (the renderer records the CURRENT state before restoring an
+// older one, so a restore is itself reversible).
+ipcMain.handle('versions:list', (_e, id) => versionsStore.listVersions(versionsDir(), id));
+ipcMain.handle('versions:read', async (_e, id, file) => {
+  const raw = versionsStore.readVersion(versionsDir(), id, file);
+  if (!raw) return null;
+  const pf = require('./projectfile.cjs');
+  const json = await pf.refreshSizes(pf.checkGenerated(raw, mediaCacheDir()), probe);
+  return { json, missing: pf.findMissingMedia(json) };
+});
+ipcMain.handle('versions:record', (_e, id, json, boundFile) => {
+  try {
+    return versionsStore.recordVersion(versionsDir(), id, json, { source: 'restore-point', boundFile: boundFile || null, force: true });
+  } catch {
+    return null;
+  }
+});
+// Timed auto-backup (10/10 step 4, Filmora merge row 10): the renderer calls
+// this on a cadence while a project is open; the STORE decides what lands —
+// content dedupe skips an unchanged project and the background throttle caps
+// it at one snapshot per MIN_INTERVAL, so the cadence produces a backup
+// timeline, not a snapshot per tick. Never forced: an explicit save in the
+// same window is the newer state and this must not duplicate it.
+ipcMain.handle('versions:autoBackup', (_e, id, json, boundFile) => {
+  try {
+    return versionsStore.recordVersion(versionsDir(), id, json, { source: 'auto-backup', boundFile: boundFile || null, force: false });
+  } catch {
+    return null;
+  }
+});
+
+// ---- Agent draft bridge (electron/bridge.cjs) --------------------------------
+// A local (127.0.0.1-only), token-gated HTTP door for external agent tools.
+// OFF unless the user enables it in Settings; while off nothing listens.
+// Agents read the open project and propose edits on shadow drafts; the user
+// reviews them in the editor (Agent drafts) and only an explicit accept — a
+// revision compare-and-swap — commits one, through the same transactional
+// write + slot + version path as a normal save. The bridge core tracks the
+// live project from the save/autosave/open traffic below (noteLive): its
+// revision moves only when the document content actually changes.
+const bridgeCore = require('./bridge.cjs');
+const bridgeDiscoveryFile = () => (process.env.FVE_SMOKE ? path.join(process.env.FVE_SMOKE, 'bridge-test.json') : path.join(app.getPath('userData'), 'bridge.json'));
+const writeBridgeDiscovery = () => {
+  try {
+    const st = bridge.state();
+    if (st.listening) fs.writeFileSync(bridgeDiscoveryFile(), JSON.stringify({ port: st.port, pid: process.pid, startedAt: Date.now(), version: st.version }), 'utf8');
+    else fs.unlinkSync(bridgeDiscoveryFile());
+  } catch { /* discovery is a convenience for local tools; the Settings pane shows the same facts */ }
+};
+// The parsed live document, kept from the same traffic that feeds the
+// bridge (bridgeNote below): the derivative surface reads it.
+let liveProjectDoc = null;
+const ffmpegCore = require('./ffmpeg.cjs');
+const { hasAudioFx } = require('./audiofx.cjs');
+const findBridgeClip = (p, clipId) => {
+  if (!p || !clipId) return null;
+  for (const track of ['videoClips', 'overlayClips', 'audioClips']) {
+    const clip = (p[track] || []).find((c) => c.id === clipId);
+    if (clip) return { clip, track, media: (p.media || []).find((x) => x.id === clip.mediaId) || null };
+  }
+  return null;
+};
+// Derivative inspection (10/10 step 4): per-media twin/proxy states and
+// per-clip AudioFx / enhance render states for the open project, plus the
+// fx segment cache's occupancy. States come from the SAME functions the
+// export graph consults (ffmpegCore.audioFxPathOf / enhancePathOf), so
+// what the bridge reports is what an export would use — never a guess.
+const derivativeInspect = () => {
+  const p = liveProjectDoc;
+  const fileState = (f) => (typeof f === 'string' && f ? (fs.existsSync(f) ? 'ready' : 'missing') : 'none');
+  const media = ((p && p.media) || []).map((m) => ({
+    mediaId: m.id, name: m.name || '', type: m.type || '',
+    remux: m.remuxFailed ? 'failed' : fileState(m.remux),
+    proxy: m.proxyFailed ? 'failed' : fileState(m.proxy),
+    lightProxy: m.lightProxy === false ? 'failed' : fileState(m.lightProxy),
+    proxies: Object.fromEntries(Object.entries(m.proxies || {}).map(([q, f]) => [q, f === false ? 'failed' : fileState(f)])),
+    thumb: fileState(m.thumb), wave: fileState(m.wave),
+  }));
+  const clips = [];
+  if (p) {
+    for (const track of ['videoClips', 'overlayClips', 'audioClips']) {
+      for (const c of p[track] || []) {
+        const m = (p.media || []).find((x) => x.id === c.mediaId) || null;
+        const audioFx = !hasAudioFx(c.audioFx) ? 'none'
+          : ffmpegCore.audioFxPathOf(c, m) ? 'ready'
+            : (c.audioFxRender && c.audioFxRender.path ? 'stale' : 'pending');
+        const e = c.enhance;
+        const enhance = !(e && e.on) ? 'none'
+          : ffmpegCore.enhancePathOf(c) ? 'ready'
+            : (e.path ? 'stale' : 'pending');
+        if (audioFx !== 'none' || enhance !== 'none') clips.push({ clipId: c.id, track: track.replace(/Clips$/, ''), audioFx, enhance });
+      }
+    }
+  }
+  const seg = fxJobs.cacheStats();
+  return { media, clips, fxSegments: { files: seg.entries, bytes: seg.bytes, capMB: Math.round(seg.capBytes / 1048576) } };
+};
+// Derivative refresh: warm ONE cache file (or clear the segment cache).
+// The renderers are content-addressed, so the warmed file is exactly the
+// file the editor's own upkeep pass produces and then finds; pointers are
+// recorded by that pass, never from here. The AudioFx branch shares the
+// audiofx:render IPC's single-job guard — a render of the same clip from
+// both doors at once would collide on the same .part name.
+const derivativeRefresh = async (req) => {
+  const p = liveProjectDoc;
+  if (!p) return { error: 'No project is open in the editor.', status: 409 };
+  const kind = req && req.kind;
+  if (kind === 'fxsegments') {
+    if (req.action !== 'clear') return { error: "The fxsegments refresh supports action: 'clear' only." };
+    return { ok: true, kind, ...fxJobs.clearSegmentCache() };
+  }
+  if (kind === 'audiofx') {
+    const found = findBridgeClip(p, req.clipId);
+    if (!found) return { error: 'No such clip in the open project.', status: 404 };
+    const { clip, media: m } = found;
+    if (!m || !hasAudioFx(clip.audioFx)) return { error: 'That clip has no audio effects to render.' };
+    if (audioFxJob) return { busy: true };
+    const srcPath = ffmpegCore.enhancePathOf(clip) || m.path;
+    if (!srcPath || !fs.existsSync(srcPath)) return { error: 'The media file was not found.' };
+    const job = { canceled: false };
+    audioFxJob = job;
+    try {
+      const res = await renderAudioFx({
+        srcPath, from: clip.in || 0, to: clip.out ?? m.duration, fx: clip.audioFx, channels: m.channels,
+        cacheDir: mediaCacheDir(), ffmpegPath: ffmpegCore.ffmpegPath, isCanceled: () => job.canceled,
+      });
+      if (!res) return { error: 'No audio effects to render.' };
+      return { ok: true, kind, clipId: clip.id, path: res.path, note: 'Cache warmed — the editor picks the render up on its next upkeep pass and records it then.' };
+    } catch (e) {
+      return { error: e.message };
+    } finally {
+      audioFxJob = null;
+    }
+  }
+  const m = (p.media || []).find((x) => x.id === (req && req.mediaId));
+  if (!m) return { error: 'No such media in the open project.', status: 404 };
+  if (kind === 'remux') {
+    const info = { ...m, ...(await probe(m.path).catch(() => ({}))) };
+    const tokens = String(info.container || '').split(',');
+    const fst = (tokens.includes('mp4') || tokens.includes('mov')) ? isFaststart(m.path) : null;
+    if (!remuxDecision(info, fst).needed) return { ok: true, kind, mediaId: m.id, needed: false };
+    try {
+      const rp = await makeRemux(info, mediaCacheDir());
+      return { ok: true, kind, mediaId: m.id, needed: true, path: rp, note: 'Cache warmed — the editor adopts the twin on its next pass over this media.' };
+    } catch (e) {
+      return { error: e.message };
+    }
+  }
+  if (kind === 'proxy' || kind === 'lightProxy') {
+    const info = { ...m, ...(await probe(m.path).catch(() => ({}))) };
+    try {
+      const rp = await (kind === 'proxy' ? makeProxy(info, mediaCacheDir()) : makeLightProxy(info, mediaCacheDir()));
+      return { ok: true, kind, mediaId: m.id, path: rp, note: 'Cache warmed — the editor adopts the copy on its next pass over this media.' };
+    } catch (e) {
+      return { error: e.message };
+    }
+  }
+  return { error: `Unknown derivative kind '${kind}'. Use audiofx, remux, proxy, lightProxy or fxsegments.` };
+};
+const bridge = bridgeCore.createBridge({
+  derivatives: () => derivativeInspect(),
+  refreshDerivative: (req) => derivativeRefresh(req),
+  commit: ({ projectId, json, file }) => {
+    if (file) {
+      writeProject(file, json);
+      recordProjectVersion(json, file, true, 'agent-bridge');
+    }
+    // Keep the autosave slot in step with the accepted state, so Home and the
+    // crash-recovery copy show what the user just accepted.
+    try {
+      const p = JSON.parse(json);
+      const prev = autosaveStore.readSlot(autosaveDir(), projectId);
+      autosaveStore.writeSlot(autosaveDir(), {
+        id: projectId, title: p.name || prev?.title || 'Untitled', file: file || prev?.file || null,
+        ratio: p.ratio || '', thumb: prev?.thumb || null, updatedAt: Date.now(), projectJson: json,
+      });
+    } catch { /* the file write already landed; the renderer's own autosave heals the slot */ }
+    bridge.noteLive(projectId, json, file || null);
+  },
+  listVersions: (id) => versionsStore.listVersions(versionsDir(), id),
+  onChange: () => {
+    try { if (win && !win.isDestroyed()) win.webContents.send('bridge:shadowsChanged'); } catch { /* window going away */ }
+  },
+});
+// Feed the bridge's live-project tracker from the traffic that already carries
+// the document: slot writes (every edit), explicit saves, and project opens.
+const bridgeNote = (json, file) => {
+  try {
+    const p = typeof json === 'string' ? JSON.parse(json) : json;
+    if (p && p.id) {
+      liveProjectDoc = p;
+      bridge.noteLive(p.id, typeof json === 'string' ? json : JSON.stringify(p), file || null);
+    }
+  } catch { /* a malformed payload must never break a save */ }
+};
+ipcMain.handle('bridge:getState', () => ({
+  enabled: settings.getBridgeEnabled(),
+  ...bridge.state(),
+  live: bridge.liveInfo(),
+  pending: bridge.listShadows(false).filter((s) => s.status === 'pending').length,
+}));
+ipcMain.handle('bridge:setEnabled', async (_e, on) => {
+  settings.setBridgeEnabled(on === true);
+  if (on === true) await bridge.start();
+  else await bridge.stop();
+  writeBridgeDiscovery();
+  return { enabled: settings.getBridgeEnabled(), ...bridge.state(), live: bridge.liveInfo(), pending: bridge.listShadows(false).filter((s) => s.status === 'pending').length };
+});
+ipcMain.handle('bridge:listShadows', () => bridge.listShadows(true));
+// Accept is the user's act, from the review surface: the renderer passes the
+// project it is showing, and a shadow made from any other project is refused.
+ipcMain.handle('bridge:accept', (_e, shadowId, projectId) => {
+  const shadow = bridge.getShadow(shadowId);
+  if (!shadow) return { error: 'No such shadow draft.' };
+  if (shadow.projectId !== projectId) return { error: 'That draft belongs to a different project than the one open.' };
+  return bridge.acceptShadow(shadowId);
+});
+ipcMain.handle('bridge:discard', (_e, shadowId) => bridge.discardShadow(shadowId));
+
+// ---- Media relink ------------------------------------------------------------------
+// A candidate file counts as the missing item's new home when the probe agrees with
+// what the project remembers: duration within 0.75 s when both are known, picture
+// size equal when both are known. A name twin that fails verification is NOT offered
+// as a match — a wrong relink is worse than a missing file.
+const relinkVerify = (item, info) => {
+  if (!info || info.error) return false;
+  if (item.duration > 0 && info.duration > 0 && Math.abs(info.duration - item.duration) > 0.75) return false;
+  if (item.width > 0 && info.width > 0 && (info.width !== item.width || info.height !== item.height)) return false;
+  return true;
+};
+const relinkPatch = (p, info) => ({
+  path: p,
+  ...(info ? {
+    type: info.type, duration: info.duration, width: info.width, height: info.height,
+    hasVideo: info.hasVideo, hasAudio: info.hasAudio, fps: info.fps,
+    rotation: info.rotation, hdr: info.hdr,
+    colorSpace: info.colorSpace, colorPrimaries: info.colorPrimaries,
+    colorTransfer: info.colorTransfer, colorRange: info.colorRange,
+  } : {}),
+});
+// Locate one missing file by hand: returns { id, ...patch } or null when cancelled.
+ipcMain.handle('relink:pickFile', async (_e, item) => {
+  const res = await dialog.showOpenDialog(win, {
+    title: `Locate “${String(item?.name || 'media')}”`,
+    properties: ['openFile'],
+  });
+  if (res.canceled || !res.filePaths[0]) return null;
+  const p = res.filePaths[0];
+  const info = await probe(p).catch(() => null);
+  return { id: item?.id, ...relinkPatch(p, info), verified: relinkVerify(item || {}, info) };
+});
+// Scan a folder the user picked: match every missing item by name, verify candidates
+// by probe. Returns { matches: [{ id, ...patch }], ambiguous: [{ id, name, candidates }],
+// unmatched: [id] } — ambiguous items are left for a manual locate, never guessed.
+ipcMain.handle('relink:scanFolder', async (_e, items) => {
+  const res = await dialog.showOpenDialog(win, {
+    title: 'Choose the folder the media moved to',
+    properties: ['openDirectory'],
+  });
+  if (res.canceled || !res.filePaths[0]) return null;
+  const pf = require('./projectfile.cjs');
+  const list = Array.isArray(items) ? items : [];
+  const found = pf.scanMediaFolder(res.filePaths[0], list.map((m) => path.basename(m.path || m.name || '')));
+  const matches = [];
+  const ambiguous = [];
+  const unmatched = [];
+  for (const item of list) {
+    const candidates = found.get(path.basename(item.path || item.name || '').toLowerCase()) || [];
+    if (!candidates.length) { unmatched.push(item.id); continue; }
+    const verified = [];
+    for (const c of candidates) {
+      const info = await probe(c).catch(() => null);
+      if (relinkVerify(item, info)) verified.push({ path: c, info });
+    }
+    if (verified.length === 1) matches.push({ id: item.id, ...relinkPatch(verified[0].path, verified[0].info), verified: true });
+    else if (verified.length > 1) ambiguous.push({ id: item.id, name: item.name, candidates: verified.map((v) => v.path) });
+    else unmatched.push(item.id);
+  }
+  return { matches, ambiguous, unmatched };
+});
+// Missing-media truth re-check (Part 3 addendum, 2026-11-10): the SAME
+// findMissingMedia the load paths use, exposed so the renderer can re-verify
+// the open project's referenced paths at export start — a file can be moved
+// or deleted while the app is open, and the disk is the truth.
+ipcMain.handle('media:checkMissing', (_e, project) => {
+  const pf = require('./projectfile.cjs');
+  return pf.findMissingMedia(JSON.stringify(project || {}));
+});
 ipcMain.handle('slots:delete', (_e, id) => autosaveStore.deleteSlot(autosaveDir(), id));
+// Home switchboard actions (R5, parity §8): duplicate / rename / trash / restore over
+// the same slot store. Trashing is a soft delete — the slot is parked for 30 days and
+// the bound project file is never touched; slots:delete above stays the permanent one.
+ipcMain.handle('slots:listTrashed', () => autosaveStore.listTrashed(autosaveDir()));
+ipcMain.handle('slots:trash', (_e, id) => autosaveStore.trashSlot(autosaveDir(), id));
+ipcMain.handle('slots:restore', (_e, id) => autosaveStore.restoreSlot(autosaveDir(), id));
+ipcMain.handle('slots:copy', (_e, id) => autosaveStore.copySlot(autosaveDir(), id));
+ipcMain.handle('slots:rename', (_e, id, title) => autosaveStore.renameSlot(autosaveDir(), id, title));
+// Rename a project that lives ONLY in its .clipcraft file (a Home recent with no slot):
+// the document's own name is rewritten in place through the transactional save path
+// (validate → temp write → verified rename, backups rotated), so a crash mid-rename
+// cannot tear the file. A file that does not parse is refused, never "healed" silently.
+ipcMain.handle('project:renameFile', (_e, file, title) => {
+  const name = String(title || '').trim().slice(0, 120);
+  if (!file || !name) return null;
+  try {
+    const p = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (!p || typeof p !== 'object' || Array.isArray(p)) return null;
+    p.name = name;
+    const json = JSON.stringify(p, null, 2);
+    require('./draftsafety.cjs').writeProjectTx(file, json); // throws on any failure, file untouched
+    projectFiles.add(file);
+    recordProjectVersion(json, file, false, 'slot', p.id);
+    return { name };
+  } catch {
+    return null;
+  }
+});
 
 // Closing the window: the interface saves the project, or asks (in its own dialog) about a project that never had
 // a file. If it does not answer (frozen), the window closes anyway after a few seconds; the next start offers the
@@ -626,14 +1081,21 @@ ipcMain.handle('app:closeCancel', () => clearTimeout(closeTimer));
 // then FFmpeg composes everything (export:run). Frame folders are only accepted if created by export:begin.
 const frameDirs = new Set();
 
-ipcMain.handle('export:begin', async (_e, suggested) => {
-  let file = process.env.FVE_SMOKE ? path.join(process.env.FVE_SMOKE, 'ui-export.mp4') : null;
+const EXPORT_FORMAT_DIALOG = {
+  mp4: { title: 'Export video', filter: 'MP4 video' },
+  mov: { title: 'Export video', filter: 'MOV video' },
+  webm: { title: 'Export video', filter: 'WebM video' },
+  gif: { title: 'Export GIF', filter: 'GIF image' },
+};
+ipcMain.handle('export:begin', async (_e, suggested, format) => {
+  const fmt = EXPORT_FORMAT_DIALOG[format] ? format : 'mp4';
+  let file = process.env.FVE_SMOKE ? path.join(process.env.FVE_SMOKE, `ui-export.${fmt}`) : null;
   if (!file) {
     const base = String(suggested || 'export').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80) || 'export';
     const res = await dialog.showSaveDialog(win, {
-      title: 'Export video',
-      defaultPath: `${base}.mp4`,
-      filters: [{ name: 'MP4 video', extensions: ['mp4'] }],
+      title: EXPORT_FORMAT_DIALOG[fmt].title,
+      defaultPath: `${base}.${fmt}`,
+      filters: [{ name: EXPORT_FORMAT_DIALOG[fmt].filter, extensions: [fmt] }],
     });
     if (res.canceled) return { canceled: true };
     file = res.filePath;
@@ -674,7 +1136,11 @@ const dropFrames = (dir) => {
 ipcMain.handle('export:abort', (_e, dir) => dropFrames(dir));
 
 // Animated effects pass (see electron/fxjobs.cjs): frames go to the interface's WebGL shaders and back.
-const fxJobs = new FxJobs();
+// Rendered segments persist in the media cache (Sprint 9) so a later export reuses them.
+const fxJobs = new FxJobs(
+  () => path.join(mediaCacheDir(), 'fx-segments'),
+  () => settings.getFxCacheCapMB() * 1024 * 1024, // the Settings cap drives the LRU eviction (fxjobs.cjs)
+);
 const fxCall = (fn) => async (...args) => {
   try {
     return { ok: true, value: await fn(...args) };
@@ -695,20 +1161,44 @@ let exportCapsCache = null;
 ipcMain.handle('export:caps', async () => {
   // encoder: the probed pick (v1.1.12) — a GPU encoder when one truly works
   // on this machine, libx264 otherwise; the Export summary names it.
-  exportCapsCache ||= { libx265: hasLibx265(), encoder: await pickEncoder().catch(() => 'libx264') };
+  exportCapsCache ||= { libx265: hasLibx265(), vp9: hasVp9(), encoder: await pickEncoder().catch(() => 'libx264') };
   return exportCapsCache;
 });
 
 ipcMain.handle('export:run', async (_e, projectIn, target, textFrames) => {
   try {
-    const project = fxJobs.resolve(projectIn);
+    let project = fxJobs.resolve(projectIn);
+    // Soft subtitle track: the renderer serialized the caption clips to SRT text
+    // (projectIn.subtitleSrt); stage it as a file the export graph can mux (mov_text).
+    // The frame dir is the export's own scratch space, dropped when the export ends.
+    if (typeof projectIn.subtitleSrt === 'string' && projectIn.subtitleSrt.trim() && frameDirs.has(target.frameDir)) {
+      const srtFile = path.join(target.frameDir, 'captions.srt');
+      try {
+        fs.writeFileSync(srtFile, projectIn.subtitleSrt);
+        project = { ...project, subtitleFile: srtFile, subtitleLang: projectIn.subtitleLang };
+      } catch { /* no track: the burned-in captions still export */ }
+    }
     const textFile = path.join(target.frameDir, 'text.mov');
     const withText = textFrames > 0 && frameDirs.has(target.frameDir) && fs.existsSync(textFile)
       ? { ...project, textOverlay: { file: textFile, count: textFrames } }
       : project;
+    // Bundled stickers (10/10 step 3): resolve each sticker clip's file name to its
+    // absolute path under shared/stickers/ (basename-only, the bundled:path rule);
+    // clips that do not resolve are skipped by the export graph.
+    let withStickers = withText;
+    if (Array.isArray(withText.stickerClips) && withText.stickerClips.length) {
+      const stickerFiles = {};
+      for (const c of withText.stickerClips) {
+        if (c && typeof c.sticker === 'string' && /^[\w.-]+$/.test(c.sticker)) {
+          const fp = path.join(BUNDLED_MEDIA_DIRS.stickers, c.sticker);
+          if (fs.existsSync(fp)) stickerFiles[c.id] = fp;
+        }
+      }
+      if (Object.keys(stickerFiles).length) withStickers = { ...withText, stickerFiles };
+    }
     // Low-End mode: the export yields CPU to the rest of the PC (nice +10). Other modes
     // run at normal priority. Priority never changes the encoder settings or output.
-    currentExport = runExport(withText, target.file, (p) => win.webContents.send('export:progress', p), { nice: settings.getPerfMode() === 'low-end' ? 10 : 0 });
+    currentExport = runExport(withStickers, target.file, (p) => win.webContents.send('export:progress', p), { nice: settings.getPerfMode() === 'low-end' ? 10 : 0 });
     await currentExport.promise;
     let size = 0;
     try { size = fs.statSync(target.file).size; } catch { /* the done card shows no size */ }
@@ -765,7 +1255,9 @@ ipcMain.handle('export:cover', async (_e, file, mediaPath, at) => {
     if (!fs.existsSync(file) || !fs.existsSync(mediaPath)) throw new Error('missing file');
     const cover = path.join(tmp, 'cover.jpg');
     await run(['-y', '-hide_banner', '-loglevel', 'error', '-ss', String(Math.max(0, Number(at) || 0)), '-i', mediaPath, '-frames:v', '1', '-q:v', '3', cover]);
-    const out = path.join(tmp, 'with-cover.mp4');
+    // The remux must keep the exported file's own container (an .mp4 temp would write
+    // MP4 bytes over a .mov export); the extension drives the muxer.
+    const out = path.join(tmp, `with-cover${path.extname(file) || '.mp4'}`);
     await run(['-y', '-hide_banner', '-loglevel', 'error', '-i', file, '-i', cover, '-map', '0', '-map', '1', '-c', 'copy', '-disposition:v:1', 'attached_pic', out]);
     fs.copyFileSync(out, file);
     let size = 0;
@@ -778,7 +1270,9 @@ ipcMain.handle('export:cover', async (_e, file, mediaPath, at) => {
   }
 });
 
-// Audio only: asks where to save, then mixes the timeline's sound into MP3, WAV or M4A.
+// Audio only: asks where to save, then exports through the audio JOB (runAudioExport) —
+// the same lifecycle as video export: progress events on the shared channel, coverage by
+// export:cancel, the resolved settings honoured, the master loudnorm stage applied.
 const AUDIO_FORMATS = { mp3: 'MP3 audio', wav: 'WAV audio', m4a: 'M4A audio' };
 ipcMain.handle('export:audio', async (_e, project, format, name) => {
   if (!AUDIO_FORMATS[format]) return { ok: false, error: 'Unknown audio format' };
@@ -794,17 +1288,26 @@ ipcMain.handle('export:audio', async (_e, project, format, name) => {
     file = res.filePath;
   }
   try {
-    await exportAudio(project, file, format);
+    currentAudioJob = runAudioExport(project, file, format, (p) => win.webContents.send('export:progress', p), { nice: settings.getPerfMode() === 'low-end' ? 10 : 0 });
+    await currentAudioJob.promise;
     return { ok: true, file };
   } catch (e) {
+    if (currentAudioJob?.canceled) return { canceled: true };
     return { ok: false, error: e.message };
+  } finally {
+    currentAudioJob = null;
   }
 });
 
 ipcMain.handle('export:cancel', () => {
-  if (!currentExport) return;
-  currentExport.canceled = true;
-  currentExport.cancel();
+  if (currentExport) {
+    currentExport.canceled = true;
+    currentExport.cancel();
+  }
+  if (currentAudioJob) {
+    currentAudioJob.canceled = true;
+    currentAudioJob.cancel();
+  }
 });
 // ---- Settings and AI. API keys stay in this process; the renderer only ever sees a hint like "…abcd". ----
 const settings = require('./settings.cjs');
@@ -823,6 +1326,8 @@ ipcMain.handle('app:openHelp', (_e, url) => {
 });
 
 ipcMain.handle('settings:get', () => settings.getPublic());
+ipcMain.handle('settings:setKeymap', (_e, map) => settings.setKeymap(map));
+ipcMain.handle('settings:setKeystrokes', (_e, on) => settings.setKeystrokes(on));
 // ---- MCP servers: external tool servers (stdio) whose tools FlowAI may call. ----
 const mcp = require('./mcp.cjs');
 const mcpRegistry = mcp.createRegistry(() => settings.getMcpServers());
@@ -885,6 +1390,9 @@ ipcMain.handle('updates:download', async (e) => {
   if (!lastCheck?.newer || !lastCheck.downloadUrl) return { error: 'Check for updates first.' };
   return updates.downloadInstaller(lastCheck.downloadUrl, {
     destDir: app.getPath('downloads'),
+    // Gate 7: the feed's published SHA-256 for this installer; the download is
+    // verified against it before it can ever be installed (updates.cjs).
+    expectedSha256: lastCheck.sha256 || '',
     onProgress: (p) => { if (!e.sender.isDestroyed()) e.sender.send('updates:progress', p); },
   });
 });
@@ -1025,6 +1533,15 @@ ipcMain.handle('gen:run', async (_e, jobId, kind, opts = {}) => {
   }
 });
 ipcMain.handle('gen:stop', (_e, jobId) => genJobs.get(jobId)?.abort());
+ipcMain.handle('gen:remove', (_e, file) => {
+  try { gen.remove(genDir(), file); } catch { /* not a generated file: nothing to remove */ }
+  return gen.list(genDir());
+});
+ipcMain.handle('gen:reveal', (_e, file) => {
+  const hit = gen.list(genDir()).find((e) => e.path === file);
+  if (hit) shell.showItemInFolder(hit.path);
+  return !!hit;
+});
 
 // ---- Forge: Cutflow's own AI generation (photos + short videos). Pollinations (free, no key)
 // for photos; Gemini — the AI assistant's existing key, no second key field — for Gemini photos
@@ -1084,46 +1601,8 @@ ipcMain.handle('avatars:remove', (_e, file) => {
   return gen.avatarList(avatarDir());
 });
 
-// ---- Templates: the remote store, and the package flow. ----
-const templates = require('./templates.cjs');
-const bundledTemplates = require('./bundledTemplates.cjs');
-const tplCache = () => (process.env.FVE_SMOKE ? path.join(process.env.FVE_SMOKE, 'templates-test') : path.join(app.getPath('userData'), 'templates'));
-const tplCall = (fn) => async (...args) => {
-  try {
-    return await fn(...args);
-  } catch (e) {
-    return { error: e.message };
-  }
-};
-ipcMain.handle('templates:list', tplCall((_e, params) => templates.list(net.fetch, params)));
-// Bundled templates (ship with the app, fully offline): list from disk, open from disk.
-ipcMain.handle('templates:bundledList', () => bundledTemplates.list(path.join(__dirname, '..')));
-ipcMain.handle('templates:bundledUse', tplCall(async (_e, slug) => {
-  const { json } = bundledTemplates.use(path.join(__dirname, '..'), slug);
-  const pf = require('./projectfile.cjs');
-  return { json: await pf.refreshSizes(pf.checkGenerated(json, mediaCacheDir()), probe) };
-}));
-ipcMain.handle('templates:thumb', (_e, t) => templates.thumb(net.fetch, tplCache(), t));
-ipcMain.handle('templates:preview', tplCall(async (_e, t) => ({ path: await templates.preview(net.fetch, tplCache(), t) })));
-// Downloads a template and returns it as a project, like project:open (it has no file until saved).
-ipcMain.handle('templates:use', tplCall(async (_e, id) => {
-  const send = (fraction) => { if (win && !win.isDestroyed()) win.webContents.send('templates:progress', { id, fraction }); };
-  const { json } = await templates.download(net.fetch, tplCache(), id, send);
-  templates.use(net.fetch, id);
-  const pf = require('./projectfile.cjs');
-  return { json: await pf.refreshSizes(pf.checkGenerated(json, mediaCacheDir()), probe) };
-}));
-// Export > Template package: asks for a folder and writes the package into a new subfolder.
-ipcMain.handle('templates:pack', tplCall(async (_e, projectJson, meta) => {
-  let parent = process.env.FVE_SMOKE ? path.join(process.env.FVE_SMOKE, 'packages') : null;
-  if (!parent) {
-    const res = await dialog.showOpenDialog(win, { title: 'Choose where to write the template package', properties: ['openDirectory', 'createDirectory'] });
-    if (res.canceled) return null;
-    parent = res.filePaths[0];
-  }
-  fs.mkdirSync(parent, { recursive: true });
-  return templates.pack(JSON.parse(projectJson), meta, parent, { ffmpegPath: require('./ffmpeg.cjs').ffmpegPath });
-}));
+// (The project-Templates store + package flow lived here until 2026-11-10:
+// removed for good at Hamza's order — no IPC, no bundled packages.)
 ipcMain.handle('shell:openFolder', (_e, dir) => (fs.existsSync(dir) && fs.statSync(dir).isDirectory() ? shell.openPath(dir) : false));
 
 // ---- Stock photos and videos (Pixabay). The key stays in this process. ----
@@ -1253,6 +1732,56 @@ ipcMain.handle('beats:analyze', async (_e, project) => {
   }
 });
 ipcMain.handle('beats:cancel', () => { if (beatsJob) beatsJob.canceled = true; });
+
+// Scene splitting (Sprint 10): one detection job at a time over a media
+// file (electron/scenes.cjs — the FFmpeg scene-score pass); the renderer
+// maps the returned source-second boundaries into the clip and dispatches
+// ordinary splits.
+const scenes = require('./scenes.cjs');
+let scenesJob = null; // { canceled }
+ipcMain.handle('scenes:detect', async (_e, file, opts) => {
+  if (scenesJob) return { error: 'Another video is being processed. Wait for it to finish.' };
+  const job = { canceled: false };
+  scenesJob = job;
+  try {
+    const cuts = await scenes.detectScenes(file, { threshold: opts && opts.threshold, isCanceled: () => job.canceled });
+    if (job.canceled) return { canceled: true };
+    return { cuts };
+  } catch (e) {
+    return { error: e.message };
+  } finally {
+    scenesJob = null;
+  }
+});
+ipcMain.handle('scenes:cancel', () => { if (scenesJob) scenesJob.canceled = true; });
+
+// Silence detection (10/10 step 4): one job at a time over a media file
+// (electron/silence.cjs — the FFmpeg silencedetect pass); the renderer maps
+// the returned source-second spans into the clip, shows them on the
+// waveform and removes them through the range-cut store actions.
+const silenceMod = require('./silence.cjs');
+let silenceJob = null; // { canceled }
+ipcMain.handle('silence:detect', async (_e, file, opts) => {
+  if (silenceJob) return { error: 'Another video is being processed. Wait for it to finish.' };
+  if (!file || !fs.existsSync(file)) return { error: 'The media file was not found.' };
+  const job = { canceled: false };
+  silenceJob = job;
+  try {
+    const ranges = await silenceMod.detectSilence(file, {
+      thresholdDb: opts && opts.thresholdDb,
+      minDuration: opts && opts.minDuration,
+      durationHint: opts && opts.durationHint,
+      isCanceled: () => job.canceled,
+    });
+    if (job.canceled) return { canceled: true };
+    return { ranges };
+  } catch (e) {
+    return { error: e.message };
+  } finally {
+    silenceJob = null;
+  }
+});
+ipcMain.handle('silence:cancel', () => { if (silenceJob) silenceJob.canceled = true; });
 
 // Save a text file the renderer produced (subtitle export, v1.1.11): the
 // dialog and the write live here; the renderer supplies only text + a name.
@@ -1441,6 +1970,34 @@ ipcMain.handle('enhance:run', async (_e, item, from, to, strength) => {
 });
 ipcMain.handle('enhance:cancel', () => { if (enhanceJob) enhanceJob.canceled = true; });
 
+// AudioFx preview parity (electron/audiofxrender.cjs): render a clip's effected sound,
+// cached like the enhance renders. The renderer asks whenever a clip's audioFx / range /
+// sound source outdates the stored derivative (clip.audioFxRender); preview and export
+// then both play that one file. A second request while one runs answers { busy: true }
+// so the renderer's upkeep loop retries instead of failing the clip.
+const { renderAudioFx } = require('./audiofxrender.cjs');
+let audioFxJob = null;
+ipcMain.handle('audiofx:render', async (_e, req) => {
+  if (audioFxJob) return { busy: true };
+  if (!req || !req.srcPath || !fs.existsSync(req.srcPath)) return { error: 'The media file was not found.' };
+  const job = { canceled: false };
+  audioFxJob = job;
+  try {
+    const res = await renderAudioFx({
+      srcPath: req.srcPath, from: req.from, to: req.to, fx: req.fx, channels: req.channels,
+      cacheDir: mediaCacheDir(), ffmpegPath: require('./ffmpeg.cjs').ffmpegPath,
+      isCanceled: () => job.canceled,
+      onProgress: (fraction) => { if (win && !win.isDestroyed()) win.webContents.send('audiofx:progress', { path: req.srcPath, fraction }); },
+    });
+    return res ? { path: res.path, chain: res.chain } : { error: 'No audio effects to render.' };
+  } catch (e) {
+    return e.canceled ? { canceled: true } : { error: e.message };
+  } finally {
+    audioFxJob = null;
+  }
+});
+ipcMain.handle('audiofx:cancel', () => { if (audioFxJob) audioFxJob.canceled = true; });
+
 // Freeze frame (context menu, item 12): grab one frame of a media file as a PNG still the
 // project can hold. Cached by file + time; the file lands in the media cache like other stills.
 ipcMain.handle('media:frameImage', async (_e, mediaPath, at) => {
@@ -1487,6 +2044,18 @@ const draftConfig = (draft = {}) => {
 };
 ipcMain.handle('ai:test', (_e, draft) => ai.testConnection(draftConfig(draft)));
 ipcMain.handle('ai:models', (_e, draft) => ai.listModels(draftConfig(draft)));
+
+// ---- Bundled generated media (10/10 step 3): the synthesized SFX and the drawn
+// stickers live under shared/<kind>/; the renderer knows only file names from its
+// registries, and this resolver maps them to absolute paths. Basename-only, so a
+// registry entry can never walk out of its folder. ----
+const BUNDLED_MEDIA_DIRS = { sfx: path.join(__dirname, '..', 'shared', 'sfx'), stickers: path.join(__dirname, '..', 'shared', 'stickers') };
+ipcMain.handle('bundled:path', (_e, kind, file) => {
+  const dir = BUNDLED_MEDIA_DIRS[kind];
+  if (!dir || typeof file !== 'string' || !/^[\w.-]+$/.test(file)) return null;
+  const p = path.join(dir, file);
+  return fs.existsSync(p) ? p : null;
+});
 
 // ---- LUTs (.cube): the bundled ones in shared/luts, or a file the user picked. ----
 const LUT_DIR = path.join(__dirname, '..', 'shared', 'luts');
@@ -1578,8 +2147,9 @@ ipcMain.handle('captions:run', async (_e, project, opts = {}) => {
   }
 });
 
-ipcMain.handle('shell:show', (_e, file) => shell.showItemInFolder(file));
-ipcMain.handle('shell:open', (_e, file) => shell.openPath(file));
+// Like shell:openFolder, the path must be a real existing one — never raw renderer input.
+ipcMain.handle('shell:show', (_e, file) => (typeof file === 'string' && !!file && fs.existsSync(file) ? shell.showItemInFolder(file) : false));
+ipcMain.handle('shell:open', (_e, file) => (typeof file === 'string' && !!file && fs.existsSync(file) ? shell.openPath(file) : false));
 
 // Cloud captions (item O): the same timeline audio, transcribed by the provider the user
 // picked with their own saved key. Segments come back in the local flow's exact shape.
@@ -1626,11 +2196,15 @@ ipcMain.handle('captions:testCloud', async (_e, provider, keyOverride) => {
 });
 
 app.whenReady().then(() => {
+  settings.ensureQualityDefault(); // brand-new installs start with preview copies on (Sprint 9)
   createWindow();
   telemetry.start();
+  // Agent draft bridge: only when the user left it enabled — while off, nothing listens.
+  if (settings.getBridgeEnabled()) bridge.start().then(writeBridgeDiscovery).catch(() => {});
   // Find the graphics card's video encoder now (a short test encode), so the first export does not wait for it.
   setTimeout(() => require('./ffmpeg.cjs').pickEncoder(), 4000);
   // Screen recording (Media > Record screen).
   require('./screenrec.cjs').install({ app, getWin: () => win, ffmpegPath: require('./ffmpeg.cjs').ffmpegPath, probeAll });
 });
 app.on('window-all-closed', () => app.quit());
+app.on('before-quit', () => { bridge.stop(); writeBridgeDiscovery(); });

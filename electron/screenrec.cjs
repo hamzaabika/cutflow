@@ -163,7 +163,7 @@ function install({ app, getWin, ffmpegPath, probeAll }) {
       width: w, height: 38, x: Math.round(d.workArea.x + (d.workArea.width - w) / 2), y: d.workArea.y + 16,
       frame: false, resizable: false, alwaysOnTop: true, skipTaskbar: true, focusable: true,
       show: false, hasShadow: false, backgroundColor: '#12141c',
-      webPreferences: { preload: path.join(__dirname, 'recbar-preload.cjs'), contextIsolation: true, nodeIntegration: false },
+      webPreferences: { preload: path.join(__dirname, 'recbar-preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true },
     });
     bar.setShape(roundedRows(w, 38, 19));
     bar.setContentProtection(true); // not visible in screen captures (Windows 10 2004 and later)
@@ -228,7 +228,7 @@ function install({ app, getWin, ffmpegPath, probeAll }) {
       width: box, height: box, x: d.workArea.x + 40 - BUBBLE_ROOM, y: d.workArea.y + d.workArea.height - box - 40 + BUBBLE_ROOM,
       frame: false, resizable: false, alwaysOnTop: true, skipTaskbar: true, hasShadow: false, show: false,
       transparent: true, backgroundColor: '#00000000',
-      webPreferences: { preload: path.join(__dirname, 'cambubble-preload.cjs'), contextIsolation: true, nodeIntegration: false },
+      webPreferences: { preload: path.join(__dirname, 'cambubble-preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true },
     });
     bubble.setAlwaysOnTop(true, 'screen-saver');
     // Like the Stop bar, the bubble stays out of the screen video: the camera is recorded as its own clip.

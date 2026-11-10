@@ -58,6 +58,13 @@ contextBridge.exposeInMainWorld('api', {
   detachCancel: () => ipcRenderer.invoke('detach:cancel'),
   enhanceRun: (item, from, to, strength) => ipcRenderer.invoke('enhance:run', item, from, to, strength),
   enhanceCancel: () => ipcRenderer.invoke('enhance:cancel'),
+  audioFxRender: (req) => ipcRenderer.invoke('audiofx:render', req),
+  audioFxCancel: () => ipcRenderer.invoke('audiofx:cancel'),
+  onAudioFxProgress: (handler) => {
+    const h = (_e, payload) => handler(payload);
+    ipcRenderer.on('audiofx:progress', h);
+    return () => ipcRenderer.removeListener('audiofx:progress', h);
+  },
   onEnhanceProgress: (handler) => {
     const h = (_e, payload) => handler(payload);
     ipcRenderer.on('enhance:progress', h);
@@ -93,6 +100,7 @@ contextBridge.exposeInMainWorld('api', {
   perfGetMode: () => ipcRenderer.invoke('perf:getMode'),
   perfSetMode: (m) => ipcRenderer.invoke('perf:setMode', m),
   proxyClear: () => ipcRenderer.invoke('proxy:clear'),
+  proxySetFxCacheCap: (mb) => ipcRenderer.invoke('proxy:setFxCacheCap', mb),
   onMediaVisuals: (cb) => {
     const handler = (_e, v) => cb(v);
     ipcRenderer.on('media:visuals', handler);
@@ -109,12 +117,42 @@ contextBridge.exposeInMainWorld('api', {
   },
   openProject: () => ipcRenderer.invoke('project:open'),
   openProjectPath: (filePath) => ipcRenderer.invoke('project:openPath', filePath),
+  readProjectPath: (filePath) => ipcRenderer.invoke('project:readPath', filePath),
+  renameProjectFile: (filePath, title) => ipcRenderer.invoke('project:renameFile', filePath, title),
   slotWrite: (record) => ipcRenderer.invoke('slots:write', record),
   slotList: () => ipcRenderer.invoke('slots:list'),
   slotForFile: (filePath) => ipcRenderer.invoke('slots:forFile', filePath),
   slotRead: (id) => ipcRenderer.invoke('slots:read', id),
   slotDelete: (id) => ipcRenderer.invoke('slots:delete', id),
-  exportBegin: (suggested) => ipcRenderer.invoke('export:begin', suggested),
+  // Home switchboard (R5): soft-delete trash with restore, duplicate, rename in place.
+  slotListTrashed: () => ipcRenderer.invoke('slots:listTrashed'),
+  slotTrash: (id) => ipcRenderer.invoke('slots:trash', id),
+  slotRestore: (id) => ipcRenderer.invoke('slots:restore', id),
+  slotCopy: (id) => ipcRenderer.invoke('slots:copy', id),
+  slotRename: (id, title) => ipcRenderer.invoke('slots:rename', id, title),
+  // Version history (draft safety): snapshots of earlier saved states per project.
+  versionsList: (id) => ipcRenderer.invoke('versions:list', id),
+  versionsRead: (id, file) => ipcRenderer.invoke('versions:read', id, file),
+  versionsRecord: (id, json, boundFile) => ipcRenderer.invoke('versions:record', id, json, boundFile),
+  versionsAutoBackup: (id, json, boundFile) => ipcRenderer.invoke('versions:autoBackup', id, json, boundFile),
+  // Media relink: locate one missing file, or scan a folder for all of them.
+  relinkPickFile: (item) => ipcRenderer.invoke('relink:pickFile', item),
+  relinkScanFolder: (items) => ipcRenderer.invoke('relink:scanFolder', items),
+  checkMissingMedia: (project) => ipcRenderer.invoke('media:checkMissing', project),
+  // Agent draft bridge: enable/state for Settings, and the review surface
+  // (list / accept / discard of agent shadow drafts). Accept + discard are
+  // user acts; agents themselves only ever reach the HTTP surface in main.
+  bridgeGetState: () => ipcRenderer.invoke('bridge:getState'),
+  bridgeSetEnabled: (on) => ipcRenderer.invoke('bridge:setEnabled', on === true),
+  bridgeListShadows: () => ipcRenderer.invoke('bridge:listShadows'),
+  bridgeAccept: (shadowId, projectId) => ipcRenderer.invoke('bridge:accept', shadowId, projectId),
+  bridgeDiscard: (shadowId) => ipcRenderer.invoke('bridge:discard', shadowId),
+  onBridgeShadowsChanged: (fn) => {
+    const h = () => fn();
+    ipcRenderer.on('bridge:shadowsChanged', h);
+    return () => ipcRenderer.removeListener('bridge:shadowsChanged', h);
+  },
+  exportBegin: (suggested, format) => ipcRenderer.invoke('export:begin', suggested, format),
   exportCover: (file, mediaPath, at) => ipcRenderer.invoke('export:cover', file, mediaPath, at),
   frameGrab: (mediaPath, at) => ipcRenderer.invoke('media:frame', mediaPath, at),
   exportCaps: () => ipcRenderer.invoke('export:caps'),
@@ -137,6 +175,8 @@ contextBridge.exposeInMainWorld('api', {
   agentStep: (req) => ipcRenderer.invoke('agent:step', req),
   agentSilences: (project, opts) => ipcRenderer.invoke('agent:silences', project, opts),
   settingsGet: () => ipcRenderer.invoke('settings:get'),
+  settingsSetKeymap: (map) => ipcRenderer.invoke('settings:setKeymap', map),
+  settingsSetKeystrokes: (on) => ipcRenderer.invoke('settings:setKeystrokes', on),
   settingsSetMcpServers: (list) => ipcRenderer.invoke('settings:setMcpServers', list),
   mcpTools: () => ipcRenderer.invoke('mcp:tools'),
   mcpCall: (req) => ipcRenderer.invoke('mcp:call', req),
@@ -164,18 +204,7 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on('tts:progress', h);
     return () => ipcRenderer.removeListener('tts:progress', h);
   },
-  templatesList: (params) => ipcRenderer.invoke('templates:list', params),
-  templatesBundledList: () => ipcRenderer.invoke('templates:bundledList'),
-  templatesBundledUse: (slug) => ipcRenderer.invoke('templates:bundledUse', slug),
-  templatesThumb: (t) => ipcRenderer.invoke('templates:thumb', t),
-  templatesPreview: (t) => ipcRenderer.invoke('templates:preview', t),
-  templatesUse: (id) => ipcRenderer.invoke('templates:use', id),
-  templatesPack: (projectJson, meta) => ipcRenderer.invoke('templates:pack', projectJson, meta),
-  onTemplatesProgress: (fn) => {
-    const h = (_e, p) => fn(p);
-    ipcRenderer.on('templates:progress', h);
-    return () => ipcRenderer.removeListener('templates:progress', h);
-  },
+  bundledPath: (kind, file) => ipcRenderer.invoke('bundled:path', kind, file),
   openFolder: (dir) => ipcRenderer.invoke('shell:openFolder', dir),
   genStatus: () => ipcRenderer.invoke('gen:status'),
   genList: () => ipcRenderer.invoke('gen:list'),
@@ -185,6 +214,8 @@ contextBridge.exposeInMainWorld('api', {
   avatarsRemove: (file) => ipcRenderer.invoke('avatars:remove', file),
   genRun: (jobId, kind, opts) => ipcRenderer.invoke('gen:run', jobId, kind, opts),
   genStop: (jobId) => ipcRenderer.invoke('gen:stop', jobId),
+  genRemove: (file) => ipcRenderer.invoke('gen:remove', file),
+  genReveal: (file) => ipcRenderer.invoke('gen:reveal', file),
   onGenProgress: (fn) => {
     const h = (_e, p) => fn(p);
     ipcRenderer.on('gen:progress', h);
@@ -225,6 +256,12 @@ contextBridge.exposeInMainWorld('api', {
   // Beat cuts: analyze(project) -> { bpm, beats } | { canceled } | { error }; progress: { stage, fraction }.
   beatsAnalyze: (project) => ipcRenderer.invoke('beats:analyze', project),
   beatsCancel: () => ipcRenderer.invoke('beats:cancel'),
+  // Scene splitting: detectScenes(path, { threshold }) -> { cuts: [{ time, score }] } | { canceled } | { error }.
+  detectScenes: (file, opts) => ipcRenderer.invoke('scenes:detect', file, opts),
+  scenesCancel: () => ipcRenderer.invoke('scenes:cancel'),
+  // Silence detection: detectSilence(path, opts) -> { ranges: [{ start, end }] } in source seconds | { canceled } | { error }.
+  detectSilence: (file, opts) => ipcRenderer.invoke('silence:detect', file, opts),
+  silenceCancel: () => ipcRenderer.invoke('silence:cancel'),
   onBeatsProgress: (cb) => {
     const handler = (_e, p) => cb(p);
     ipcRenderer.on('beats:progress', handler);

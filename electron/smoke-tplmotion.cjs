@@ -52,7 +52,11 @@ module.exports = async function tplmotionSmoke(win, dir, result) {
   await untilQ(`!!document.querySelector('.tpl .chip')`);
   result.chips = await q(`[...document.querySelectorAll('.tpl .chip')].map((b) => b.textContent.trim())`);
   at('motion-chip');
-  await click('.tpl .chip', 'Motion');
+  // The category chips carry their template count since the library growth
+  // ("Motion · 10"), so an exact-text match can never land — match the chip
+  // by its category name, the way a user reads it (probe drift fix, 10/10
+  // step 4; the chip itself never changed behaviour).
+  await q(`[...document.querySelectorAll('.tpl .chip')].find((b) => { const t = b.textContent.trim(); return t === 'Motion' || t.startsWith('Motion · '); }).click()`);
   await untilQ(`[...document.querySelectorAll('.tpl .tpl-name')].some((s) => s.textContent.trim() === 'Smooth Slide')`);
   result.motionNames = await q(`[...document.querySelectorAll('.tpl .tpl-name')].map((s) => s.textContent.trim())`);
   at('apply-smooth-slide');
@@ -67,7 +71,7 @@ module.exports = async function tplmotionSmoke(win, dir, result) {
   await q(`window.__fve.exportNow()`);
   for (let i = 0; i < 240; i++) {
     await wait(500);
-    const st = await q(`document.querySelector('.modal h3')?.textContent || ''`);
+    const st = await q(`document.querySelector('.xjob-state, .xjob-err-title')?.textContent || ''`);
     if (/complete|failed/i.test(st)) { result.exportStatus = st; break; }
   }
   result.exportError = await q(`document.querySelector('.error-log')?.textContent || null`);

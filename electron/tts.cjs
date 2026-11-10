@@ -10,7 +10,19 @@ const { spawn, execFile } = require('child_process');
 const { Readable, Transform } = require('stream');
 const { pipeline } = require('stream/promises');
 
-const PIPER_ZIP = 'https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_windows_amd64.zip';
+const PIPER_RELEASE = 'https://github.com/rhasspy/piper/releases/download/2023.11.14-2/';
+// Engine builds published with Piper 2023.11.14-2, one per platform. Every archive holds a
+// top-level `piper` folder with the program, its libraries and espeak-ng-data, so all platforms
+// extract into the tts folder the same way; only the archive and the program's name differ.
+const PIPER_ENGINES = {
+  'win32-x64': { file: 'piper_windows_amd64.zip', exe: 'piper.exe' },
+  'linux-x64': { file: 'piper_linux_x86_64.tar.gz', exe: 'piper' },
+  'linux-arm64': { file: 'piper_linux_aarch64.tar.gz', exe: 'piper' },
+  'linux-arm': { file: 'piper_linux_armv7l.tar.gz', exe: 'piper' },
+  'darwin-x64': { file: 'piper_macos_x64.tar.gz', exe: 'piper' },
+  'darwin-arm64': { file: 'piper_macos_aarch64.tar.gz', exe: 'piper' },
+};
+const piperEngine = () => PIPER_ENGINES[`${process.platform}-${process.arch}`] || null;
 const HF = 'https://huggingface.co/rhasspy/piper-voices/resolve/main/';
 
 // Voices whose recordings may be used freely (CC0, public domain, CC BY). Arabic has a single Piper voice whose
@@ -47,8 +59,20 @@ async function download(fetchImpl, url, dest, onProgress) {
   fs.renameSync(tmp, dest);
 }
 
-const piperExe = (dir) => path.join(dir, 'piper', 'piper.exe');
+const piperExe = (dir) => path.join(dir, 'piper', (piperEngine() || { exe: 'piper.exe' }).exe);
 const voiceFile = (dir, id) => path.join(dir, 'voices', `${id}.onnx`);
+
+// Extracts the engine archive into `dir`. Windows 10+ ships bsdtar, which reads the .zip build;
+// the other builds are .tar.gz and every POSIX system ships tar (same split as whisper.cjs).
+async function extractEngine(pack, dir) {
+  if (process.platform === 'win32') {
+    await new Promise((resolve, reject) => execFile(path.join(process.env.SystemRoot || 'C:/Windows', 'System32', 'tar.exe'),
+      ['-xf', pack, '-C', dir], { windowsHide: true }, (e) => (e ? reject(e) : resolve())));
+  } else {
+    await new Promise((resolve, reject) => execFile('tar', ['-xzf', pack, '-C', dir],
+      (e) => (e ? reject(new Error(`Could not extract the voice engine (${e.message}).`)) : resolve())));
+  }
+}
 
 function piperStatus(dir) {
   return {
@@ -57,20 +81,51 @@ function piperStatus(dir) {
   };
 }
 
+// The pinned engine (Piper 1.2.0) refuses a voice config whose phoneme maps carry keys of more
+// than one codepoint, but several current configs add diphthong entries ("aɪ", "oʊ", ...) meant
+// for newer engines. The phonemizer only ever emits single codepoints and the models are trained
+// on them (verified: a pruned config synthesises the same speech), so the extra entries are
+// dropped from the saved config. Runs on every prepare, so configs downloaded by older versions
+// are repaired too. Files that need no change are left byte-identical.
+function fixVoiceConfig(file) {
+  let cfg;
+  try {
+    cfg = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch {
+    return; // Not readable as JSON: leave it alone; Piper will report the real problem.
+  }
+  let changed = false;
+  for (const section of ['phoneme_id_map', 'phoneme_map']) {
+    const map = cfg[section];
+    if (!map) continue;
+    for (const [key, value] of Object.entries(map)) {
+      const badValue = Array.isArray(value) && value.some((v) => typeof v === 'string' && [...v].length !== 1);
+      if ([...key].length !== 1 || badValue) {
+        delete map[key];
+        changed = true;
+      }
+    }
+  }
+  if (changed) fs.writeFileSync(file, JSON.stringify(cfg, null, 2));
+}
+
 // Downloads Piper and the voice when missing. onProgress(stage, fraction).
 async function piperPrepare(fetchImpl, dir, voiceId, onProgress) {
   if (!PIPER_VOICES.some((v) => v.id === voiceId)) throw new Error('Unknown voice.');
   fs.mkdirSync(path.join(dir, 'voices'), { recursive: true });
   if (!fs.existsSync(piperExe(dir))) {
-    const zip = path.join(dir, 'piper.zip');
-    await download(fetchImpl, PIPER_ZIP, zip, (f) => onProgress?.('engine', f));
-    await new Promise((resolve, reject) => execFile(path.join(process.env.SystemRoot || 'C:/Windows', 'System32', 'tar.exe'),
-      ['-xf', zip, '-C', dir], { windowsHide: true }, (e) => (e ? reject(e) : resolve())));
-    fs.rmSync(zip, { force: true });
-    if (!fs.existsSync(piperExe(dir))) throw new Error('piper.exe not found after extraction.');
+    const engine = piperEngine();
+    if (!engine) throw new Error(`Local voice-over is not available on ${process.platform} yet — Piper publishes no engine build for it.`);
+    const pack = path.join(dir, engine.file);
+    await download(fetchImpl, PIPER_RELEASE + engine.file, pack, (f) => onProgress?.('engine', f));
+    await extractEngine(pack, dir);
+    fs.rmSync(pack, { force: true });
+    fs.rmSync(path.join(dir, 'piper.zip'), { force: true }); // leftover of the old Windows-only build, if any
+    if (!fs.existsSync(piperExe(dir))) throw new Error(`${engine.exe} not found after extraction.`);
   }
   const onnx = voiceFile(dir, voiceId);
   if (!fs.existsSync(`${onnx}.json`)) await download(fetchImpl, `${voiceUrl(voiceId)}.json`, `${onnx}.json`);
+  fixVoiceConfig(`${onnx}.json`);
   if (!fs.existsSync(onnx)) await download(fetchImpl, voiceUrl(voiceId), onnx, (f) => onProgress?.('voice', f));
 }
 

@@ -1,6 +1,14 @@
-// Minimal MCP (Model Context Protocol) client over stdio: spawns a server process, speaks
-// newline-delimited JSON-RPC, and exposes initialize / tools/list / tools/call. Deliberately
-// free of Electron imports so it can be unit-tested in plain node (scripts/test-mcp.mjs).
+// Minimal MCP (Model Context Protocol) client: speaks JSON-RPC to a server over one of
+// two transports — stdio (spawn the server process, newline-delimited messages) or
+// streamable HTTP (POST each message to the server's URL; the answer comes back as a
+// JSON body or an SSE stream, and the session id the server mints at initialize is
+// carried on later requests). A server config picks its transport by shape:
+// { name, command, args, env? } for stdio, { name, url, env?, headers? } for HTTP.
+// Per-server env vars merge over the app's own environment: they become the spawned
+// process's environment on stdio, and on HTTP they feed ${VAR} expansion in header
+// values (so an Authorization token can live in the environment, not the config).
+// Deliberately free of Electron imports so it can be unit-tested in plain node
+// (scripts/test-mcp.mjs, scripts/test-mcp-http.mjs).
 const { spawn } = require('child_process');
 
 const PROTOCOL_VERSION = '2024-11-05';
@@ -8,32 +16,61 @@ const CLIENT_INFO = { name: 'ClipCraft', version: '2.0.0' };
 
 class McpError extends Error {}
 
+// The JSON-RPC response for `id` inside an HTTP answer body: a plain JSON
+// document, or an SSE stream of `data:` payloads (the matching message is
+// the one carrying the id; notifications in the stream are skipped).
+function parseHttpBody(contentType, text, id) {
+  if (!text) return null;
+  if (String(contentType).includes('text/event-stream')) {
+    let fallback = null;
+    for (const line of text.split('\n')) {
+      const t = line.trim();
+      if (!t.startsWith('data:')) continue;
+      try {
+        const msg = JSON.parse(t.slice(5).trim());
+        if (msg && msg.id === id) return msg;
+        if (msg && msg.id !== undefined) fallback = msg;
+      } catch { /* a malformed event is not the answer */ }
+    }
+    return fallback;
+  }
+  try { return JSON.parse(text); } catch { return null; }
+}
+
 class McpClient {
   constructor(server, { timeoutMs = 20000 } = {}) {
-    this.server = server; // { name, command, args }
+    this.server = server; // { name, command?, args?, url?, env?, headers? }
     this.timeoutMs = timeoutMs;
     this.proc = null;
     this.buffer = '';
     this.nextId = 1;
-    this.pending = new Map(); // id -> { resolve, reject }
+    this.pending = new Map(); // id -> { resolve, reject } (stdio transport)
     this.started = null; // promise of the initialize handshake
+    this.sessionId = null; // HTTP transport: the server's mcp-session-id, once minted
   }
+
+  get isHttp() { return !!this.server.url; }
 
   start() {
     if (this.started) return this.started;
     this.started = (async () => {
-      const { command, args = [] } = this.server;
-      if (!command) throw new McpError('This MCP server has no command.');
-      this.proc = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'] });
-      this.proc.stdout.setEncoding('utf8');
-      this.proc.stdout.on('data', (chunk) => this.onData(chunk));
-      this.proc.stderr.setEncoding('utf8');
-      this.proc.stderr.on('data', () => {}); // server logs: drained, not shown
-      this.proc.on('error', (e) => this.failAll(new McpError(`Could not start the MCP server "${this.server.name}": ${e.message}`)));
-      this.proc.on('exit', (code) => {
-        if (this.pending.size) this.failAll(new McpError(`The MCP server "${this.server.name}" exited (code ${code}).`));
-        this.proc = null;
-      });
+      if (!this.isHttp) {
+        const { command, args = [] } = this.server;
+        if (!command) throw new McpError('This MCP server has no command.');
+        this.proc = spawn(command, args, {
+          stdio: ['pipe', 'pipe', 'pipe'],
+          env: { ...process.env, ...(this.server.env || {}) },
+        });
+        this.proc.stdout.setEncoding('utf8');
+        this.proc.stdout.on('data', (chunk) => this.onData(chunk));
+        this.proc.stderr.setEncoding('utf8');
+        this.proc.stderr.on('data', () => {}); // server logs: drained, not shown
+        this.proc.on('error', (e) => this.failAll(new McpError(`Could not start the MCP server "${this.server.name}": ${e.message}`)));
+        this.proc.on('exit', (code) => {
+          if (this.pending.size) this.failAll(new McpError(`The MCP server "${this.server.name}" exited (code ${code}).`));
+          this.proc = null;
+        });
+      }
       const init = await this.request('initialize', {
         protocolVersion: PROTOCOL_VERSION,
         capabilities: {},
@@ -71,6 +108,53 @@ class McpClient {
     this.pending.clear();
   }
 
+  // The merged environment for this server: the app's own, overridden by
+  // the server's per-server vars. Stdio children inherit it directly; HTTP
+  // uses it only to expand ${VAR} references in header values.
+  env() {
+    return { ...process.env, ...(this.server.env || {}) };
+  }
+
+  httpHeaders() {
+    const env = this.env();
+    const out = { 'content-type': 'application/json', accept: 'application/json, text/event-stream' };
+    for (const [k, v] of Object.entries(this.server.headers || {})) {
+      out[k] = String(v).replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_, name) => (env[name] !== undefined ? String(env[name]) : ''));
+    }
+    if (this.sessionId) out['mcp-session-id'] = this.sessionId;
+    return out;
+  }
+
+  // One HTTP round trip. Requests resolve with the message's result (the
+  // pending map is a stdio concern — HTTP answers are per-request);
+  // notifications resolve with null (a 202 with no body is the norm). The
+  // session id the server returns at initialize is captured here and sent
+  // on every later request, as the streamable-HTTP transport requires.
+  async requestHttp(obj) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), this.timeoutMs);
+    let res;
+    try {
+      res = await fetch(this.server.url, {
+        method: 'POST', headers: this.httpHeaders(), body: JSON.stringify(obj), signal: ctrl.signal,
+      });
+    } catch (e) {
+      throw new McpError(e.name === 'AbortError'
+        ? `The MCP server "${this.server.name}" did not answer "${obj.method}" in time.`
+        : `Could not reach the MCP server "${this.server.name}": ${e.message}`);
+    } finally {
+      clearTimeout(timer);
+    }
+    const sid = res.headers.get('mcp-session-id');
+    if (sid) this.sessionId = sid;
+    if (obj.id === undefined) return null; // notification: status is all there is
+    if (!res.ok) throw new McpError(`The MCP server "${this.server.name}" answered HTTP ${res.status} to "${obj.method}".`);
+    const msg = parseHttpBody(res.headers.get('content-type') || '', await res.text(), obj.id);
+    if (!msg) throw new McpError(`The MCP server "${this.server.name}" returned no answer to "${obj.method}".`);
+    if (msg.error) throw new McpError(msg.error.message || `MCP error ${msg.error.code}`);
+    return msg.result;
+  }
+
   send(obj) {
     if (!this.proc || !this.proc.stdin.writable) throw new McpError(`The MCP server "${this.server.name}" is not running.`);
     this.proc.stdin.write(`${JSON.stringify(obj)}\n`);
@@ -78,6 +162,7 @@ class McpClient {
 
   request(method, params) {
     const id = this.nextId++;
+    if (this.isHttp) return this.requestHttp({ jsonrpc: '2.0', id, method, params });
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
@@ -98,6 +183,12 @@ class McpClient {
   }
 
   notify(method, params) {
+    if (this.isHttp) {
+      // Fire and forget: a notification has no answer to wait for, and a
+      // failed one surfaces on the next request, like a dead stdio server.
+      this.requestHttp({ jsonrpc: '2.0', method, params }).catch(() => {});
+      return;
+    }
     try { this.send({ jsonrpc: '2.0', method, params }); } catch { /* a dead server surfaces on the next request */ }
   }
 
@@ -119,16 +210,21 @@ class McpClient {
 
   stop() {
     if (this.proc) { try { this.proc.kill(); } catch { /* already gone */ } this.proc = null; }
+    this.sessionId = null; // HTTP: the session dies with the client; the next start re-initializes
     this.started = null;
     this.failAll(new McpError('The MCP client was stopped.'));
   }
 }
 
-// Keeps one client per configured server (keyed by name + command + args), so agent runs
-// reuse the spawned processes. getServers() returns the current settings list.
+// Keeps one client per configured server (keyed by its full transport
+// shape — name + command + args, or name + url + env + headers), so agent
+// runs reuse the spawned processes / HTTP sessions, and editing any part
+// of a server's config earns it a fresh client. getServers() returns the
+// current settings list.
 function createRegistry(getServers) {
   const clients = new Map();
-  const keyOf = (s) => `${s.name}\n${s.command}\n${(s.args || []).join(' ')}`;
+  const keyOf = (s) => [s.name, s.command || '', (s.args || []).join(' '), s.url || '',
+    JSON.stringify(s.env || {}), JSON.stringify(s.headers || {})].join('\n');
   const clientFor = (server) => {
     const key = keyOf(server);
     if (!clients.has(key)) clients.set(key, new McpClient(server));
@@ -187,4 +283,4 @@ function createRegistry(getServers) {
   };
 }
 
-module.exports = { McpClient, McpError, createRegistry, PROTOCOL_VERSION };
+module.exports = { McpClient, McpError, createRegistry, PROTOCOL_VERSION, parseHttpBody };

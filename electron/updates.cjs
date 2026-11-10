@@ -12,6 +12,14 @@
 // Installing replaces only the app's own program files: projects, recents and settings live
 // in the app's userData folder, which an install-over never touches, so an update loses
 // nothing.
+// Integrity (release gate 7): the feed carries the installer's SHA-256 (the `sha256`
+// field, published alongside the release). When a check returns one, the download is
+// hashed as it streams in and compared BEFORE the file is ever offered for install —
+// a mismatch deletes the file and is reported as what it is, never as a usable
+// download. installDownloaded then re-hashes the file at install time, so a file
+// that was swapped or corrupted between the download and the install is refused too.
+// A feed without the field keeps the pre-gate behaviour (no hash was promised, so
+// none is enforced) — the About card only claims "verified" when a hash was checked.
 // Honest states: "up to date" is reported ONLY after a 200 answer whose version is not newer.
 // Any other outcome (404, 500, offline, a non-feed answer) is an error with its reason — never
 // silently dressed up as "up to date".
@@ -19,7 +27,12 @@ let app, net;
 try {
   ({ app, net } = require('electron'));
 } catch {
-  // Plain-Node fallback so the version logic can be unit-tested outside Electron.
+  app = net = undefined;
+}
+if (!app || typeof app.getVersion !== 'function' || !net || typeof net.fetch !== 'function') {
+  // Plain-Node fallback so the version logic can be unit-tested outside Electron. With the
+  // electron package installed, require('electron') in plain Node returns the binary's path
+  // string instead of throwing — so this shape check, not the try/catch, detects plain Node.
   app = { getVersion: () => '1.0.0' };
   net = { fetch: (...args) => fetch(...args) };
 }
@@ -34,18 +47,39 @@ if (process.env.CLIPCRAFT_UPDATE_URL) LINK_HOSTS.push('127.0.0.1', 'localhost');
 
 const fs = require('node:fs');
 const path = require('node:path');
+const crypto = require('node:crypto');
 
 let lastDownloadPath = '';
+// The SHA-256 the feed promised for lastDownloadPath (lowercase hex), or '' when the
+// feed carried none. Set by downloadInstaller only after the streamed bytes matched
+// it; installDownloaded re-verifies against it before anything is installed.
+let lastDownloadSha256 = '';
+
+const sha256OfText = (hex) => (typeof hex === 'string' && /^[0-9a-f]{64}$/i.test(hex.trim()) ? hex.trim().toLowerCase() : '');
+
+function hashFile(file) {
+  return new Promise((resolve, reject) => {
+    const h = crypto.createHash('sha256');
+    const s = fs.createReadStream(file);
+    s.on('data', (d) => h.update(d));
+    s.on('error', reject);
+    s.on('end', () => resolve(h.digest('hex')));
+  });
+}
 
 // Streams the installer at `url` into `destDir`, reporting { received, total } as it goes.
 // The URL is gated to LINK_HOSTS again here (defense in depth — the feed was already gated).
-// Returns { path, fileName, size } or { error }. Nothing is executed here: installing the
-// download afterwards is a separate, explicit user action (installDownloaded below, or
-// opening the file with the system installer).
-async function downloadInstaller(url, { fetchImpl = net.fetch, destDir, onProgress } = {}) {
+// Returns { path, fileName, size, sha256, verified } or { error }. When `expectedSha256`
+// (the feed's hash for this installer) is given, the stream is hashed as it lands and a
+// mismatch deletes the file and returns { error, checksumMismatch: true } — the file is
+// never left on disk as an installable download. Nothing is executed here: installing
+// the download afterwards is a separate, explicit user action (installDownloaded below,
+// or opening the file with the system installer).
+async function downloadInstaller(url, { fetchImpl = net.fetch, destDir, onProgress, expectedSha256 } = {}) {
   const safe = safeLink(url, LINK_HOSTS);
   if (!safe) return { error: 'The download link is not on an allowed host.' };
   if (!destDir) return { error: 'No download folder available.' };
+  const expected = sha256OfText(expectedSha256);
   let base = 'Cutflow-update';
   try { base = decodeURIComponent(new URL(safe).pathname.split('/').pop() || base) || base; } catch { /* keep default */ }
   base = base.replace(/[^\w.\- ]+/g, '_');
@@ -58,6 +92,7 @@ async function downloadInstaller(url, { fetchImpl = net.fetch, destDir, onProgre
     if (!res.ok) return { error: `The download server answered ${res.status}.` };
     const total = Number(res.headers?.get?.('content-length') || 0) || 0;
     const out = fs.createWriteStream(dest);
+    const hash = crypto.createHash('sha256');
     let received = 0;
     if (res.body && typeof res.body.getReader === 'function') {
       const reader = res.body.getReader();
@@ -65,24 +100,37 @@ async function downloadInstaller(url, { fetchImpl = net.fetch, destDir, onProgre
         const { done, value } = await reader.read();
         if (done) break;
         received += value.byteLength;
+        hash.update(value);
         if (!out.write(Buffer.from(value))) await new Promise((r) => out.once('drain', r));
         onProgress?.({ received, total });
       }
     } else if (res.body) {
       for await (const chunk of res.body) {
         received += chunk.length;
+        hash.update(chunk);
         if (!out.write(chunk)) await new Promise((r) => out.once('drain', r));
         onProgress?.({ received, total });
       }
     } else {
       const buf = Buffer.from(await res.arrayBuffer());
       received = buf.length;
+      hash.update(buf);
       out.write(buf);
       onProgress?.({ received, total: total || received });
     }
     await new Promise((resolve, reject) => { out.end(resolve); out.on('error', reject); });
+    const digest = hash.digest('hex');
+    if (expected && digest !== expected) {
+      // Not the file the feed promised: it does not stay on disk and it is never
+      // recorded as the session's download, so the install paths cannot reach it.
+      try { fs.rmSync(dest, { force: true }); } catch { /* best effort */ }
+      lastDownloadPath = '';
+      lastDownloadSha256 = '';
+      return { error: 'The downloaded update failed its integrity check — its SHA-256 does not match the one the update feed published, so it was deleted and will not be installed. Try the download again.', checksumMismatch: true };
+    }
     lastDownloadPath = dest;
-    return { path: dest, fileName: base, size: received };
+    lastDownloadSha256 = expected;
+    return { path: dest, fileName: base, size: received, sha256: digest, verified: !!expected };
   } catch (err) {
     try { fs.rmSync(dest, { force: true }); } catch { /* best effort */ }
     return { error: err?.name === 'AbortError' ? 'The download timed out.' : 'The download failed — check your connection and try again.' };
@@ -121,6 +169,17 @@ async function installDownloaded({ destDir, spawnImpl = spawn, platform = proces
   let ok = false;
   try { ok = fs.existsSync(file) && path.dirname(file) === path.resolve(destDir); } catch { ok = false; }
   if (!ok) return { error: 'The downloaded installer is no longer there.' };
+  // Gate 7, second half: the file is re-hashed NOW, at install time. The download
+  // matched the feed's SHA-256 when it landed; if the bytes on disk no longer do
+  // (swapped, truncated, corrupted in between), the install is refused before any
+  // installer runs — a verified download must still be the verified file.
+  if (lastDownloadSha256) {
+    let digest = '';
+    try { digest = await hashFile(file); } catch { digest = ''; }
+    if (digest !== lastDownloadSha256) {
+      return { error: 'The downloaded installer failed its integrity check — its SHA-256 no longer matches the update feed, so it will not be installed. Download the update again.', checksumMismatch: true };
+    }
+  }
   const cmd = installCommand(file, platform);
   if (!cmd) return { unsupported: true };
   return new Promise((resolve) => {
@@ -168,8 +227,11 @@ const safeLink = (url, hosts) => {
   }
 };
 
-// { current, latest, newer, downloadUrl, notesUrl, notes, releaseDate, size } on a valid feed
-// answer, or { current, error } for ANY failure to check (non-200, offline, non-feed body).
+// { current, latest, newer, downloadUrl, notesUrl, notes, releaseDate, size, sha256 } on a
+// valid feed answer, or { current, error } for ANY failure to check (non-200, offline,
+// non-feed body). sha256 is the feed's published SHA-256 of the installer (gate 7), ''
+// when the feed carries none or a malformed one — downloadInstaller then simply has
+// nothing to verify against and says so in its result (verified: false).
 // There is deliberately no "none" state: a check that did not succeed must never be shown as
 // "up to date" (that is exactly the lie the old 404 -> none mapping told).
 async function check(fetchImpl = net.fetch) {
@@ -192,6 +254,7 @@ async function check(fetchImpl = net.fetch) {
       notes: typeof r.notes === 'string' ? r.notes.slice(0, 2000) : '',
       releaseDate: typeof r.release_date === 'string' ? r.release_date : '',
       size: typeof r.size === 'string' ? r.size : '',
+      sha256: sha256OfText(r.sha256),
     };
   } catch {
     return { current, error: 'Couldn\'t check for updates — No internet connection, or the update server could not be reached.' };
@@ -200,4 +263,4 @@ async function check(fetchImpl = net.fetch) {
   }
 }
 
-module.exports = { check, compare, downloadInstaller, installCommand, installDownloaded, lastDownload: () => lastDownloadPath };
+module.exports = { check, compare, downloadInstaller, installCommand, installDownloaded, hashFile, lastDownload: () => lastDownloadPath, lastDownloadSha256: () => lastDownloadSha256 };

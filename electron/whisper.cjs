@@ -11,12 +11,16 @@ const { pipeline } = require('stream/promises');
 
 const RELEASE_BASE = 'https://github.com/ggml-org/whisper.cpp/releases/download/b5130/';
 // Engine builds published with whisper.cpp b5130, per platform: a Windows zip (whisper-cli.exe)
-// and Ubuntu tarballs (whisper-cli, runs on Debian-likes too). Other platforms have no CLI
-// build in this release, so install() says so instead of downloading the wrong archive.
+// and Ubuntu tarballs (whisper-cli, runs on Debian-likes too). The release ships no macOS CLI
+// build (only an xcframework library for embedding in apps), so the darwin entries carry no
+// `file`: on macOS the engine is the Homebrew build (`brew install whisper-cpp`), resolved in
+// the architecture's Homebrew prefix, then on PATH — see findCli().
 const BINARIES = {
   'win32-x64': { file: 'whisper-bin-x64.zip', exe: 'whisper-cli.exe' },
   'linux-x64': { file: 'whisper-bin-ubuntu-x64.tar.gz', exe: 'whisper-cli' },
   'linux-arm64': { file: 'whisper-bin-ubuntu-arm64.tar.gz', exe: 'whisper-cli' },
+  'darwin-x64': { exe: 'whisper-cli', system: ['/usr/local/bin'] },
+  'darwin-arm64': { exe: 'whisper-cli', system: ['/opt/homebrew/bin'] },
 };
 const binSpec = () => BINARIES[`${process.platform}-${process.arch}`] || null;
 const MODEL_BASE_URL = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/';
@@ -50,11 +54,31 @@ function findFile(dir, name) {
   return null;
 }
 
+// Finds the engine program: in the downloaded bin folder when this platform has a release
+// build; for system entries (macOS) in the spec's folders, then anywhere on PATH.
+function findCli(dir) {
+  const spec = binSpec();
+  if (!spec) return null;
+  const binDir = path.join(dir, 'bin');
+  if (fs.existsSync(binDir)) {
+    const f = findFile(binDir, spec.exe);
+    if (f) return f;
+  }
+  if (spec.system) {
+    const bases = [...spec.system, ...(process.env.PATH || '').split(path.delimiter).filter(Boolean)];
+    for (const base of bases) {
+      const p = path.join(base, spec.exe);
+      if (fs.existsSync(p)) return p;
+    }
+  }
+  return null;
+}
+
 function paths(dir, modelId) {
   const binDir = path.join(dir, 'bin');
   return {
     binDir,
-    cli: fs.existsSync(binDir) ? findFile(binDir, binSpec()?.exe || 'whisper-cli.exe') : null,
+    cli: findCli(dir),
     model: path.join(dir, modelOf(modelId).file),
     log: path.join(dir, 'last-run.log'),
   };
@@ -121,6 +145,7 @@ async function install(dir, onProgress, modelId = 'base') {
   if (!p.cli) {
     const spec = binSpec();
     if (!spec) throw new Error(`Auto captions are not available on ${process.platform} yet — the whisper.cpp release has no engine build for it.`);
+    if (!spec.file) throw new Error('Auto captions on macOS run on the whisper.cpp engine from Homebrew, which is not installed yet — install it with: brew install whisper-cpp, then try again.');
     const pack = path.join(dir, spec.file);
     await download(dir, RELEASE_BASE + spec.file, pack, (f) => onProgress?.('engine', f));
     fs.mkdirSync(p.binDir, { recursive: true });

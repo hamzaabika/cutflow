@@ -60,6 +60,7 @@ function pruneDeadCopies(item, exists) {
   const work = () => (next || (next = { ...item }));
   if (dead(item.proxy)) { work().proxy = null; patch.proxy = null; }
   if (dead(item.lightProxy)) { work().lightProxy = null; patch.lightProxy = null; }
+  if (dead(item.remux)) { work().remux = null; patch.remux = null; }
   if (item.proxies && typeof item.proxies === 'object') {
     const deadKeys = Object.keys(item.proxies).filter((k) => dead(item.proxies[k]));
     if (deadKeys.length) {
