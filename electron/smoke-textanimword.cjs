@@ -51,7 +51,7 @@ module.exports = async function textanimWordSmoke(win, dir, result) {
   await q(`window.__fve.exportNow()`);
   for (let i = 0; i < 240; i++) {
     await wait(500);
-    const st = await q(`document.querySelector('.modal h3')?.textContent || ''`);
+    const st = await q(`document.querySelector('.xjob-state, .xjob-err-title')?.textContent || ''`);
     if (/complete|failed/i.test(st)) { result.exportStatus = st; break; }
   }
   result.exportError = await q(`document.querySelector('.error-log')?.textContent || null`);
