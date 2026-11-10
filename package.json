@@ -1,7 +1,7 @@
 {
   "name": "cutflow",
   "productName": "Cutflow",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "homepage": "https://hamzaabika.com",
   "description": "Cutflow - free, open-source desktop video editor (Electron + React + FFmpeg)",
   "main": "electron/main.cjs",
@@ -100,14 +100,12 @@
       "electron/**/*",
       "shared/**/*",
       "assets/**/*",
-      "bundled-templates/**/*",
       "package.json",
       "node_modules/ffmpeg-static/**/*",
       "node_modules/ffprobe-static/**/*",
       "node_modules/onnxruntime-node/**/*"
     ],
     "asarUnpack": [
-      "bundled-templates/**",
       "node_modules/ffmpeg-static/**",
       "node_modules/ffprobe-static/**",
       "node_modules/onnxruntime-node/**"

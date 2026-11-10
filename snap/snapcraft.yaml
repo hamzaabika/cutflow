@@ -27,7 +27,7 @@
 
 name: cutflow
 title: Cutflow
-version: '1.0.0'
+version: '2.0.0'
 summary: Free desktop video editor — no watermark, no account, no subscription
 description: |
   Cutflow is a free, open-source desktop video editor and covers what
@@ -140,9 +140,6 @@ parts:
 
       # Light release config (content pack excluded) — the repo's own
       # generator, identical to the .deb/.exe/.dmg release pipeline.
-      # NOTE: bundled-templates/ must already contain the generated media
-      # (on a release branch / CI it comes from the templates job artifact;
-      # in this working tree it is already on disk).
       node scripts/prepare-release-config.cjs
 
       npm ci
