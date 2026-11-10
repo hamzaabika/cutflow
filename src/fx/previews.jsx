@@ -1,5 +1,6 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { FX_TRANSITIONS, OVERLAY_EFFECTS, PIXEL_EFFECTS } from './catalog.js';
+import { FX_THUMB } from './thumbIndex.js';
 import { fxGL } from './gl.js';
 
 // Thumbnails for the Effects and Transitions panels: two REAL photographs (bundled in public/preview/,
@@ -143,19 +144,15 @@ export function samplePhotoUrl(seed = 0) {
   return `./preview/${PHOTO_FILES[n % PHOTO_FILES.length]}`;
 }
 
-// ---- Classic transitions and basic effects, drawn with 2D canvas like the player shows them.
+// ---- The native classic transitions, drawn with 2D canvas like the player shows them.
+// (dissolve / fadeblack / fadewhite / circleopen are NOT here: they are engine
+// transitions since Sprint 6, so drawPreview renders their tiles through the real
+// expression via fxGL, like every other engine transition.)
 const ease = (p) => Math.min(1, Math.max(0, p));
 function classicTransition(ctx, id, p, a, b) {
   p = ease(p);
   ctx.save();
   switch (id) {
-    case 'fadeblack':
-    case 'fadewhite':
-      ctx.drawImage(p < 0.5 ? a : b, 0, 0);
-      ctx.globalAlpha = p < 0.5 ? 2 * p : 2 * (1 - p);
-      ctx.fillStyle = id === 'fadeblack' ? '#000' : '#fff';
-      ctx.fillRect(0, 0, W, H);
-      break;
     case 'wipeleft':
       ctx.drawImage(a, 0, 0);
       ctx.drawImage(b, W * (1 - p), 0, W * p, H, W * (1 - p), 0, W * p, H);
@@ -172,14 +169,7 @@ function classicTransition(ctx, id, p, a, b) {
       ctx.drawImage(a, W * p, 0);
       ctx.drawImage(b, -W * (1 - p), 0);
       break;
-    case 'circleopen':
-      ctx.drawImage(a, 0, 0);
-      ctx.beginPath();
-      ctx.arc(W / 2, H / 2, p * Math.hypot(W, H) * 0.75 / 1.41, 0, Math.PI * 2);
-      ctx.clip();
-      ctx.drawImage(b, 0, 0);
-      break;
-    default: // crossfade, dissolve
+    default: // crossfade
       ctx.drawImage(a, 0, 0);
       ctx.globalAlpha = p;
       ctx.drawImage(b, 0, 0);
@@ -261,8 +251,25 @@ export function drawPreview(ctx, kind, id, u, pair = 0) {
   }
 }
 
-// Tile thumbnail: a still frame, playing while the pointer is over the tile (the tile is the parent button).
+// Tile thumbnail (10/10 step 5): the resting tile is the GENERATED still —
+// the same effect rendered once by the CPU reference renderer over the
+// standard sample frame (scripts/gen-fx-thumbs.mjs) — so a grid of 175 tiles
+// no longer boots 175 WebGL canvases. Hover swaps in the live canvas below,
+// which plays the real thing exactly as before. Overlay effects have no
+// still (2D canvas paintings), so their tiles are the live canvas at rest
+// too — itself a real render, never a placeholder.
 export function FxThumb({ kind, id, duration = 1, pair = 0 }) {
+  const stillUrl = FX_THUMB[`${kind}:${id}`] || null;
+  const [hover, setHover] = useState(false);
+  if (stillUrl && !hover) {
+    return <img src={stillUrl} alt="" draggable={false} className="fx-thumb" aria-hidden="true"
+      onPointerEnter={() => setHover(true)} />;
+  }
+  return <FxThumbLive kind={kind} id={id} duration={duration} pair={pair} onRest={stillUrl ? () => setHover(false) : undefined} />;
+}
+
+// The live tile: a still frame, playing while the pointer is over the tile (the tile is the parent button).
+function FxThumbLive({ kind, id, duration = 1, pair = 0, onRest }) {
   const ref = useRef(null);
   useEffect(() => {
     const cv = ref.current;
@@ -287,15 +294,18 @@ export function FxThumb({ kind, id, duration = 1, pair = 0 }) {
       cancelAnimationFrame(raf);
       loop();
     };
-    const stop = () => { cancelAnimationFrame(raf); still(); };
+    const stop = () => { cancelAnimationFrame(raf); still(); onRest?.(); };
     tile.addEventListener('pointerenter', play);
     tile.addEventListener('pointerleave', stop);
+    // Mounted in place of the generated still (a hover swap): the pointer is
+    // already over the tile, so play now instead of waiting for a re-entry.
+    if (onRest) play();
     return () => {
       alive = false;
       cancelAnimationFrame(raf);
       tile.removeEventListener('pointerenter', play);
       tile.removeEventListener('pointerleave', stop);
     };
-  }, [kind, id, duration, pair]);
+  }, [kind, id, duration, pair]); // eslint-disable-line react-hooks/exhaustive-deps
   return <canvas ref={ref} width={W} height={H} className="fx-thumb" aria-hidden="true" />;
 }

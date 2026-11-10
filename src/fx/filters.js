@@ -71,7 +71,49 @@ export const FILTER_LOOKS = [
   { id: 'productcrisp', name: 'Product Crisp', cat: 'Product', grade: { sharpen: 60, clarity: 40, contrast: 12, saturation: 12 } },
   { id: 'productstudio', name: 'Product Studio', cat: 'Product', grade: { exposure: 10, contrast: 18, saturation: 8, highlight: -10 } },
   { id: 'animepop', name: 'Anime Pop', cat: 'Anime', grade: { saturation: 50, contrast: 25, sharpen: 30 } },
+
+  // Sprint 12 additions — original grade recipes for the same engine, no new machinery.
+  { id: 'cafe', name: 'Café', cat: 'Food', grade: { temp: 28, saturation: 18, fade: 8, contrast: 6, brilliance: 8 } },
+  { id: 'nordic', name: 'Nordic', cat: 'Cool', grade: { temp: -22, saturation: -12, exposure: 6, fade: 18, contrast: -5 } },
+  { id: 'meadow', name: 'Meadow', cat: 'Travel', grade: { saturation: 22, brilliance: 12, hsl: { green: { h: 0, s: 35, l: 5 }, yellow: { h: 0, s: 15, l: 0 } } } },
+  { id: 'rose', name: 'Rosé', cat: 'Portrait', grade: { tint: 16, temp: 12, fade: 10, saturation: -4, exposure: 5 } },
+  { id: 'monowarm', name: 'Mono Warm', cat: 'Black & White', grade: { saturation: -100, contrast: 10, curves: { r: [[0, 0.04], [0.5, 0.52], [1, 1]], b: [[0, 0], [0.5, 0.46], [1, 0.94]] } } },
+  { id: 'blockbuster', name: 'Blockbuster', cat: 'Cinematic', grade: { contrast: 28, saturation: 12, vignette: 12, curves: split(1.6) } },
+  { id: 'airymatte', name: 'Airy Matte', cat: 'Wedding', grade: { fade: 38, exposure: 12, contrast: -16, saturation: -6 } },
+  { id: 'studiopop', name: 'Studio Pop', cat: 'Commercial', grade: { saturation: 28, clarity: 40, contrast: 10, exposure: 4 } },
+  // 10/10 step-3 library growth — 30 more original grade recipes on the same engine.
+  { id: 'punch', name: 'Punch', cat: 'Basic', grade: { contrast: 30, saturation: 30, clarity: 20 } },
+  { id: 'softlight', name: 'Soft Light', cat: 'Basic', grade: { exposure: 12, fade: 12, contrast: -8, saturation: 5 } },
+  { id: 'widescreen', name: 'Widescreen', cat: 'Cinematic', grade: { contrast: 24, saturation: -6, vignette: 34, curves: split(0.9) } },
+  { id: 'nightcity', name: 'Night City', cat: 'Cinematic', grade: { exposure: -8, contrast: 30, temp: -18, saturation: 18, highlight: -15 } },
+  { id: 'desert', name: 'Desert', cat: 'Cinematic', grade: { temp: 38, saturation: 14, contrast: 12, highlight: 12, hsl: { yellow: { h: 0, s: 20, l: 5 } } } },
+  { id: 'bwsoft', name: 'Mono Soft', cat: 'Black & White', grade: { saturation: -100, contrast: -12, fade: 30, exposure: 6 } },
+  { id: 'bwcontrast', name: 'Mono Contrast', cat: 'Black & White', grade: { saturation: -88, contrast: 22, curves: { r: [[0, 0], [0.5, 0.62], [1, 1]], b: [[0, 0], [0.5, 0.4], [1, 0.92]] } } },
+  { id: 'honey', name: 'Honey', cat: 'Warm', grade: { temp: 30, tint: 10, saturation: 24, fade: 10, brilliance: 10 } },
+  { id: 'ember', name: 'Ember', cat: 'Warm', grade: { temp: 48, exposure: -6, contrast: 18, saturation: 16, vignette: 18 } },
+  { id: 'arctic', name: 'Arctic', cat: 'Cool', grade: { temp: -45, exposure: 12, saturation: -18, contrast: 8 } },
+  { id: 'denim', name: 'Denim', cat: 'Cool', grade: { temp: -25, tint: -12, saturation: 8, fade: 14, hsl: { blue: { h: 0, s: 30, l: -5 } } } },
+  { id: 'silk', name: 'Silk', cat: 'Soft', grade: { fade: 22, exposure: 14, saturation: -12, highlight: 20, contrast: -18 } },
+  { id: 'cream', name: 'Cream', cat: 'Soft', grade: { temp: 14, fade: 26, exposure: 10, saturation: -8, tint: 4 } },
+  { id: 'retrofade', name: 'Retro Fade', cat: 'Vintage', grade: { fade: 55, temp: 18, saturation: -28, contrast: -18, vignette: 10 } },
+  { id: 'seventies', name: 'Seventies', cat: 'Vintage', grade: { temp: 32, saturation: 8, fade: 34, curves: { r: [[0, 0.06], [1, 0.97]], g: [[0, 0.02], [1, 1]], b: [[0, 0], [1, 0.88]] } } },
+  { id: 'ultravivid', name: 'Ultra Vivid', cat: 'Creative', grade: { saturation: 85, contrast: 20, clarity: 25 } },
+  { id: 'duogreen', name: 'Duotone Green', cat: 'Creative', expr: (k) => `st(1, L(X,Y) / 255); clip(S(X,Y) + (C(8 + 120 * ld(1), 40 + 190 * ld(1), 30 + 110 * ld(1)) - S(X,Y)) * ${k}, 0, 255)` },
+  { id: 'candy', name: 'Candy', cat: 'Creative', grade: { tint: 26, saturation: 42, exposure: 6, fade: 8 } },
+  { id: 'bakery', name: 'Bakery', cat: 'Food', grade: { temp: 24, saturation: 16, exposure: 8, fade: 6, brilliance: 14 } },
+  { id: 'citrus', name: 'Citrus', cat: 'Food', grade: { saturation: 38, temp: 8, clarity: 22, hsl: { yellow: { h: 0, s: 30, l: 4 }, green: { h: 0, s: 18, l: 0 } } } },
+  { id: 'coastline', name: 'Coastline', cat: 'Travel', grade: { saturation: 26, temp: -6, clarity: 18, hsl: { cyan: { h: 0, s: 32, l: 4 }, blue: { h: 0, s: 22, l: 0 } } } },
+  { id: 'postcard', name: 'Postcard', cat: 'Travel', grade: { saturation: 30, contrast: 14, temp: 10, fade: 8, vignette: 8 } },
+  { id: 'beauty', name: 'Beauty', cat: 'Portrait', grade: { exposure: 10, fade: 8, saturation: 2, brilliance: 26, highlight: 10 } },
+  { id: 'bronze', name: 'Bronze', cat: 'Portrait', grade: { temp: 20, tint: 6, contrast: 14, saturation: 10, shadow: 8 } },
+  { id: 'pearl', name: 'Pearl', cat: 'Wedding', grade: { exposure: 16, fade: 26, saturation: -12, contrast: -14, temp: 6 } },
+  { id: 'blush', name: 'Blush', cat: 'Wedding', grade: { tint: 14, temp: 10, exposure: 8, fade: 14, saturation: -2 } },
+  { id: 'catalog', name: 'Catalog', cat: 'Commercial', grade: { exposure: 8, contrast: 10, saturation: 14, clarity: 30, highlight: -6 } },
+  { id: 'macro', name: 'Macro Detail', cat: 'Product', grade: { sharpen: 75, clarity: 55, saturation: 16, contrast: 8 } },
+  { id: 'celshade', name: 'Cel Shade', cat: 'Anime', expr: (k) => `S(X,Y) + ((floor(S(X,Y) / 64 + 0.5) * 64) - S(X,Y)) * ${k}` },
+  { id: 'pastelpop', name: 'Pastel Pop', cat: 'Anime', grade: { saturation: 34, exposure: 10, fade: 12, contrast: 6 } },
 ];
+
 
 const byId = Object.fromEntries(FILTER_LOOKS.map((f) => [f.id, f]));
 export const FILTER_CATS = [...new Set(FILTER_LOOKS.map((f) => f.cat))];
@@ -105,5 +147,5 @@ export function filterExpr(clip) {
 export const lutFilterRef = (clip) => (typeof clip.filter === 'string' && clip.filter.startsWith('lut:') && (clip.filterIntensity ?? 100) > 0
   ? { bundled: clip.filter.slice(4) } : null);
 export const hasFilter = (clip) => (!!byId[clip.filter] && clip.filter !== 'none' && (clip.filterIntensity ?? 100) > 0) || !!lutFilterRef(clip);
-const LUT_NAMES = { 'slay-01-amber.cube': 'Amber', 'slay-02-fade.cube': 'Fade', 'slay-03-neon.cube': 'Neon', 'slay-04-film.cube': 'Film', 'slay-05-portrait.cube': 'Portrait' };
+const LUT_NAMES = { 'slay-01-amber.cube': 'Amber', 'slay-02-fade.cube': 'Fade', 'slay-03-neon.cube': 'Neon', 'slay-04-film.cube': 'Film', 'slay-05-portrait.cube': 'Portrait', 'cf-01-teak.cube': 'Teak', 'cf-02-glacier.cube': 'Glacier', 'cf-03-rose.cube': 'Rosé', 'cf-04-slate.cube': 'Slate', 'cf-05-ember.cube': 'Ember', 'cf-06-lagoon.cube': 'Lagoon', 'cf-07-velvet.cube': 'Velvet', 'cf-08-mono.cube': 'Mono', 'cf-09-goldenhour.cube': 'Golden Hour', 'cf-10-forest.cube': 'Forest', 'cf-11-candy.cube': 'Candy', 'cf-12-denim.cube': 'Denim', 'cf-13-noir.cube': 'Noir LUT', 'cf-14-peach.cube': 'Peach', 'cf-15-arctic.cube': 'Arctic', 'cf-16-vintage70.cube': 'Vintage 70', 'cf-17-neon.cube': 'Neon Night', 'cf-18-sepia.cube': 'Sepia', 'cf-19-meadow.cube': 'Meadow', 'cf-20-dusk.cube': 'Dusk' };
 export const filterName = (id) => byId[id]?.name || (String(id).startsWith('lut:') ? `${LUT_NAMES[id.slice(4)] || 'LUT'} (LUT)` : id);

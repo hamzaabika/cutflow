@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Star } from 'lucide-react';
+import { Star } from './icons.jsx';
 import React from 'react';
 
 // Favorites shared by every panel (one list for the whole app, kept by the main process across projects).

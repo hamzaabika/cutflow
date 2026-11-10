@@ -17,6 +17,7 @@
 // are not compounded — tracking is meant for a plain full-frame clip (the normal case is exact).
 import { videoLayout, clipLen, freeLen } from './store.js';
 import { stateAt, hasMotion } from './anim.js';
+import { clipDuration, sourceOffsetAt } from './speedCurve.js';
 
 export const CLIP_LISTS = [
   ['video', 'videoClips'],
@@ -81,7 +82,7 @@ export function trackAt(track, srcT) {
 import { fitFactors } from './pictureGeometry.js';
 export { fitFactors };
 
-const srcTimeAt = (clip, startTl, tlT) => (clip.in || 0) + (tlT - startTl) * (clip.speed || 1);
+const srcTimeAt = (clip, startTl, tlT) => (clip.in || 0) + sourceOffsetAt(clip, tlT - startTl);
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
 
 // Stage (project-frame) fractions <-> media-frame fractions, through the same fit the picture uses:
@@ -188,11 +189,11 @@ export function motionDataPinned(project) {
   const fps = project.fps || 30;
   for (const c of project.videoClips) {
     if (c.gap || (!hasMotion(c) && !hasPin(c))) continue;
-    out[c.id] = motionCurvesPinned(project, { track: 'video', clip: c }, (c.out - c.in) / (c.speed || 1), fps);
+    out[c.id] = motionCurvesPinned(project, { track: 'video', clip: c }, clipDuration(c), fps);
   }
   for (const c of project.overlayClips || []) {
     if (!hasMotion(c) && !hasPin(c)) continue;
-    out[c.id] = motionCurvesPinned(project, { track: 'overlay', clip: c }, (c.out - c.in) / (c.speed || 1), fps);
+    out[c.id] = motionCurvesPinned(project, { track: 'overlay', clip: c }, clipDuration(c), fps);
   }
   return out;
 }

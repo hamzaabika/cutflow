@@ -5,7 +5,17 @@
 // the Export dialog's cover chooser), or frame 0 when none was chosen. Falls back to the
 // first image in the project, else null (the card then shows its placeholder).
 
-import { videoLayout } from './store.js';
+import { projectDuration, videoLayout } from './store.js';
+import { sourceOffsetAt } from './speedCurve.js';
+
+// Display only (P5): a stored project name can be the project FILE's name
+// (older saves, file-opened projects) — never show the ".clipcraft.json"
+// suffix in lists and cards. The stored name and the file on disk are
+// untouched.
+export function displayProjectName(name) {
+  const n = String(name || '');
+  return n.toLowerCase().endsWith('.clipcraft.json') ? n.slice(0, -'.clipcraft.json'.length) : n;
+}
 
 export function recentEntryFor(p, path, urlFor) {
   const media = (p && p.media) || [];
@@ -32,7 +42,7 @@ export function recentEntryFor(p, path, urlFor) {
     if (p && typeof p.posterAt === 'number' && p.videoClips && vid.duration) {
       const first = videoLayout(p.videoClips).find((l) => !l.clip.gap && byId.get(l.clip.mediaId) === vid);
       if (first && p.posterAt >= first.start && p.posterAt <= first.end) {
-        const srcT = (first.clip.in || 0) + (p.posterAt - first.start) * (first.clip.speed || 1);
+        const srcT = (first.clip.in || 0) + sourceOffsetAt(first.clip, p.posterAt - first.start);
         thumb.at = Math.min(1, Math.max(0, srcT / vid.duration));
       }
     }
@@ -40,7 +50,11 @@ export function recentEntryFor(p, path, urlFor) {
     const img = media.find((m) => m.type === 'image');
     if (img) thumb = { kind: 'image', src: urlFor(img.path) };
   }
-  return { path, name: p ? p.name : '', ratio: p ? p.ratio : '', modifiedAt: Date.now(), thumb };
+  // The timeline's total length, for the Home card's duration chip. Best-effort: a
+  // project shape the duration walker cannot read simply shows no chip (0).
+  let duration = 0;
+  try { duration = p ? projectDuration(p) || 0 : 0; } catch { duration = 0; }
+  return { path, name: p ? p.name : '', ratio: p ? p.ratio : '', modifiedAt: Date.now(), thumb, duration };
 }
 
 // Inline style for the sprite-frame poster inside a card: the frame fills the card width,
@@ -93,7 +107,7 @@ export function coverTargetFor(p, t) {
   const m = slot && byId.get(slot.clip.mediaId);
   if (m && m.type === 'video') {
     const inside = t >= slot.start && t <= slot.end;
-    const at = inside ? (slot.clip.in || 0) + (t - slot.start) * (slot.clip.speed || 1) : (slot.clip.in || 0);
+    const at = inside ? (slot.clip.in || 0) + sourceOffsetAt(slot.clip, t - slot.start) : (slot.clip.in || 0);
     return { kind: 'video', media: m, at };
   }
   if (m && m.type === 'image') return { kind: 'image', media: m };
@@ -110,6 +124,6 @@ export function posterFracAt(p, t) {
   if (!src || src.kind !== 'sprite' || !src.media.duration) return null;
   const first = videoLayout(p.videoClips).find((l) => !l.clip.gap && l.clip.mediaId === src.media.id);
   if (!first || t < first.start || t > first.end) return null;
-  const srcT = (first.clip.in || 0) + (t - first.start) * (first.clip.speed || 1);
+  const srcT = (first.clip.in || 0) + sourceOffsetAt(first.clip, t - first.start);
   return Math.min(1, Math.max(0, srcT / src.media.duration));
 }

@@ -23,6 +23,11 @@ const put = (v) => (v !== v ? 0 : v < 0 ? 0 : v > 255 ? 255 : Math.round(v)); //
 export function runEffect(src, out, W, H, T, exprSrc) {
   const fn = compiled(exprSrc);
   const env = { X: 0, Y: 0, W, H, T, P: 0, ch: 0, reg: [], S: null, L: null };
+  // PR/PG/PB compile to e.px(x, y)[channel] (see expr.js): the source pixel's three
+  // channels at once. This was missing, so expressions that read across channels —
+  // the colour grade's, and the unified adjust pass (Sprint 6) — could not run on
+  // the CPU reference at all; only the GLSL side could evaluate them.
+  env.px = (x, y) => [at(src, W, H, x, y, 0), at(src, W, H, x, y, 1), at(src, W, H, x, y, 2)];
   for (let ch = 0; ch < 3; ch++) {
     env.ch = ch;
     env.S = (x, y) => at(src, W, H, x, y, ch);

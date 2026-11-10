@@ -5,37 +5,35 @@
 //   - on the Effects track (project.effectClips: { id, fx, start, duration }): free objects you move and trim;
 //     they act on every picture under them, their time T starts with the effect.
 // The Effects panel offers the same tiles for both places, including the six classic effects of
-// src/effects.js (blur, grain, vignette, pixel, mirror, flipv). On a clip those run through CSS
-// (preview) and FFmpeg look filters (export) — unless the instance carries a region or a
-// strength below 1, which the look paths cannot express: then the clip instance is routed
-// through its shader form too (classicViaShader below). On the track they always need a
-// shader form, because a track effect covers only part of a clip. TRACK_CLASSIC below is
-// that form — the same looks as shader passes, so the player and the export bake them
-// identically over the covered frames.
+// src/effects.js (blur, grain, vignette, pixel, mirror, flipv). Since the Sprint 6 unification
+// the classics have exactly ONE engine: their shader forms (fx/params.js), reached from
+// pixelPasses for clip instances (timed, regioned, strength-adjusted or plain alike) and for
+// Effects-track objects. Before the unification a plain clip instance ran through CSS in the
+// preview and FFmpeg look filters in the export — two approximations that disagreed with each
+// other and with the shader form, and the preview's CSS silently vanished whenever the canvas
+// path drew the clip. The look paths (clipCss, lookFilters) no longer paint classics at all.
 // (Before this map existed, a classic effect on the Effects track rendered NOTHING anywhere:
 // freeOn collected the clip, then both pass builders discarded it as neither pixel nor overlay.)
 import { OVERLAY_EFFECTS, PIXEL_EFFECTS } from './catalog.js';
 import { freeLen, fxTimingOf, videoLayout } from '../store.js';
 import { gradeExpr, hasGrade } from './grade.js';
+import { adjustExpr, hasAdjust } from './adjust.js';
 import { getLut, lutOn } from './lut.js';
 import { filterExpr, hasFilter, lutFilterRef } from './filters.js';
+import { resolveFxExpr, CLASSIC_IDS } from './params.js';
 
 const PIXEL = Object.fromEntries(PIXEL_EFFECTS.map((e) => [e.id, e.expr]));
 const OVERLAY = Object.fromEntries(OVERLAY_EFFECTS.map((e) => [e.id, e.draw]));
 export const isPixel = (id) => !!PIXEL[id];
 export const isOverlay = (id) => !!OVERLAY[id];
 
-// Shader forms of the classic effects, for Effects-track use (strengths mirror the per-clip
-// export filters in electron/ffmpeg.cjs: boxblur, noise alls=18, iw/24 mosaic, vignette).
-const TRACK_CLASSIC = {
-  blur: `st(0, H*0.012); (S(X, Y)*2 + S(X+ld(0), Y) + S(X-ld(0), Y) + S(X, Y+ld(0)) + S(X, Y-ld(0)) + S(X+ld(0), Y+ld(0)) + S(X-ld(0), Y-ld(0)) + S(X+ld(0), Y-ld(0)) + S(X-ld(0), Y+ld(0)))/10`,
-  grain: `S(X, Y) + (hash(X*1.37 + Y*2.11 + floor(T*24)*7.7) - 0.5)*36`,
-  pixel: `st(0, max(2, W/24)); S(floor(X/ld(0))*ld(0)+ld(0)/2, floor(Y/ld(0))*ld(0)+ld(0)/2)`,
-  vignette: `st(0, hypot(X - W/2, Y - H/2)/(0.72*hypot(W, H))); S(X, Y) * (1 - 0.6*smooth(0.4, 1.0, ld(0)))`,
-  mirror: `S(W - 1 - X, Y)`,
-  flipv: `S(X, H - 1 - Y)`,
-};
-export const isClassic = (id) => !!TRACK_CLASSIC[id];
+// The classic effects, as shader passes — since Sprint 6 these expressions are the ONLY
+// definition of the six classics (their strengths were originally chosen to mirror the old
+// per-clip export filters: boxblur, noise alls=18, iw/24 mosaic, vignette). The strings
+// themselves now live in fx/params.js (§5 schema registry): four of the six carry typed
+// parameters whose default-value expressions are those same strings, byte for byte.
+const CLASSIC_SET = new Set(CLASSIC_IDS);
+export const isClassic = (id) => CLASSIC_SET.has(id);
 // Effects that end up baked into a clip's frames by the export's effects pass.
 export const isShaderFx = (id) => isPixel(id) || isClassic(id);
 
@@ -89,13 +87,9 @@ export function fxWrap(expr, region, k) {
   return `${head} st(9, (${regionMaskExpr(region)}) * ${fnum(s)}); S(X, Y)*(1 - ld(9)) + (${tail})*ld(9)`;
 }
 
-// A classic effect attached to a clip normally runs through the CSS (preview) / FFmpeg
-// (export) look path, which paints the whole frame for the whole clip and takes neither
-// a region, a timing window nor a strength. When the instance carries any of those, it
-// is routed through its shader form instead (TRACK_CLASSIC + fxWrap, exactly like the
-// Effects track), and the look paths skip it — see clipCss / Preview flips / lookFilters.
-export const classicViaShader = (clip, id) =>
-  isClassic(id) && (!!clip?.fxRegions?.[id] || !!clip?.fxTiming?.[id] || (clip?.fxStrength?.[id] != null && clip.fxStrength[id] < 1));
+// Every classic effect instance — on a clip or on the Effects track, plain or carrying a
+// region / timing window / strength — renders through its shader form (fx/params.js +
+// fxWrap in pixelPasses below). There is no second path any more.
 
 const freeOn = (project, t) => (project.effectClips || []).filter((e) => !e.disabled && t >= e.start && t < e.start + e.duration);
 
@@ -103,6 +97,10 @@ const freeOn = (project, t) => (project.effectClips || []).filter((e) => !e.disa
 // The clip's color grade (Adjust) comes first, then its effects, then the free effects over it.
 export function pixelPasses(project, clip, clipStart, lt) {
   const list = [];
+  // The legacy Adjust settings (clip.adjust) come first — the position they held in the
+  // export's base graph before the unification, with the filter/grade passes on top.
+  const adj = hasAdjust(clip) ? adjustExpr(clip.adjust) : null;
+  if (adj) list.push({ expr: adj, T: lt });
   // The filter first, then the LUT, then the Adjust settings on top of them.
   // A filter is one look: one of ours (an expression) or a LUT ("lut:<file>"), at the filter intensity.
   if (lutFilterRef(clip)) {
@@ -124,22 +122,20 @@ export function pixelPasses(project, clip, clipStart, lt) {
     const w = fxTimingOf(clip, id);
     if (w && (lt < w.start || lt >= w.start + w.duration)) continue;
     const T = lt - (w ? w.start : 0);
-    if (isPixel(id)) list.push({ expr: fxWrap(PIXEL[id], clip.fxRegions?.[id], k), T });
-    else if (classicViaShader(clip, id)) list.push({ expr: fxWrap(TRACK_CLASSIC[id], clip.fxRegions?.[id], k), T });
+    if (isPixel(id) || isClassic(id)) list.push({ expr: fxWrap(resolveFxExpr(id, clip.fxParams?.[id]), clip.fxRegions?.[id], k), T });
   }
   const t = clipStart + lt;
   for (const e of freeOn(project, t)) {
     const k = e.strength;
     if (k === 0) continue;
-    if (isPixel(e.fx)) list.push({ expr: fxWrap(PIXEL[e.fx], e.region, k), T: t - e.start });
-    else if (isClassic(e.fx)) list.push({ expr: fxWrap(TRACK_CLASSIC[e.fx], e.region, k), T: t - e.start });
+    if (isPixel(e.fx) || isClassic(e.fx)) list.push({ expr: fxWrap(resolveFxExpr(e.fx, e.params), e.region, k), T: t - e.start });
   }
   return list;
 }
 
 // True when some pixel effect touches the clip's time range (it then needs the effects pass at export).
 export function clipHasPixelFx(project, clip, clipStart, len) {
-  if (hasFilter(clip) || hasGrade(clip) || lutOn(clip.grade?.lut) || (clip.effects || []).some((id) => isPixel(id) || classicViaShader(clip, id))) return true;
+  if (hasAdjust(clip) || hasFilter(clip) || hasGrade(clip) || lutOn(clip.grade?.lut) || (clip.effects || []).some((id) => isPixel(id) || isClassic(id))) return true;
   return (project.effectClips || []).some((e) => !e.disabled && isShaderFx(e.fx) && e.start < clipStart + len && e.start + e.duration > clipStart);
 }
 

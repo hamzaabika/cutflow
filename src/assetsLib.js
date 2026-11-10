@@ -42,15 +42,18 @@ export const isProcessedMedia = (m) => {
   return RENDER_NAME.test(m.name || '') || RENDER_NAME.test(base);
 };
 
-// Tree nodes: 'all' | 'video' | 'audio' | 'image' | 'speech' | 'processed'.
+// Filter nodes: 'all' | 'video' | 'audio' | 'image' | 'generated' | 'speech' | 'processed'.
+// ('generated' is the union of the two generated sub-sources — the Media panel
+// shows all of them as one row of filter chips since P5.)
 export function mediaTreeCounts(media) {
-  const c = { all: media.length, video: 0, audio: 0, image: 0, speech: 0, processed: 0 };
+  const c = { all: media.length, video: 0, audio: 0, image: 0, speech: 0, processed: 0, generated: 0 };
   for (const m of media) {
     if (m.type === 'video') c.video += 1;
     else if (m.type === 'audio') c.audio += 1;
     else if (m.type === 'image') c.image += 1;
     if (isSpeechMedia(m)) c.speech += 1;
     if (isProcessedMedia(m)) c.processed += 1;
+    if (isSpeechMedia(m) || isProcessedMedia(m)) c.generated += 1;
   }
   return c;
 }
@@ -62,6 +65,7 @@ export function mediaTreeFilter(media, sel) {
     case 'image': return media.filter((m) => m.type === 'image');
     case 'speech': return media.filter((m) => isSpeechMedia(m));
     case 'processed': return media.filter((m) => isProcessedMedia(m));
+    case 'generated': return media.filter((m) => isSpeechMedia(m) || isProcessedMedia(m));
     default: return media;
   }
 }

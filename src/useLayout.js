@@ -2,21 +2,57 @@ import { useCallback, useEffect, useState } from 'react';
 
 // Panel sizes: drag the borders between the left panel, the player, the properties panel and the
 // timeline. Sizes are remembered on this PC (per-user convenience only) and kept valid when the window shrinks.
+//
+// Panel collapse (10/10 step 4, closing the R1 deferral): either side panel can be
+// collapsed to a slim rail (COLLAPSED_W px — a chevron button that brings it back),
+// which hands its whole width to the player. The collapsed state persists in the
+// same storage key as the sizes, per user, exactly like the R3 section folds
+// (localStorage `clipcraft.layout`, absence = expanded, so pre-collapse stored
+// values load expanded). Collapsing never changes the stored SIZE: expanding
+// restores the panel at the width it had.
 const KEY = 'clipcraft.layout';
 const GAP = 6;
 export const MIN = { left: 240, right: 240, player: 320, top: 220, bottom: 150 };
+export const COLLAPSED_W = 26;
 const TOPBAR = 48;
 
 const defaults = () => ({ left: 460, right: 330, bottom: Math.round(window.innerHeight * 0.38) });
 
+// Validate a stored value into { sizes, collapsed }, or null when it is not a
+// usable layout (torn write, hand-edited, older shape). Sizes must all be
+// finite numbers; the collapsed flags are read strictly (only literal true
+// collapses), so a corrupt flag can cost a fold, never a panel.
+export function parseLayoutValue(v) {
+  if (!v || typeof v !== 'object') return null;
+  if (![v.left, v.right, v.bottom].every((n) => Number.isFinite(n))) return null;
+  return {
+    sizes: { left: v.left, right: v.right, bottom: v.bottom },
+    collapsed: { left: !!(v.collapsed && v.collapsed.left === true), right: !!(v.collapsed && v.collapsed.right === true) },
+  };
+}
+
+export function serializeLayout(sizes, collapsed) {
+  return { ...sizes, collapsed: { left: !!collapsed.left, right: !!collapsed.right } };
+}
+
+// The widths the workspace grid actually uses: a collapsed panel contributes
+// its rail, an expanded one its (clamped) size. The player takes the rest, so
+// collapsing is a real workspace gain, not a hidden panel behind a full column.
+export function effectiveWidths(sizes, collapsed) {
+  return {
+    left: collapsed.left ? COLLAPSED_W : sizes.left,
+    right: collapsed.right ? COLLAPSED_W : sizes.right,
+  };
+}
+
 function load() {
   try {
-    const v = JSON.parse(localStorage.getItem(KEY) || 'null');
-    if (v && [v.left, v.right, v.bottom].every((n) => Number.isFinite(n))) return v;
+    const parsed = parseLayoutValue(JSON.parse(localStorage.getItem(KEY) || 'null'));
+    if (parsed) return parsed;
   } catch {
     // no storage: defaults
   }
-  return defaults();
+  return { sizes: defaults(), collapsed: { left: false, right: false } };
 }
 
 // Keeps every panel at least its minimum size for a window of W x H.
@@ -30,7 +66,12 @@ export function clampLayout(l, W = window.innerWidth, H = window.innerHeight) {
 }
 
 export function useLayout() {
-  const [layout, setLayout] = useState(() => clampLayout(load()));
+  const [stored, setStored] = useState(load);
+  const layout = stored.sizes;
+  const collapsed = stored.collapsed;
+  const setLayout = useCallback((next) => {
+    setStored((s) => ({ ...s, sizes: typeof next === 'function' ? next(s.sizes) : next }));
+  }, []);
   const [, setSize] = useState(0);
 
   useEffect(() => {
@@ -40,11 +81,18 @@ export function useLayout() {
   }, []);
   useEffect(() => {
     try {
-      localStorage.setItem(KEY, JSON.stringify(layout));
+      localStorage.setItem(KEY, JSON.stringify(serializeLayout(layout, collapsed)));
     } catch {
       // not saved: fine
     }
-  }, [layout]);
+  }, [layout, collapsed]);
+
+  // Collapse or expand one side panel ('left' | 'right'). The stored size is
+  // untouched: the panel comes back at the width it had.
+  const toggle = useCallback((which) => {
+    if (which !== 'left' && which !== 'right') return;
+    setStored((s) => ({ ...s, collapsed: { ...s.collapsed, [which]: !s.collapsed[which] } }));
+  }, []);
 
   // Starts dragging one border. which: 'left' | 'right' | 'bottom'.
   const startDrag = useCallback((which, e) => {
@@ -91,5 +139,5 @@ export function useLayout() {
     }));
   }, []);
 
-  return { layout: clampLayout(layout), startDrag, reset, nudge };
+  return { layout: clampLayout(layout), collapsed, toggle, startDrag, reset, nudge };
 }

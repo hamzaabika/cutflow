@@ -1,6 +1,7 @@
 // The animated-effects pass of the export: every frame that needs an animated effect or transition is decoded by
 // FFmpeg (electron/fxjobs.cjs), drawn here with the preview's WebGL shaders, and stored for the final export.
 import { videoLayout } from './store.js';
+import { clipDuration } from './speedCurve.js';
 import { FX_TRANSITIONS } from './fx/catalog.js';
 import { clipHasPixelFx, isPixel, isShaderFx, pixelPasses } from './fx/apply.js';
 import { fxGL } from './fx/gl.js';
@@ -19,7 +20,7 @@ function fxClipsOf(project) {
     if (!l.clip.gap && clipHasPixelFx(project, l.clip, l.start, l.end - l.start)) out.push({ track: 'video', clip: l.clip, start: l.start, len: l.end - l.start });
   }
   for (const c of project.overlayClips || []) {
-    const len = (c.out - c.in) / (c.speed || 1);
+    const len = clipDuration(c);
     if (clipHasPixelFx(project, c, c.start, len)) out.push({ track: 'overlay', clip: c, start: c.start, len });
   }
   return out;
@@ -46,7 +47,9 @@ export async function renderFxPass(projectIn, onProgress, isCanceled) {
   // 1) Picture clips under animated effects (their own, or effects on the Effects track), main track and overlays.
   const run = async ({ track, clip, start }) => {
     const job = unwrap(await window.api.fxBegin(project, { kind: 'clip', track, clipId: clip.id }));
-    for (let k = 0; k < job.frames; k++) {
+    // A cached segment (Sprint 9) already holds this clip's rendered frames: no
+    // decode/paint/encode round trip, the baked clip below points at the same job.
+    for (let k = 0; k < (job.cached ? 0 : job.frames); k++) {
       if (isCanceled()) return false;
       const frame = unwrap(await window.api.fxRead(job.id));
       if (!frame) break;
@@ -60,7 +63,11 @@ export async function renderFxPass(projectIn, onProgress, isCanceled) {
       step();
     }
     unwrap(await window.api.fxEnd(job.id));
-    const baked = { ...clip, effects: (clip.effects || []).filter((id) => !isPixel(id)), videoOverride: { job: job.id, start: 0, end: job.len } };
+    // Everything the passes painted is inside the override file now: shader effects,
+    // classic effects (shader forms since Sprint 6) and the Adjust settings all come
+    // off the baked clip, so nothing downstream can paint them a second time. Only
+    // overlay effects (particles / light) survive — they are drawn by their own pass.
+    const baked = { ...clip, adjust: {}, effects: (clip.effects || []).filter((id) => !isShaderFx(id)), videoOverride: { job: job.id, start: 0, end: job.len } };
     const key = track === 'overlay' ? 'overlayClips' : 'videoClips';
     project = { ...project, [key]: project[key].map((c) => (c.id === clip.id ? baked : c)) };
     return true;
@@ -75,7 +82,7 @@ export async function renderFxPass(projectIn, onProgress, isCanceled) {
     const t = l.trans > 0 && fxTr(l.clip);
     if (!t) continue;
     const job = unwrap(await window.api.fxBegin(project, { kind: 'transition', clipId: l.clip.id }));
-    for (let k = 0; k < job.frames; k++) {
+    for (let k = 0; k < (job.cached ? 0 : job.frames); k++) {
       if (isCanceled()) return null;
       const pair = unwrap(await window.api.fxRead(job.id));
       if (!pair) break;

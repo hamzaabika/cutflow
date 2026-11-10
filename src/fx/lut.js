@@ -4,12 +4,35 @@
 // grade.lut = { ref: { bundled: 'file.cube' } | { path: 'C:\\...\\look.cube' }, name, intensity (0..100) }
 
 export const BUNDLED_LUTS = [
-  { file: 'slay-01-amber.cube', name: 'Amber', cat: 'Film' },
-  { file: 'slay-02-fade.cube', name: 'Fade', cat: 'Film' },
-  { file: 'slay-03-neon.cube', name: 'Neon', cat: 'Creative' },
-  { file: 'slay-04-film.cube', name: 'Film', cat: 'Film' },
-  { file: 'slay-05-portrait.cube', name: 'Portrait', cat: 'Portrait' },
-].map((l) => ({ ...l, ref: { bundled: l.file }, credit: 'slay (CC BY 4.0)' }));
+  { file: 'slay-01-amber.cube', name: 'Amber', cat: 'Film', credit: 'slay (CC BY 4.0)' },
+  { file: 'slay-02-fade.cube', name: 'Fade', cat: 'Film', credit: 'slay (CC BY 4.0)' },
+  { file: 'slay-03-neon.cube', name: 'Neon', cat: 'Creative', credit: 'slay (CC BY 4.0)' },
+  { file: 'slay-04-film.cube', name: 'Film', cat: 'Film', credit: 'slay (CC BY 4.0)' },
+  { file: 'slay-05-portrait.cube', name: 'Portrait', cat: 'Portrait', credit: 'slay (CC BY 4.0)' },
+  // Cutflow's own LUTs (Sprint 12): closed-form transforms generated procedurally by
+  // scripts/gen-bundled-luts.cjs — original to this product, no third-party data, no credit.
+  { file: 'cf-01-teak.cube', name: 'Teak', cat: 'Warm' },
+  { file: 'cf-02-glacier.cube', name: 'Glacier', cat: 'Cool' },
+  { file: 'cf-03-rose.cube', name: 'Rosé', cat: 'Portrait' },
+  { file: 'cf-04-slate.cube', name: 'Slate', cat: 'Film' },
+  // 10/10 step-3 growth: 16 more closed-form originals from the same generator.
+  { file: 'cf-05-ember.cube', name: 'Ember', cat: 'Warm' },
+  { file: 'cf-06-lagoon.cube', name: 'Lagoon', cat: 'Cool' },
+  { file: 'cf-07-velvet.cube', name: 'Velvet', cat: 'Portrait' },
+  { file: 'cf-08-mono.cube', name: 'Mono', cat: 'Film' },
+  { file: 'cf-09-goldenhour.cube', name: 'Golden Hour', cat: 'Warm' },
+  { file: 'cf-10-forest.cube', name: 'Forest', cat: 'Travel' },
+  { file: 'cf-11-candy.cube', name: 'Candy', cat: 'Creative' },
+  { file: 'cf-12-denim.cube', name: 'Denim', cat: 'Cool' },
+  { file: 'cf-13-noir.cube', name: 'Noir LUT', cat: 'Film' },
+  { file: 'cf-14-peach.cube', name: 'Peach', cat: 'Portrait' },
+  { file: 'cf-15-arctic.cube', name: 'Arctic', cat: 'Cool' },
+  { file: 'cf-16-vintage70.cube', name: 'Vintage 70', cat: 'Film' },
+  { file: 'cf-17-neon.cube', name: 'Neon Night', cat: 'Creative' },
+  { file: 'cf-18-sepia.cube', name: 'Sepia', cat: 'Film' },
+  { file: 'cf-19-meadow.cube', name: 'Meadow', cat: 'Travel' },
+  { file: 'cf-20-dusk.cube', name: 'Dusk', cat: 'Creative' },
+].map((l) => ({ ...l, ref: { bundled: l.file } }));
 export const LUT_CREDIT_URL = 'https://www.slaycamera.com';
 
 export const lutKey = (ref) => (ref?.bundled ? `b:${ref.bundled}` : ref?.path ? `p:${ref.path}` : '');
