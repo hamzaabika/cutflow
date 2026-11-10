@@ -19,7 +19,7 @@ import { createRequire } from 'node:module';
 import { needsPreviewCopy } from '../src/store.js';
 
 const require = createRequire(import.meta.url);
-const { needsProxy, usableCopyFile, makeProxy, probe, ffmpegPath } = require('../electron/ffmpeg.cjs');
+const { needsProxy, usableCopyFile, makeProxy, makeLightProxy, probe, ffmpegPath } = require('../electron/ffmpeg.cjs');
 const { pruneDeadCopies } = require('../electron/quality.cjs');
 
 // ---- RC1: the decodability table — main predicate and renderer mirror must agree.
@@ -110,6 +110,30 @@ fs.writeFileSync(corrupt, data.subarray(0, Math.floor(data.length * 0.3)));
 const corruptItem = { path: corrupt, ...(await probe(corrupt)) };
 assert.ok(corruptItem.duration > 5, 'probe still reports the full duration');
 await assert.rejects(() => makeProxy(corruptItem, cache), /incomplete|error/i, 'a partial copy is a failed generation, not a silent success');
+
+// ---- Sprint 9: the light copy is wired and verified like its siblings.
+// makeLightProxy existed but was never called (the player's lightProxy fallback
+// in store.js could never resolve), and unlike makeProxy/makeQualityProxy it
+// returned without the completeness check. main.cjs now generates it in the
+// visuals pass below Full quality; here the maker itself is pinned: a real
+// 540 px copy, a cache hit on the second call, and a corrupt source rejected.
+const big = path.join(tmp, 'big.mp4');
+execFileSync(ffmpegPath, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=1920x1080:rate=30:duration=4',
+  '-f', 'lavfi', '-i', 'sine=frequency=440:duration=4', '-shortest', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', big]);
+const bigItem = { path: big, ...(await probe(big)) };
+const light = await makeLightProxy(bigItem, cache);
+assert.ok(light.endsWith('-lproxy.mp4'), 'the light copy carries the -lproxy name');
+const lightInfo = await probe(light);
+assert.equal(Math.min(lightInfo.width, lightInfo.height), 540, 'the light copy scales the shorter side to 540');
+assert.ok(lightInfo.duration >= bigItem.duration * 0.85, 'the light copy covers the source duration');
+assert.equal(await makeLightProxy(bigItem, cache), light, 'a second call is a cache hit on the validated copy');
+const bigCorrupt = path.join(tmp, 'big-corrupt.mp4');
+execFileSync(ffmpegPath, ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=1920x1080:rate=30:duration=6',
+  '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', bigCorrupt]);
+const bcData = fs.readFileSync(bigCorrupt);
+fs.writeFileSync(bigCorrupt, bcData.subarray(0, Math.floor(bcData.length * 0.3)));
+const bcItem = { path: bigCorrupt, ...(await probe(bigCorrupt)) };
+await assert.rejects(() => makeLightProxy(bcItem, cache), /incomplete|error/i, 'an incomplete light copy is a failed generation, not a silent success');
 
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log('PREVIEW COPIES OK');

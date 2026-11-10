@@ -24,7 +24,7 @@ assert.deepEqual(audioFxFilters({ loudnorm: true }), ['loudnorm=I=-14:TP=-1:LRA=
 assert.deepEqual(audioFxFilters({ highpass: 5000 }), ['highpass=f=1000'], 'high-pass clamps at 1 kHz');
 
 // Presets: complete fx objects whose chains carry their signature filters.
-assert.deepEqual(AUDIO_FX_PRESETS.map((p) => p.name), ['Clear Voice', 'Podcast', 'Warm', 'Bright']);
+assert.deepEqual(AUDIO_FX_PRESETS.map((p) => p.name), ['Clear Voice', 'Podcast', 'Warm', 'Bright', 'Radio Voice', 'Narration', 'Interview', 'Deep Voice', 'Bright Voice', 'Phone Voice', 'Whisper', 'Small Room', 'Concert Hall', 'Cathedral', 'Cave Echo', 'Stadium', 'Underwater', 'Clean Up', 'De-Hum', 'Room Fix', 'Tape Rescue', 'Wind Guard', 'Level Rescue', 'Broadcast Loud', 'Gentle Glue', 'Punch', 'Night Mode', 'Max Loudness']); // 4 through Sprint 12; 28 after the 10/10 step-3 preset packs (Filmora merge row 3)
 const byId = Object.fromEntries(AUDIO_FX_PRESETS.map((p) => [p.id, p]));
 const cv = audioFxFilters(byId['clear-voice'].fx).join(',');
 assert.ok(cv.includes('highpass=f=80') && cv.includes('loudnorm=I=-14') && cv.includes('afftdn'), `Clear Voice chain: ${cv}`);

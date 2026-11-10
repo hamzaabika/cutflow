@@ -5,7 +5,7 @@
 // Usage: node scripts/test-fx-timing.mjs
 import assert from 'node:assert/strict';
 import { effectObjects, fxTimingOf, historyReducer, normalizeProject, withFxTiming } from '../src/store.js';
-import { classicViaShader, drawOverlayPasses, overlayRanges, pixelPasses } from '../src/fx/apply.js';
+import { drawOverlayPasses, overlayRanges, pixelPasses } from '../src/fx/apply.js';
 import { OVERLAY_EFFECTS, PIXEL_EFFECTS } from '../src/fx/catalog.js';
 
 const PIX = PIXEL_EFFECTS[0].id; // a shader (pixel) effect
@@ -69,12 +69,11 @@ assert.equal(passesAt(proj, timedPix, 2.5).length, 1, 'a pass inside the window'
 assert.equal(passesAt(proj, timedPix, 2.5)[0].T, 0.5, 'timed T starts with the window');
 assert.equal(passesAt(proj, timedPix, 4).length, 0, 'no pass at/after the window end');
 
-// --- A timed classic effect routes through its shader form (the look paths skip it) ---
+// --- Classic effects: ONE engine since Sprint 6 — timed or not, the shader form ---
 const blurClip = (patch = {}) => ({ id: 'a', mediaId: 'm', in: 0, out: 6, speed: 1, effects: ['blur'], ...patch });
-assert.equal(classicViaShader(blurClip(), 'blur'), false, 'untimed blur stays on the look path');
-assert.equal(passesAt(proj, blurClip(), 1.5).length, 0, 'untimed blur has no shader pass');
+assert.equal(passesAt(proj, blurClip(), 1.5).length, 1, 'untimed blur has a shader pass (the unified engine)');
+assert.equal(passesAt(proj, blurClip(), 1.5)[0].T, 1.5, 'untimed classic T runs from the clip start');
 const timedBlur = blurClip({ fxTiming: { blur: { start: 1, duration: 2 } } });
-assert.equal(classicViaShader(timedBlur, 'blur'), true, 'timed blur is routed via shader');
 assert.equal(passesAt(proj, timedBlur, 0.5).length, 0, 'timed blur: nothing before the window');
 assert.equal(passesAt(proj, timedBlur, 1.5).length, 1, 'timed blur: a shader pass inside the window');
 assert.equal(passesAt(proj, timedBlur, 1.5)[0].T, 0.5, 'timed blur T starts with the window');

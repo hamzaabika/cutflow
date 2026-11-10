@@ -10,6 +10,7 @@ const os = require('os');
 const path = require('path');
 const { execFileSync, spawn } = require('child_process');
 const { ffmpegPath, probe, runExport } = require('../electron/ffmpeg.cjs');
+const { segmentEncoderArgs } = require('../electron/fxjobs.cjs');
 
 const W = 320;
 const H = 180;
@@ -47,8 +48,8 @@ const assert = (ok, what) => { if (!ok) throw new Error(what); };
     const fa = decodeFrames(a, 2 - TD, TD);
     const fb = decodeFrames(b, 0, TD);
     const seg = path.join(dir, `seg-${ease ? (typeof ease === 'string' ? ease : 'custom') : 'linear'}.mkv`);
-    const enc = spawn(ffmpegPath, ['-y', '-hide_banner', '-loglevel', 'error', '-f', 'rawvideo', '-pix_fmt', 'rgba',
-      '-s', `${W}x${H}`, '-r', String(FPS), '-i', 'pipe:0', '-c:v', 'ffv1', '-pix_fmt', 'yuv444p', seg], { windowsHide: true });
+    // The app's shared segment recipe (electron/fxjobs.cjs segmentEncoderArgs).
+    const enc = spawn(ffmpegPath, segmentEncoderArgs(seg, W, H, FPS), { windowsHide: true });
     const done = new Promise((res, rej) => { enc.on('close', (c) => (c === 0 ? res() : rej(new Error(`segment encoder ${c}`)))); enc.on('error', rej); });
     enc.stdin.on('error', () => {});
     for (let k = 0; k < frames; k++) {

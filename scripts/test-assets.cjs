@@ -144,7 +144,8 @@ const assets = require('../electron/assets.cjs');
     { id: 'r1', type: 'audio', name: 'voiceover-2026-01-01.m4a', path: '/ud/recordings/voiceover-2026-01-01.m4a' }, // own recording: NOT speech
   ];
   const c = rl.mediaTreeCounts(media);
-  assert.deepEqual(c, { all: 8, video: 2, audio: 5, image: 1, speech: 2, processed: 2 });
+  assert.deepEqual(c, { all: 8, video: 2, audio: 5, image: 1, speech: 2, processed: 2, generated: 4 });
+  assert.deepEqual(rl.mediaTreeFilter(media, 'generated').map((m) => m.id), ['v2', 't1', 't2', 'd1']);
   assert.deepEqual(rl.mediaTreeFilter(media, 'speech').map((m) => m.id), ['t1', 't2']);
   assert.deepEqual(rl.mediaTreeFilter(media, 'processed').map((m) => m.id), ['v2', 'd1']);
   assert.equal(rl.mediaTreeFilter(media, 'all').length, 8);

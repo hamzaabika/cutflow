@@ -2,11 +2,16 @@
 // An asymmetric still (red left half, blue right half, white square top-left) as a main-track
 // image clip, exported plain / mirrored / rotated. The exported frames must show the geometry
 // actually transformed: mirror swaps the red side; rotation moves the white square's quadrant.
+// Since the Sprint 6 unification the mirror is a shader-pass look, so — exactly like the app
+// (src/App.jsx export -> src/fxExport.js renderFxPass -> runExport) — the mirrored variant is
+// baked through the effects pass into an override file first; the export graph paints no look
+// itself any more. Rotation remains a graph transform and needs no bake.
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execFileSync } = require('child_process');
+const { execFileSync, spawn } = require('child_process');
 const { ffmpegPath, runExport } = require('../electron/ffmpeg.cjs');
+const { segmentEncoderArgs } = require('../electron/fxjobs.cjs');
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fve-mirror-'));
 const fails = [];
@@ -50,12 +55,44 @@ const bright = (rgb) => rgb[0] + rgb[1] + rgb[2];
 
 const media = [{ id: 'm1', path: img, type: 'image', duration: 4, width: 640, height: 360 }];
 const base = { speed: 1, volume: 1, muted: false, filter: 'none', adjust: {}, effects: [], transition: null, transform: { scale: 1, x: 0, y: 0, rot: 0, uniform: true, scaleX: 1, scaleY: 1 }, opacity: 1 };
+// The effects-pass bake, mirroring src/fxExport.js: decode the clip's frames, draw the
+// pixelPasses (CPU reference of the shared expression language), store losslessly, and
+// hand the export a baked clip (look stripped, videoOverride in place).
+async function bakeLook(project, clip) {
+  const { runEffect } = await import('../src/fx/run.js');
+  const { pixelPasses, clipHasPixelFx } = await import('../src/fx/apply.js');
+  if (!clipHasPixelFx(project, clip)) return clip;
+  const W = 640, H = 360, FPS = 30, LEN = 2;
+  const raw = execFileSync(ffmpegPath, ['-hide_banner', '-loglevel', 'error', '-loop', '1', '-i', img,
+    '-vf', `fps=${FPS},scale=${W}:${H},format=rgba`, '-t', String(LEN), '-f', 'rawvideo', '-pix_fmt', 'rgba', 'pipe:1'], { maxBuffer: 1 << 28 });
+  const size = W * H * 4;
+  const ov = path.join(dir, `ov-${clip.id}.mkv`);
+  // The app's shared segment recipe (electron/fxjobs.cjs segmentEncoderArgs).
+  const enc = spawn(ffmpegPath, segmentEncoderArgs(ov, W, H, FPS), { windowsHide: true });
+  const done = new Promise((res, rej) => { enc.on('close', (c) => (c === 0 ? res() : rej(new Error(`override encoder ${c}`)))); enc.on('error', rej); });
+  enc.stdin.on('error', () => {});
+  for (let k = 0; k < LEN * FPS; k++) {
+    const frame = raw.subarray(k * size, (k + 1) * size);
+    let cur = Buffer.from(frame);
+    for (const p of pixelPasses(project, clip, 0, k / FPS)) {
+      const out = new Uint8ClampedArray(size);
+      runEffect(cur, out, W, H, k / FPS, p.expr);
+      cur = Buffer.from(out);
+    }
+    if (!enc.stdin.write(cur)) await new Promise((r) => enc.stdin.once('drain', r));
+  }
+  enc.stdin.end();
+  await done;
+  return { ...clip, adjust: {}, effects: [], videoOverride: { file: ov, start: 0, end: LEN } };
+}
+
 async function exportVariant(name, clipPatch) {
   const project = {
     name, ratio: '16:9', resolution: 720, width: 640, height: 360, fps: 30, background: '#101010', media,
     videoClips: [{ ...base, id: 'c1', mediaId: 'm1', in: 0, out: 2, ...clipPatch }],
     overlayClips: [], textClips: [], audioClips: [], stickerClips: [], effectClips: [],
   };
+  project.videoClips = [await bakeLook(project, project.videoClips[0])];
   const out = path.join(dir, `${name}.mp4`);
   const job = runExport(project, out, () => {});
   await job.promise;

@@ -10,6 +10,7 @@ const os = require('os');
 const path = require('path');
 const { execFileSync, spawn } = require('child_process');
 const { ffmpegPath, probe, runExport } = require('../electron/ffmpeg.cjs');
+const { segmentEncoderArgs } = require('../electron/fxjobs.cjs');
 
 const W = 320;
 const H = 180;
@@ -48,8 +49,8 @@ const assert = (ok, what) => { if (!ok) throw new Error(what); };
     const fb = decodeFrames(b, 0, TD);
     assert(fa.length >= frames - 1 && fb.length >= frames - 1, `${id}: decoded ${fa.length}/${fb.length} frames`);
     const seg = path.join(dir, `seg-${id}.mkv`);
-    const enc = spawn(ffmpegPath, ['-y', '-hide_banner', '-loglevel', 'error', '-f', 'rawvideo', '-pix_fmt', 'rgba',
-      '-s', `${W}x${H}`, '-r', String(FPS), '-i', 'pipe:0', '-c:v', 'ffv1', '-pix_fmt', 'yuv444p', seg], { windowsHide: true });
+    // The app's shared segment recipe (electron/fxjobs.cjs segmentEncoderArgs).
+    const enc = spawn(ffmpegPath, segmentEncoderArgs(seg, W, H, FPS), { windowsHide: true });
     const done = new Promise((res, rej) => { enc.on('close', (c) => (c === 0 ? res() : rej(new Error(`segment encoder ${c}`)))); enc.on('error', rej); });
     enc.stdin.on('error', () => {});
     for (let k = 0; k < frames; k++) {
@@ -118,17 +119,25 @@ const assert = (ok, what) => { if (!ok) throw new Error(what); };
   const pureA = frameRgb(a, 1.85);
   const pureB = frameRgb(b, 0.15);
 
-  // Circles From Corner: at mid-transition the corner is already B while the centre is still A —
-  // the exact opposite of the centre iris.
+  // Circles From Corner: early in the transition the corner is already B while the
+  // centre is still A — the exact opposite of the centre iris. The sample sits in
+  // the window's first third, where the expression separates the two by
+  // construction: the reveal front is at P*1.05 ~= 0.35 of the corner distance
+  // while the centre sits at ~0.50, so the corner is pure B and the centre pure A.
+  // (At exact mid the centre is already ~72% B BY DEFINITION — front 0.525 vs
+  // centre 0.499. This check used to sample at mid and pass, but only because the
+  // pre-Sprint-9 export silently re-gridded frames to 25 fps, so the frame found
+  // at the mid timestamp carried an earlier progress; with the output rate pinned
+  // the sampled frame is the true one. See test-transition-parity.cjs's header.)
   const cornerOut = await exportWith('circlecorner-check', 'fx_circlecorner', await renderSegment('fx_circlecorner'));
-  const cornerMid = frameRgb(cornerOut, mid);
+  const cornerMid = frameRgb(cornerOut, 2 - TD + TD / 3);
   const cornerToB = blockDiff(cornerMid, pureB, 0, 0, 44, 44);
   const cornerToA = blockDiff(cornerMid, pureA, 0, 0, 44, 44);
   const centreToA = blockDiff(cornerMid, pureA, W / 2 - 22, H / 2 - 22, W / 2 + 22, H / 2 + 22);
   const centreToB = blockDiff(cornerMid, pureB, W / 2 - 22, H / 2 - 22, W / 2 + 22, H / 2 + 22);
-  console.log(`circlecorner mid: corner->B ${cornerToB.toFixed(1)} vs corner->A ${cornerToA.toFixed(1)}; centre->A ${centreToA.toFixed(1)} vs centre->B ${centreToB.toFixed(1)}`);
-  assert(cornerToB < cornerToA * 0.8, 'circlecorner: the corner has flipped to B at mid-transition');
-  assert(centreToA < centreToB, 'circlecorner: the centre is still A at mid-transition');
+  console.log(`circlecorner early: corner->B ${cornerToB.toFixed(1)} vs corner->A ${cornerToA.toFixed(1)}; centre->A ${centreToA.toFixed(1)} vs centre->B ${centreToB.toFixed(1)}`);
+  assert(cornerToB < cornerToA * 0.8, 'circlecorner: the corner has flipped to B early in the transition');
+  assert(centreToA < centreToB, 'circlecorner: the centre is still A early in the transition');
 
   // Diagonal Stripes: B-likeness along the diagonal alternates band by band (a plain wipe is monotonic).
   const stripesOut = await exportWith('diagstripes-check', 'fx_diagstripes', await renderSegment('fx_diagstripes'));

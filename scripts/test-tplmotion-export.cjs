@@ -57,7 +57,12 @@ const H = 360;
 
   const result = JSON.parse(fs.readFileSync(path.join(dir, 'result.json'), 'utf8'));
   assert(!result.error, `smoke error: ${result.error}`);
-  assert(result.chips && result.chips.includes('Motion') && result.chips.includes('Craft') && !result.chips.includes('Material'),
+  // Category chips carry their template count since the library growth
+  // ("Motion · 10"): compare by category name, not by raw chip text
+  // (probe drift fix, 10/10 step 4 — the assertion's intent is unchanged:
+  // the redesigned rows are present and the retired 'Material' row is gone).
+  const chipNames = (result.chips || []).map((t) => t.replace(/ · \d+$/, ''));
+  assert(chipNames.includes('Motion') && chipNames.includes('Craft') && !chipNames.includes('Material'),
     `chips are the redesigned rows (got ${JSON.stringify(result.chips)})`);
   assert(['Slide Up', 'Smooth Slide', 'Slide Down', 'Smooth Left', 'Smooth Right', 'Rise & Fade', 'Slide Blur'].every((n) => (result.motionNames || []).includes(n)),
     `Motion row carries all 7 slide templates (got ${JSON.stringify(result.motionNames)})`);

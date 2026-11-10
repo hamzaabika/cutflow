@@ -119,6 +119,47 @@ eq(ir.unsupported, true, 'mac reports unsupported so the caller opens the file')
 ir = await installDownloaded({ destDir: `${destDir}-elsewhere`, spawnImpl: stubSpawn(0), platform: 'linux' });
 eq(/no longer there/.test(ir.error || ''), true, 'a file outside the downloads folder is refused');
 
+// ---- Gate 7: the feed's SHA-256 is verified before install ----------------
+// The check surfaces a well-formed hash (normalised to lowercase) and drops a
+// malformed one; the download is hashed as it streams; a mismatch deletes the
+// file and is never recorded as installable; install re-hashes, so a file
+// tampered with AFTER a verified download is refused before any installer runs.
+import crypto from 'node:crypto';
+const { lastDownloadSha256 } = require('../electron/updates.cjs');
+const payloadSha = crypto.createHash('sha256').update(payload).digest('hex');
+r = await check(feed({ version: '1.1.0', download_url: 'https://hamzaabika.com/x.deb', sha256: payloadSha.toUpperCase() }));
+eq(r.sha256, payloadSha, 'check surfaces the feed sha256 (lowercased)');
+r = await check(feed({ version: '1.1.0', download_url: 'https://hamzaabika.com/x.deb', sha256: 'not-a-hash' }));
+eq(r.sha256, '', 'a malformed feed sha256 is dropped, not enforced');
+r = await check(feed({ version: '1.1.0', download_url: 'https://hamzaabika.com/x.deb' }));
+eq(r.sha256, '', 'a feed without sha256 checks as before (nothing promised)');
+
+let dv = await downloadInstaller('https://hamzaabika.com/clipcraft/ClipCraft-9.9.9.deb', { fetchImpl: streamFetch([payload]), destDir, expectedSha256: payloadSha });
+eq(dv.verified, true, 'a matching download reports verified');
+eq(dv.sha256, payloadSha, 'the streamed hash matches the payload');
+eq(fs.existsSync(dv.path), true, 'a matching download stays on disk');
+eq(lastDownloadSha256(), payloadSha, 'the verified hash is recorded for the install gate');
+
+let dt = await downloadInstaller('https://hamzaabika.com/clipcraft/ClipCraft-9.9.9.deb', { fetchImpl: streamFetch([payload]), destDir, expectedSha256: '0'.repeat(64) });
+eq(dt.checksumMismatch, true, 'a mismatched download is flagged as a checksum failure');
+eq(/integrity check/.test(dt.error || ''), true, 'a mismatched download explains the integrity failure');
+eq(fs.existsSync(dt.path || path.join(destDir, 'ClipCraft-9.9.9.deb')), false, 'a mismatched download is deleted, never left installable');
+eq(lastDownload(), '', 'a mismatched download is not recorded as the session download');
+let irBad = await installDownloaded({ destDir, spawnImpl: stubSpawn(0), platform: 'linux' });
+eq(/Download the update first/.test(irBad.error || ''), true, 'after a mismatch there is nothing to install');
+
+dv = await downloadInstaller('https://hamzaabika.com/clipcraft/ClipCraft-9.9.9.deb', { fetchImpl: streamFetch([payload]), destDir, expectedSha256: payloadSha });
+eq(dv.verified, true, 'a fresh verified download lands for the tamper tests');
+const spawnsBefore = spawnCalls.length;
+ir = await installDownloaded({ destDir, spawnImpl: stubSpawn(0), platform: 'linux' });
+eq(ir.ok, true, 'an untampered verified download installs');
+eq(spawnCalls.length, spawnsBefore + 1, 'the untampered install spawned the installer once');
+fs.writeFileSync(dv.path, Buffer.alloc(100000, 9)); // same size, different bytes: swapped after download
+ir = await installDownloaded({ destDir, spawnImpl: stubSpawn(0), platform: 'linux' });
+eq(ir.checksumMismatch, true, 'a file tampered after download is refused at install time');
+eq(/no longer matches/.test(ir.error || ''), true, 'the install refusal names the changed hash');
+eq(spawnCalls.length, spawnsBefore + 1, 'the tampered install never spawned an installer');
+
 fs.rmSync(destDir, { recursive: true, force: true });
 
 if (fails) { console.error(`test-updates: ${fails} failure(s)`); process.exit(1); }
