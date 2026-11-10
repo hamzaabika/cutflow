@@ -29,65 +29,8 @@ permissions:
   issues: write
 
 jobs:
-  templates:
-    name: Generate bundled templates
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Decode ci-assets (brand files + template seed photos)
-        shell: bash
-        run: |
-          set -euo pipefail
-          cat ci-assets/part-* | base64 -d | tar -xzf -
-          sha256sum -c ci-assets.sha256
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install scene-composer Python deps
-        run: pip install pillow numpy
-
-      - name: Generate bundled template packages
-        run: node scripts/make-bundled-templates.cjs
-
-      - name: Verify generated set
-        shell: bash
-        run: |
-          set -euo pipefail
-          docs=$(find bundled-templates -name template.json | wc -l)
-          media=$(find bundled-templates -type f \( -name '*.mp4' -o -name '*.m4a' -o -name '*.jpg' \) | wc -l)
-          echo "template docs: $docs, media files: $media"
-          test "$docs" -ge 40
-          test "$media" -ge 140
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: bundled-templates
-          path: bundled-templates
-          retention-days: 1
-
-      - name: Report failure as an issue
-        if: failure()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          gh issue create --title "Release CI failure: templates job (${{ github.ref_name }})" \
-            --body "The bundled-templates generation job failed. Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" || true
-
   build:
     name: Build (${{ matrix.os }})
-    needs: templates
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -113,11 +56,6 @@ jobs:
           set -euo pipefail
           cat ci-assets/part-* | base64 -d | tar -xzf -
           sha256sum -c ci-assets.sha256
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: bundled-templates
-          path: bundled-templates
 
       - uses: actions/setup-node@v4
         with:
