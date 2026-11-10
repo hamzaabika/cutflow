@@ -36,9 +36,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Same bootstrap as the release workflow: brand files + template seed
-      # media travel as ci-assets on release branches. On a branch without
-      # ci-assets, the on-disk bundled-templates are used as-is.
+      # Same bootstrap as the release workflow: brand files travel as
+      # ci-assets on release branches.
       - name: Decode ci-assets (when present)
         shell: bash
         run: |
@@ -47,7 +46,7 @@ jobs:
             cat ci-assets/part-* | base64 -d | tar -xzf -
             sha256sum -c ci-assets.sha256
           else
-            echo "no ci-assets on this branch — using bundled-templates from the tree"
+            echo "no ci-assets on this branch"
           fi
 
       - name: Version guard (package.json must match snapcraft.yaml)
