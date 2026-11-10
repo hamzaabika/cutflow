@@ -82,8 +82,10 @@ Cutflow is a free, open-source desktop video editor and covers what people actua
 - ✂️ **Precision crop.** The crop frame is the rendered picture, pixel-true at any rotation — drag the edges or the centre, rotate with the slider, and confirm or cancel as one step.
 - 🌈 **135+ transitions and a growing effects library**, every one previewed on real footage before you apply it.
 - 💬 **Auto-captions.** Free on-device Whisper — including a Darija model — or bring a cloud key for speed.
+- **"Clean up my speech" — cuts the ums, stutters, repeated sentences, retakes and long pauses, word by word.**
 - 🔤 **Animated text done properly.** 54 text templates, word-by-word styling, and real RTL/Arabic shaping.
 - 🧩 **Offline templates + built-in stock.** And a screen recorder that drops captures straight onto the timeline.
+- **Screen recording** — remembers your microphone, warns when it is off, and tells you if a recording came out without sound.
 - 🤖 **FlowAI.** An AI editing assistant that runs on *your* provider and *your* key.
 - ⚡ **Fast, honest export.** Trimmed sources are seeked, not re-decoded from zero — exports of clips cut from long footage start instantly and run up to ~40% faster, byte-identical to before. Adaptive performance modes (Low-End / Balanced / High-Performance) tune background work to your machine, and never touch export quality.
 
