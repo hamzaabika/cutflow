@@ -1,0 +1,277 @@
+{
+  "generator": "scripts/gen-bundled-sfx.cjs",
+  "items": [
+    {
+      "id": "whoosh-air",
+      "name": "Air Whoosh",
+      "cat": "Whoosh",
+      "file": "whoosh-air.mp3",
+      "dur": 0.94,
+      "bytes": 11642
+    },
+    {
+      "id": "whoosh-fast",
+      "name": "Fast Whoosh",
+      "cat": "Whoosh",
+      "file": "whoosh-fast.mp3",
+      "dur": 0.52,
+      "bytes": 6626
+    },
+    {
+      "id": "whoosh-deep",
+      "name": "Deep Whoosh",
+      "cat": "Whoosh",
+      "file": "whoosh-deep.mp3",
+      "dur": 1.15,
+      "bytes": 14150
+    },
+    {
+      "id": "whoosh-back",
+      "name": "Reverse Whoosh",
+      "cat": "Whoosh",
+      "file": "whoosh-back.mp3",
+      "dur": 0.94,
+      "bytes": 11642
+    },
+    {
+      "id": "riser-synth",
+      "name": "Synth Riser",
+      "cat": "Riser",
+      "file": "riser-synth.mp3",
+      "dur": 1.44,
+      "bytes": 17598
+    },
+    {
+      "id": "riser-bright",
+      "name": "Bright Riser",
+      "cat": "Riser",
+      "file": "riser-bright.mp3",
+      "dur": 1.23,
+      "bytes": 15090
+    },
+    {
+      "id": "riser-tension",
+      "name": "Tension Riser",
+      "cat": "Riser",
+      "file": "riser-tension.mp3",
+      "dur": 2.04,
+      "bytes": 24808
+    },
+    {
+      "id": "riser-chime",
+      "name": "Chime Riser",
+      "cat": "Riser",
+      "file": "riser-chime.mp3",
+      "dur": 1.15,
+      "bytes": 14150
+    },
+    {
+      "id": "sweep-down",
+      "name": "Sweep Down",
+      "cat": "Sweep",
+      "file": "sweep-down.mp3",
+      "dur": 0.94,
+      "bytes": 11642
+    },
+    {
+      "id": "sweep-up-soft",
+      "name": "Soft Sweep Up",
+      "cat": "Sweep",
+      "file": "sweep-up-soft.mp3",
+      "dur": 1.04,
+      "bytes": 12896
+    },
+    {
+      "id": "siren",
+      "name": "Siren",
+      "cat": "Sweep",
+      "file": "siren.mp3",
+      "dur": 1.65,
+      "bytes": 20106
+    },
+    {
+      "id": "gliss-harp",
+      "name": "Harp Gliss",
+      "cat": "Sweep",
+      "file": "gliss-harp.mp3",
+      "dur": 0.55,
+      "bytes": 6940
+    },
+    {
+      "id": "impact-deep",
+      "name": "Deep Impact",
+      "cat": "Impact",
+      "file": "impact-deep.mp3",
+      "dur": 0.84,
+      "bytes": 10388
+    },
+    {
+      "id": "impact-punch",
+      "name": "Punch Impact",
+      "cat": "Impact",
+      "file": "impact-punch.mp3",
+      "dur": 0.55,
+      "bytes": 6940
+    },
+    {
+      "id": "boom-sub",
+      "name": "Sub Boom",
+      "cat": "Impact",
+      "file": "boom-sub.mp3",
+      "dur": 1.23,
+      "bytes": 15090
+    },
+    {
+      "id": "thud",
+      "name": "Soft Thud",
+      "cat": "Impact",
+      "file": "thud.mp3",
+      "dur": 0.31,
+      "bytes": 4119
+    },
+    {
+      "id": "kick-hit",
+      "name": "Kick Hit",
+      "cat": "Impact",
+      "file": "kick-hit.mp3",
+      "dur": 0.44,
+      "bytes": 5686
+    },
+    {
+      "id": "click-ui",
+      "name": "UI Click",
+      "cat": "Click",
+      "file": "click-ui.mp3",
+      "dur": 0.13,
+      "bytes": 1924
+    },
+    {
+      "id": "click-wood",
+      "name": "Wood Click",
+      "cat": "Click",
+      "file": "click-wood.mp3",
+      "dur": 0.1,
+      "bytes": 1611
+    },
+    {
+      "id": "pop",
+      "name": "Pop",
+      "cat": "Click",
+      "file": "pop.mp3",
+      "dur": 0.16,
+      "bytes": 2238
+    },
+    {
+      "id": "snap",
+      "name": "Snap",
+      "cat": "Click",
+      "file": "snap.mp3",
+      "dur": 0.08,
+      "bytes": 1297
+    },
+    {
+      "id": "tick-tock",
+      "name": "Tick Tock",
+      "cat": "Click",
+      "file": "tick-tock.mp3",
+      "dur": 0.5,
+      "bytes": 6313
+    },
+    {
+      "id": "shutter",
+      "name": "Camera Shutter",
+      "cat": "Click",
+      "file": "shutter.mp3",
+      "dur": 0.26,
+      "bytes": 3492
+    },
+    {
+      "id": "keys",
+      "name": "Keyboard Taps",
+      "cat": "Click",
+      "file": "keys.mp3",
+      "dur": 0.37,
+      "bytes": 4746
+    },
+    {
+      "id": "chime-bright",
+      "name": "Bright Chime",
+      "cat": "Chime",
+      "file": "chime-bright.mp3",
+      "dur": 1.23,
+      "bytes": 15090
+    },
+    {
+      "id": "chime-soft",
+      "name": "Soft Chime",
+      "cat": "Chime",
+      "file": "chime-soft.mp3",
+      "dur": 1.65,
+      "bytes": 20106
+    },
+    {
+      "id": "bell-deep",
+      "name": "Deep Bell",
+      "cat": "Chime",
+      "file": "bell-deep.mp3",
+      "dur": 2.43,
+      "bytes": 29510
+    },
+    {
+      "id": "notify",
+      "name": "Notification",
+      "cat": "Chime",
+      "file": "notify.mp3",
+      "dur": 0.71,
+      "bytes": 8821
+    },
+    {
+      "id": "success",
+      "name": "Success Arp",
+      "cat": "Chime",
+      "file": "success.mp3",
+      "dur": 0.81,
+      "bytes": 10075
+    },
+    {
+      "id": "coin",
+      "name": "Coin",
+      "cat": "Chime",
+      "file": "coin.mp3",
+      "dur": 0.5,
+      "bytes": 6313
+    },
+    {
+      "id": "bubble",
+      "name": "Bubble",
+      "cat": "Misc",
+      "file": "bubble.mp3",
+      "dur": 0.24,
+      "bytes": 3178
+    },
+    {
+      "id": "error-buzz",
+      "name": "Error Buzz",
+      "cat": "Misc",
+      "file": "error-buzz.mp3",
+      "dur": 0.39,
+      "bytes": 5059
+    },
+    {
+      "id": "heartbeat",
+      "name": "Heartbeat",
+      "cat": "Misc",
+      "file": "heartbeat.mp3",
+      "dur": 0.99,
+      "bytes": 12269
+    },
+    {
+      "id": "wind-bed",
+      "name": "Wind Bed",
+      "cat": "Misc",
+      "file": "wind-bed.mp3",
+      "dur": 2.25,
+      "bytes": 27315
+    }
+  ]
+}

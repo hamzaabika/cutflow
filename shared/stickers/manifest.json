@@ -1,0 +1,779 @@
+{
+  "generator": "scripts/gen-stickers.cjs",
+  "items": [
+    {
+      "id": "badge-star",
+      "name": "Starburst Badge",
+      "cat": "Badges",
+      "file": "badge-star.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 4000
+    },
+    {
+      "id": "badge-seal",
+      "name": "Round Seal",
+      "cat": "Badges",
+      "file": "badge-seal.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 4051
+    },
+    {
+      "id": "badge-ribbon",
+      "name": "Award Ribbon",
+      "cat": "Badges",
+      "file": "badge-ribbon.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 4365
+    },
+    {
+      "id": "badge-shield",
+      "name": "Shield",
+      "cat": "Badges",
+      "file": "badge-shield.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 3083
+    },
+    {
+      "id": "badge-burst",
+      "name": "Pop Burst",
+      "cat": "Badges",
+      "file": "badge-burst.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 4288
+    },
+    {
+      "id": "badge-hex",
+      "name": "Hex Badge",
+      "cat": "Badges",
+      "file": "badge-hex.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 3203
+    },
+    {
+      "id": "badge-medal",
+      "name": "Gold Medal",
+      "cat": "Badges",
+      "file": "badge-medal.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 4783
+    },
+    {
+      "id": "badge-tag",
+      "name": "Price Tag",
+      "cat": "Badges",
+      "file": "badge-tag.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 22327
+    },
+    {
+      "id": "badge-crown",
+      "name": "Crown",
+      "cat": "Badges",
+      "file": "badge-crown.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 2938
+    },
+    {
+      "id": "badge-bolt",
+      "name": "Bolt Badge",
+      "cat": "Badges",
+      "file": "badge-bolt.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 3038
+    },
+    {
+      "id": "arrow-right",
+      "name": "Arrow Right",
+      "cat": "Arrows",
+      "file": "arrow-right.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 2036
+    },
+    {
+      "id": "arrow-up",
+      "name": "Arrow Up",
+      "cat": "Arrows",
+      "file": "arrow-up.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 2234
+    },
+    {
+      "id": "arrow-down",
+      "name": "Arrow Down",
+      "cat": "Arrows",
+      "file": "arrow-down.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 2267
+    },
+    {
+      "id": "arrow-curved",
+      "name": "Curved Arrow",
+      "cat": "Arrows",
+      "file": "arrow-curved.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 2917
+    },
+    {
+      "id": "arrow-loop",
+      "name": "Loop Arrow",
+      "cat": "Arrows",
+      "file": "arrow-loop.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 2851
+    },
+    {
+      "id": "arrow-zigzag",
+      "name": "Zigzag Arrow",
+      "cat": "Arrows",
+      "file": "arrow-zigzag.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 2173
+    },
+    {
+      "id": "arrow-double",
+      "name": "Double Arrow",
+      "cat": "Arrows",
+      "file": "arrow-double.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 2476
+    },
+    {
+      "id": "arrow-swoosh",
+      "name": "Swoosh Arrow",
+      "cat": "Arrows",
+      "file": "arrow-swoosh.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 1963
+    },
+    {
+      "id": "shape-heart",
+      "name": "Heart",
+      "cat": "Shapes",
+      "file": "shape-heart.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 3113
+    },
+    {
+      "id": "shape-star",
+      "name": "Star",
+      "cat": "Shapes",
+      "file": "shape-star.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 3209
+    },
+    {
+      "id": "shape-sparkle",
+      "name": "Sparkle",
+      "cat": "Shapes",
+      "file": "shape-sparkle.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 2619
+    },
+    {
+      "id": "shape-bubble",
+      "name": "Speech Bubble",
+      "cat": "Shapes",
+      "file": "shape-bubble.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 2101
+    },
+    {
+      "id": "shape-cloud",
+      "name": "Cloud",
+      "cat": "Shapes",
+      "file": "shape-cloud.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 2125
+    },
+    {
+      "id": "shape-sun",
+      "name": "Sun",
+      "cat": "Shapes",
+      "file": "shape-sun.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 3517
+    },
+    {
+      "id": "shape-moon",
+      "name": "Moon",
+      "cat": "Shapes",
+      "file": "shape-moon.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 2821
+    },
+    {
+      "id": "shape-check",
+      "name": "Check Disc",
+      "cat": "Shapes",
+      "file": "shape-check.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 3176
+    },
+    {
+      "id": "frame-corners",
+      "name": "Corner Frame",
+      "cat": "Frames",
+      "file": "frame-corners.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 1439
+    },
+    {
+      "id": "frame-rounded",
+      "name": "Rounded Frame",
+      "cat": "Frames",
+      "file": "frame-rounded.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 1877
+    },
+    {
+      "id": "frame-tape",
+      "name": "Taped Photo",
+      "cat": "Frames",
+      "file": "frame-tape.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 2834
+    },
+    {
+      "id": "frame-circle",
+      "name": "Circle Frame",
+      "cat": "Frames",
+      "file": "frame-circle.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 2830
+    },
+    {
+      "id": "frame-dashed",
+      "name": "Dashed Frame",
+      "cat": "Frames",
+      "file": "frame-dashed.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 1932
+    },
+    {
+      "id": "frame-banner",
+      "name": "Banner Ribbon",
+      "cat": "Frames",
+      "file": "frame-banner.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 1615
+    },
+    {
+      "id": "social-play",
+      "name": "Play Button",
+      "cat": "Social",
+      "file": "social-play.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 2228
+    },
+    {
+      "id": "social-like",
+      "name": "Like Heart",
+      "cat": "Social",
+      "file": "social-like.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 3459
+    },
+    {
+      "id": "social-bell",
+      "name": "Bell",
+      "cat": "Social",
+      "file": "social-bell.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 2707
+    },
+    {
+      "id": "social-comment",
+      "name": "Comment Bubble",
+      "cat": "Social",
+      "file": "social-comment.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 2219
+    },
+    {
+      "id": "social-share",
+      "name": "Share Arrow",
+      "cat": "Social",
+      "file": "social-share.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 2427
+    },
+    {
+      "id": "social-rating",
+      "name": "Rating Star",
+      "cat": "Social",
+      "file": "social-rating.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 3867
+    },
+    {
+      "id": "word-new",
+      "name": "New Burst",
+      "cat": "Words",
+      "file": "word-new.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 11935
+    },
+    {
+      "id": "word-sale",
+      "name": "Sale Tag",
+      "cat": "Words",
+      "file": "word-sale.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 12493
+    },
+    {
+      "id": "word-wow",
+      "name": "Wow Burst",
+      "cat": "Words",
+      "file": "word-wow.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 14426
+    },
+    {
+      "id": "word-live",
+      "name": "Live Pill",
+      "cat": "Words",
+      "file": "word-live.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 3812
+    },
+    {
+      "id": "word-top",
+      "name": "Top Ribbon",
+      "cat": "Words",
+      "file": "word-top.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 5417
+    },
+    {
+      "id": "word-50",
+      "name": "50% Seal",
+      "cat": "Words",
+      "file": "word-50.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 19767
+    },
+    {
+      "id": "face-happy",
+      "name": "Happy Face",
+      "cat": "Faces",
+      "file": "face-happy.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 3222
+    },
+    {
+      "id": "face-laugh",
+      "name": "Laughing Face",
+      "cat": "Faces",
+      "file": "face-laugh.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 3160
+    },
+    {
+      "id": "face-wink",
+      "name": "Wink Face",
+      "cat": "Faces",
+      "file": "face-wink.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 3260
+    },
+    {
+      "id": "face-love",
+      "name": "Love Face",
+      "cat": "Faces",
+      "file": "face-love.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 3656
+    },
+    {
+      "id": "face-wow",
+      "name": "Wow Face",
+      "cat": "Faces",
+      "file": "face-wow.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 3774
+    },
+    {
+      "id": "face-cool",
+      "name": "Cool Face",
+      "cat": "Faces",
+      "file": "face-cool.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 3208
+    },
+    {
+      "id": "face-sleepy",
+      "name": "Sleepy Face",
+      "cat": "Faces",
+      "file": "face-sleepy.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 6364
+    },
+    {
+      "id": "face-star",
+      "name": "Star Face",
+      "cat": "Faces",
+      "file": "face-star.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 3597
+    },
+    {
+      "id": "celeb-balloon",
+      "name": "Balloon",
+      "cat": "Celebration",
+      "file": "celeb-balloon.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 2927
+    },
+    {
+      "id": "celeb-gift",
+      "name": "Gift Box",
+      "cat": "Celebration",
+      "file": "celeb-gift.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 2075
+    },
+    {
+      "id": "celeb-hat",
+      "name": "Party Hat",
+      "cat": "Celebration",
+      "file": "celeb-hat.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 3402
+    },
+    {
+      "id": "celeb-cake",
+      "name": "Cake",
+      "cat": "Celebration",
+      "file": "celeb-cake.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 2073
+    },
+    {
+      "id": "celeb-firework",
+      "name": "Firework",
+      "cat": "Celebration",
+      "file": "celeb-firework.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 5812
+    },
+    {
+      "id": "celeb-confetti",
+      "name": "Confetti",
+      "cat": "Celebration",
+      "file": "celeb-confetti.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 5311
+    },
+    {
+      "id": "celeb-clover",
+      "name": "Clover",
+      "cat": "Celebration",
+      "file": "celeb-clover.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 3532
+    },
+    {
+      "id": "celeb-balloons",
+      "name": "Balloons",
+      "cat": "Celebration",
+      "file": "celeb-balloons.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 3675
+    },
+    {
+      "id": "ptr-cursor",
+      "name": "Click Cursor",
+      "cat": "Arrows",
+      "file": "ptr-cursor.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 2800
+    },
+    {
+      "id": "ptr-pin",
+      "name": "Map Pin",
+      "cat": "Arrows",
+      "file": "ptr-pin.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 3431
+    },
+    {
+      "id": "ptr-target",
+      "name": "Target",
+      "cat": "Arrows",
+      "file": "ptr-target.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 4545
+    },
+    {
+      "id": "ptr-flag",
+      "name": "Marker Flag",
+      "cat": "Arrows",
+      "file": "ptr-flag.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 2100
+    },
+    {
+      "id": "ptr-magnet",
+      "name": "Magnet",
+      "cat": "Arrows",
+      "file": "ptr-magnet.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 1991
+    },
+    {
+      "id": "ptr-refresh",
+      "name": "Refresh Arrows",
+      "cat": "Arrows",
+      "file": "ptr-refresh.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 3181
+    },
+    {
+      "id": "social-thumb",
+      "name": "Thumbs Up",
+      "cat": "Social",
+      "file": "social-thumb.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 2259
+    },
+    {
+      "id": "social-follow",
+      "name": "Follow",
+      "cat": "Social",
+      "file": "social-follow.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 3070
+    },
+    {
+      "id": "social-hash",
+      "name": "Hashtag",
+      "cat": "Social",
+      "file": "social-hash.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 2177
+    },
+    {
+      "id": "social-link",
+      "name": "Link Chain",
+      "cat": "Social",
+      "file": "social-link.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 1945
+    },
+    {
+      "id": "social-tv",
+      "name": "Screen Play",
+      "cat": "Social",
+      "file": "social-tv.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 1760
+    },
+    {
+      "id": "social-nodes",
+      "name": "Share Nodes",
+      "cat": "Social",
+      "file": "social-nodes.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 3842
+    },
+    {
+      "id": "badge-gem",
+      "name": "Gem",
+      "cat": "Badges",
+      "file": "badge-gem.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 3243
+    },
+    {
+      "id": "badge-rosette",
+      "name": "Rosette",
+      "cat": "Badges",
+      "file": "badge-rosette.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 4792
+    },
+    {
+      "id": "badge-taghot",
+      "name": "Hot Tag",
+      "cat": "Badges",
+      "file": "badge-taghot.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 8457
+    },
+    {
+      "id": "badge-flag",
+      "name": "Pennant",
+      "cat": "Badges",
+      "file": "badge-flag.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 2245
+    },
+    {
+      "id": "word-yes",
+      "name": "Yes Burst",
+      "cat": "Words",
+      "file": "word-yes.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 13539
+    },
+    {
+      "id": "word-omg",
+      "name": "OMG Burst",
+      "cat": "Words",
+      "file": "word-omg.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 16589
+    },
+    {
+      "id": "word-go",
+      "name": "Go Pill",
+      "cat": "Words",
+      "file": "word-go.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 13210
+    },
+    {
+      "id": "word-vip",
+      "name": "VIP Tag",
+      "cat": "Words",
+      "file": "word-vip.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 3856
+    },
+    {
+      "id": "shape-flower",
+      "name": "Flower",
+      "cat": "Shapes",
+      "file": "shape-flower.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 3594
+    },
+    {
+      "id": "shape-leaf",
+      "name": "Leaf",
+      "cat": "Shapes",
+      "file": "shape-leaf.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 2642
+    },
+    {
+      "id": "shape-snow",
+      "name": "Snowflake",
+      "cat": "Shapes",
+      "file": "shape-snow.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 3386
+    },
+    {
+      "id": "shape-note",
+      "name": "Music Note",
+      "cat": "Shapes",
+      "file": "shape-note.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 2507
+    },
+    {
+      "id": "frame-polaroid",
+      "name": "Polaroid Frame",
+      "cat": "Frames",
+      "file": "frame-polaroid.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 2213
+    },
+    {
+      "id": "frame-ticket",
+      "name": "Ticket Frame",
+      "cat": "Frames",
+      "file": "frame-ticket.png",
+      "w": 480,
+      "h": 480,
+      "bytes": 4553
+    }
+  ]
+}
