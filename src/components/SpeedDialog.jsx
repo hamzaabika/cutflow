@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Gauge } from '../icons.jsx';
 import { formatTime } from '../store.js';
 import { clipDuration, hasCurve } from '../speedCurve.js';
+import { useT } from '../i18n/index.jsx';
 
 // Speed / Duration for one clip (clip menu): the clip's constant speed, edited either as
 // a percentage or as the timeline duration it should end up with. This is NOT speed
@@ -13,6 +14,7 @@ const PRESETS = [25, 50, 75, 100, 125, 150, 200, 400];
 const clampSpeed = (s) => Math.min(16, Math.max(0.05, s));
 
 export default function SpeedDialog({ clip, name, onApply, onClose }) {
+  const t = useT();
   const sourceLen = (clip.out - clip.in); // seconds of source the clip plays
   const curved = hasCurve(clip);
   const cur = clip.speed || 1;
@@ -32,37 +34,37 @@ export default function SpeedDialog({ clip, name, onApply, onClose }) {
   };
 
   return (
-    <div className="modal-backdrop close-backdrop" role="dialog" aria-modal="true" aria-label="Speed and duration"
+    <div className="modal-backdrop close-backdrop" role="dialog" aria-modal="true" aria-label={t('spd.speedDuration')}
       onPointerDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="modal">
         <div className="modal-icon"><Gauge size={26} /></div>
-        <h3>Speed / Duration</h3>
+        <h3>{t('spd.title')}</h3>
         <p className="muted">{name}</p>
-        <div className="speed-presets" role="group" aria-label="Speed presets">
+        <div className="speed-presets" role="group" aria-label={t('spd.presets')}>
           {PRESETS.map((p) => (
             <button key={p} className={`chip ${Number(pct) === p ? 'on' : ''}`} onClick={() => setFromPct(p)}>{p}%</button>
           ))}
         </div>
         <label className="field">
-          <span>Speed (%)</span>
-          <input type="number" min="5" max="1600" step="5" value={pct} aria-label="Speed in percent"
+          <span>{t('spd.speedPct')}</span>
+          <input type="number" min="5" max="1600" step="5" value={pct} aria-label={t('spd.speedPercent')}
             onChange={(e) => setFromPct(e.target.value)} />
         </label>
         <label className="field">
-          <span>Duration on the timeline</span>
-          <input type="number" min="0.1" step="0.1" value={dur} aria-label="Duration in seconds"
+          <span>{t('spd.durationLabel')}</span>
+          <input type="number" min="0.1" step="0.1" value={dur} aria-label={t('spd.durationSeconds')}
             onChange={(e) => setFromDur(e.target.value)} />
         </label>
         <p className="muted">
-          Source used: {formatTime(sourceLen)} · plays in {formatTime(sourceLen / speed)}
-          {clip.linkId ? ' · the linked audio follows' : ''}
+          {t('spd.sourceUsed', { a: formatTime(sourceLen), b: formatTime(sourceLen / speed) })}
+          {clip.linkId ? t('spd.linkedFollows') : ''}
         </p>
         {curved && (
-          <p className="muted">This clip currently plays with a speed curve (Inspector ▸ Speed). Applying a constant speed replaces the curve; the source range stays.</p>
+          <p className="muted">{t('spd.curveNote')}</p>
         )}
         <div className="modal-actions">
-          <button className="btn" onClick={onClose}>Cancel</button>
-          <button className="btn btn-primary" onClick={() => { onApply(speed); onClose(); }}>Apply</button>
+          <button className="btn" onClick={onClose}>{t('common.cancel')}</button>
+          <button className="btn btn-primary" onClick={() => { onApply(speed); onClose(); }}>{t('spd.apply')}</button>
         </div>
       </div>
     </div>

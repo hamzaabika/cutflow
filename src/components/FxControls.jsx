@@ -1,4 +1,6 @@
 import React from 'react';
+import { tr, useT } from '../i18n/index.jsx';
+import { libName } from '../i18n/libNames.js';
 import { fxTimingOf, withFxTiming } from '../store.js';
 import { fxSchema, fxDefaults } from '../fx/params.js';
 import { clipLenTl } from '../track.js';
@@ -28,24 +30,24 @@ export function RegionControls({ region, onChange, dispatch }) {
   const pct = (v) => `${Math.round(v * 100)}%`;
   const S = (p) => <Slider dispatch={dispatch} {...p} />;
   return (
-    <InspCard id="fx:region" title="Region"
-      right={<Toggle checked={on} aria-label="Limit effect to a region"
+    <InspCard id="fx:region" title={tr('fx.region')}
+      right={<Toggle checked={on} aria-label={tr('fx.limitRegion')}
         onChange={(e) => onChange(e.target.checked ? { ...DEFAULT_FX_REGION } : null)} />}>
-      {!on && <p className="dim small">The effect covers the whole frame. Tick to confine it to one area — only that part of the picture changes.</p>}
+      {!on && <p className="dim small">{tr('fx.regionNote')}</p>}
       {on && (
         <>
           <div className="chips">
-            {[['rect', 'Rectangle'], ['ellipse', 'Ellipse']].map(([id, name]) => (
+            {[['rect', tr('fx.shape.rect')], ['ellipse', tr('fx.shape.ellipse')]].map(([id, name]) => (
               <button key={id} className={`chip ${r.shape === id ? 'on' : ''}`} onClick={() => set({ shape: id })}>{name}</button>
             ))}
-            <button className={`chip ${r.invert ? 'on' : ''}`} aria-pressed={!!r.invert} onClick={() => set({ invert: !r.invert })}>Invert</button>
+            <button className={`chip ${r.invert ? 'on' : ''}`} aria-pressed={!!r.invert} onClick={() => set({ invert: !r.invert })}>{tr('fx.invert')}</button>
           </div>
-          {S({ label: 'Position X', value: r.x, min: 0, max: 0.95, step: 0.01, fmt: pct, numScale: 100, onChange: (x) => set({ x }) })}
-          {S({ label: 'Position Y', value: r.y, min: 0, max: 0.95, step: 0.01, fmt: pct, numScale: 100, onChange: (y) => set({ y }) })}
-          {S({ label: 'Width', value: r.w, min: 0.05, max: 1, step: 0.01, fmt: pct, numScale: 100, onChange: (w) => set({ w }) })}
-          {S({ label: 'Height', value: r.h, min: 0.05, max: 1, step: 0.01, fmt: pct, numScale: 100, onChange: (h) => set({ h }) })}
-          {S({ label: 'Feather', value: r.feather, min: 0, max: 0.3, step: 0.01, fmt: pct, numScale: 100, onChange: (feather) => set({ feather }) })}
-          <p className="dim small">You can also drag the dashed box on the player.</p>
+          {S({ label: tr('fx.posX'), value: r.x, min: 0, max: 0.95, step: 0.01, fmt: pct, numScale: 100, onChange: (x) => set({ x }) })}
+          {S({ label: tr('fx.posY'), value: r.y, min: 0, max: 0.95, step: 0.01, fmt: pct, numScale: 100, onChange: (y) => set({ y }) })}
+          {S({ label: tr('fx.width'), value: r.w, min: 0.05, max: 1, step: 0.01, fmt: pct, numScale: 100, onChange: (w) => set({ w }) })}
+          {S({ label: tr('fx.height'), value: r.h, min: 0.05, max: 1, step: 0.01, fmt: pct, numScale: 100, onChange: (h) => set({ h }) })}
+          {S({ label: tr('fx.feather'), value: r.feather, min: 0, max: 0.3, step: 0.01, fmt: pct, numScale: 100, onChange: (feather) => set({ feather }) })}
+          <p className="dim small">{tr('fx.regionNote2')}</p>
         </>
       )}
     </InspCard>
@@ -62,9 +64,9 @@ export function StrengthControl({ value, onChange, dispatch }) {
   const pct = (v) => `${Math.round(v * 100)}%`;
   const S = (p) => <Slider dispatch={dispatch} {...p} />;
   return (
-    <InspCard id="fx:strength" title="Strength">
-      {S({ label: 'Intensity', value: value ?? 1, min: 0, max: 1, step: 0.01, fmt: pct, numScale: 100, onChange })}
-      <p className="dim small">How strongly the effect lands — 0% is the untouched picture.</p>
+    <InspCard id="fx:strength" title={tr('fx.strength')}>
+      {S({ label: tr('fx.intensity'), value: value ?? 1, min: 0, max: 1, step: 0.01, fmt: pct, numScale: 100, onChange })}
+      <p className="dim small">{tr('fx.intensityNote')}</p>
     </InspCard>
   );
 }
@@ -83,13 +85,13 @@ export function ParamsControls({ fx, values, onParam, dispatch }) {
   const pct = (v) => `${Math.round(v * 100)}%`;
   const S = (p) => <Slider dispatch={dispatch} {...p} />;
   return (
-    <InspCard id="fx:params" title="Parameters">
+    <InspCard id="fx:params" title={tr('fx.parameters')}>
       {schema.map((p) => S({
-        key: p.key, label: p.name, value: vals[p.key], min: p.min, max: p.max, step: p.step,
+        key: p.key, label: libName('fxparam', fx + '.' + p.key, p.name), value: vals[p.key], min: p.min, max: p.max, step: p.step,
         ...(p.fmt === 'pct' ? { fmt: pct, numScale: 100 } : {}),
         onChange: (v) => onParam(p.key, v),
       }))}
-      <p className="dim small">Tunes the effect itself. Strength above blends the result with the untouched picture.</p>
+      <p className="dim small">{tr('fx.tunesNote')}</p>
     </InspCard>
   );
 }
@@ -128,12 +130,12 @@ export function BoundFxCards({ track, clip, fx, dispatch }) {
   };
   return (
     <>
-      <InspCard id="fx:timing" title="Timing">
+      <InspCard id="fx:timing" title={tr('fx.timing')}>
         <p className="dim small">{fxTimingOf(clip, fx)
-          ? 'The effect runs over part of the clip and moves with it. Drag the effect\u2019s edges on the Effects lane, or set its range here.'
-          : 'The effect runs for the whole clip and moves with it. Drag the effect\u2019s edges on the Effects lane, or set its range here.'}</p>
-        <NumBox layout="field" label="Start in clip (s)" value={win.start} step={0.1} min={0} onChange={(start) => setTiming({ start })} />
-        <NumBox layout="field" label="Duration (s)" value={win.duration} step={0.1} min={0.1} onChange={(duration) => setTiming({ duration })} />
+          ? tr('fx.partNote')
+          : tr('fx.wholeNote')}</p>
+        <NumBox layout="field" label={tr('fx.startInClip')} value={win.start} step={0.1} min={0} onChange={(start) => setTiming({ start })} />
+        <NumBox layout="field" label={tr('fx.windowDuration')} value={win.duration} step={0.1} min={0.1} onChange={(duration) => setTiming({ duration })} />
       </InspCard>
       {!NO_STRENGTH.includes(fx) && <StrengthControl value={clip.fxStrength?.[fx]} dispatch={dispatch} onChange={setStrength} />}
       <ParamsControls fx={fx} values={clip.fxParams?.[fx]} dispatch={dispatch}

@@ -8,7 +8,7 @@ import React from 'react';
 // categories). Selection is fully controlled: `active` in, onChange(id) out.
 // navRef / onScroll exist for the dock's overflow measurement; other surfaces
 // can ignore them. `trailing` renders extra content inside the nav after the
-// last tab (the library rail's sticky "more tabs" arrow). DOM and classes
+// last tab (the library rail's sticky scroll-arrow pair). DOM and classes
 // match what surfaces wrote by hand, so the .tab-btn styles (and anything
 // keyed on them) apply unchanged.
 export default function Tabs({

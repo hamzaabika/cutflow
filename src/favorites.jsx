@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Star } from './icons.jsx';
+import { tr } from './i18n/index.jsx';
 import React from 'react';
 
 // Favorites shared by every panel (one list for the whole app, kept by the main process across projects).
@@ -53,7 +54,7 @@ export function FavStar({ entry, className = '' }) {
   const on = has(entry.key);
   return (
     <button className={`fav-star ${on ? 'on' : ''} ${className}`} aria-pressed={on}
-      aria-label={on ? 'Remove from favorites' : 'Add to favorites'} title={on ? 'Remove from favorites' : 'Add to favorites'}
+      aria-label={on ? tr('fav.remove') : tr('fav.add')} title={on ? tr('fav.remove') : tr('fav.add')}
       onClick={(e) => { e.stopPropagation(); toggle(entry); }} onDoubleClick={(e) => e.stopPropagation()}>
       <Star size={13} fill={on ? 'currentColor' : 'none'} />
     </button>

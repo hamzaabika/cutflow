@@ -1,4 +1,5 @@
 import React, { useRef, useState } from 'react';
+import { useT } from '../i18n/index.jsx';
 import { RotateCw } from '../icons.jsx';
 import { clipLen, freeLen, videoLayout } from '../store.js';
 import { transformOf } from '../visual.js';
@@ -11,7 +12,10 @@ import { resolveStyle, textBox, textVisible } from '../text/render.js';
 // the round handle to rotate. Moves snap to the frame center (with guide lines), rotation to 0 / 90 degrees
 // (Shift: 15 degree steps). Every drag is one undo step. An animated clip shows its box where it is now; a value
 // with keyframes gets a keyframe at the playhead. Text works the same way (it is drawn above the pictures, so it is
-// picked first): the corners change its size, the round handle its rotation.
+// picked first): the corners change its size, the round handle its rotation. Stickers work the same way too
+// (drawn above the overlays, below the text, so they are picked in that order): they carry the overlay
+// transform shape, so the picture paths below drive them unchanged — only their geometry comes from the
+// sticker's own pixel size instead of a media item.
 const SNAP_PX = 6;
 
 // The clip's displayed picture box comes from src/pictureGeometry.js — the same geometry
@@ -19,6 +23,7 @@ const SNAP_PX = 6;
 // box of the crop's surviving region, which is what the renderer shows.)
 
 export default function TransformBox({ project, time, selection, onSelect, dispatch, sw, sh }) {
+  const t = useT();
   const [guides, setGuides] = useState({ x: false, y: false });
   const layerRef = useRef(null);
   const mediaById = Object.fromEntries(project.media.map((m) => [m.id, m]));
@@ -28,6 +33,12 @@ export default function TransformBox({ project, time, selection, onSelect, dispa
   for (let i = project.textClips.length - 1; i >= 0; i--) {
     const c = project.textClips[i];
     if (textVisible(c, time) && (c.text || '').trim()) onScreen.push({ track: 'text', clip: c, lt: time - c.start, text: true });
+  }
+  const stickers = project.stickerClips || [];
+  for (let i = stickers.length - 1; i >= 0; i--) {
+    const c = stickers[i];
+    const lt = time - c.start;
+    if (lt >= 0 && lt < c.duration) onScreen.push({ track: 'sticker', clip: c, lt, sticker: true });
   }
   const overlays = project.overlayClips || [];
   for (let i = overlays.length - 1; i >= 0; i--) {
@@ -52,6 +63,14 @@ export default function TransformBox({ project, time, selection, onSelect, dispa
       // A pinned text is drawn offset from its base anchor (src/track.js); the box follows the drawing.
       const off = clip.pin ? pinOffsetAt(project, { track: 'text', clip }, time) : { dx: 0, dy: 0 };
       return { cx: (b.cx + off.dx * project.width) * kx, cy: (b.cy + off.dy * project.height) * ky, w: b.w * kx, h: b.h * ky, rot: b.rot };
+    }
+    if (item.sticker) {
+      // The renderer draws a sticker as a still image contain-fitted into the frame and then
+      // transformed (Preview's layerStyle, no motion state) — the same fitted-box geometry
+      // with the sticker's own pixel size standing in for the media item.
+      const t = transformOf(clip);
+      const g2 = pictureGeometry(project, { width: clip.w || 480, height: clip.h || 480 }, clip, t);
+      return { t, cx: g2.cx * sw, cy: g2.cy * sh, w: g2.w * sw, h: g2.h * sh, rot: g2.rot };
     }
     const t = (hasMotion(clip) || clip.pin) ? stateAtPinned(project, { track: item.track, clip }, item.lt, clipLen(clip)).transform : transformOf(clip);
     const g2 = pictureGeometry(project, mediaById[clip.mediaId], clip, t);
@@ -145,7 +164,7 @@ export default function TransformBox({ project, time, selection, onSelect, dispa
     const p = local(e);
     const hit = onScreen.find((o) => hits(geo(o), p.x, p.y));
     if (!hit) {
-      if (selection && ['video', 'overlay', 'text'].includes(selection.track)) onSelect(null);
+      if (selection && ['video', 'overlay', 'text', 'sticker'].includes(selection.track)) onSelect(null);
       return;
     }
     onSelect({ track: hit.track, id: hit.clip.id });
@@ -159,11 +178,11 @@ export default function TransformBox({ project, time, selection, onSelect, dispa
       {guides.y && <div className="tbox-guide h" />}
       {g && (
         <div className="tbox" style={{ left: g.cx, top: g.cy, width: g.w, height: g.h, transform: `translate(-50%, -50%) rotate(${g.rot}deg)` }}
-          onPointerDown={(e) => e.button === 0 && startMove(e, sel)} aria-label="Selected clip on the player">
+          onPointerDown={(e) => e.button === 0 && startMove(e, sel)} aria-label={t('tbox.aria')}>
           {['nw', 'ne', 'sw', 'se'].map((k) => (
-            <span key={k} className={`tbox-handle ${k}`} onPointerDown={(e) => e.button === 0 && startScale(e, sel)} title="Drag to resize" />
+            <span key={k} className={`tbox-handle ${k}`} onPointerDown={(e) => e.button === 0 && startScale(e, sel)} title={t('tbox.resize')} />
           ))}
-          <span className="tbox-rotate" onPointerDown={(e) => e.button === 0 && startRotate(e, sel)} title="Drag to rotate (Shift: 15° steps)">
+          <span className="tbox-rotate" onPointerDown={(e) => e.button === 0 && startRotate(e, sel)} title={t('tbox.rotate')}>
             <RotateCw size={12} />
           </span>
         </div>

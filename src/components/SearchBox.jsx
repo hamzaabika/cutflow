@@ -2,16 +2,18 @@
 // button whenever there is text. Every library/panel search uses this component so the
 // styling can never drift back to the browser-default white box again.
 import React from 'react';
+import { useT } from '../i18n/index.jsx';
 import { Search, X } from '../icons.jsx';
 
 export default function SearchBox({ value, onChange, placeholder, ariaLabel, autoFocus = false }) {
+  const t = useT();
   return (
     <div className="searchbox">
       <Search size={14} className="searchbox-icon" aria-hidden="true" />
       <input type="search" value={value} placeholder={placeholder} aria-label={ariaLabel || placeholder}
         autoFocus={autoFocus} onChange={(e) => onChange(e.target.value)} />
       {!!value && (
-        <button type="button" className="searchbox-clear" aria-label="Clear search" title="Clear search"
+        <button type="button" className="searchbox-clear" aria-label={t('search.clear')} title={t('search.clear')}
           onClick={() => onChange('')}>
           <X size={13} />
         </button>

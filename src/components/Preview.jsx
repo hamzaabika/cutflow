@@ -22,6 +22,7 @@ import { anchorCorrection, interpolateTime } from '../playbackClock.js';
 import { sourceOffsetAt, speedAtTime, timelineOffsetAt } from '../speedCurve.js';
 import { clipGainAt } from '../volKeys.js';
 import { actionForEvent, firstBinding, getCurrentKeymap, isKeyCaptureActive } from '../keymap.js';
+import { tr, useT } from '../i18n/index.jsx';
 
 
 // Overlay effects (snow, sparkles, fire...) of every clip on screen at time t, drawn in project pixels.
@@ -238,6 +239,7 @@ export default function Preview({
   cropEdit, onCropDraft,
   colorPick, onColorPicked,
 }) {
+  const t = useT();
   const [dropOver, setDropOver] = useState(false);
   const slots = [useRef(null), useRef(null)];
   const vids = [useRef(null), useRef(null)];
@@ -716,14 +718,14 @@ export default function Preview({
   }, [time, project, scale, fontTick]);
 
   return (
-    <section ref={playerRef} className={`player ${dropOver ? 'drop-target' : ''} ${full ? 'is-full' : ''} ${peek ? 'peeking' : ''}`} aria-label="Player"
+    <section ref={playerRef} dir="ltr" className={`player ${dropOver ? 'drop-target' : ''} ${full ? 'is-full' : ''} ${peek ? 'peeking' : ''}`} aria-label={t('player.title')}
       onDragOver={(e) => { if (!isInternal(e)) return; e.preventDefault(); e.stopPropagation(); setDropOver(true); }}
       onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDropOver(false); }}
       onDrop={(e) => { if (!isInternal(e)) return; e.preventDefault(); e.stopPropagation(); setDropOver(false); onDropItem(readPayload(e)); }}>
       <div className="panel-head">
-        <span className="panel-title">Player</span>
-        {peek ? <span className="pill peek-pill" title={peek.name}>{peek.assetPath ? 'Asset' : 'Media'} · {peek.name}</span>
-          : <span className="pill">{project.ratio} · {project.width}×{project.height} · {project.fps} fps</span>}
+        <span className="panel-title">{t('player.title')}</span>
+        {peek ? <span className="pill peek-pill" title={peek.name}>{peek.assetPath ? t('player.asset') : t('player.media')} · {peek.name}</span>
+          : <span className="pill">{project.ratio} · {project.width}×{project.height} · {project.fps} {t('player.fpsUnit')}</span>}
       </div>
       {peek && <MediaPeek m={peek} fps={project.fps} onClose={onClosePeek} onAdd={onAddPeek} />}
       <div className={`stage-wrap ${view.z > 1 ? 'zoomed' : ''}`} ref={wrapRef} onMouseDown={onStageMouseDown}>
@@ -749,11 +751,11 @@ export default function Preview({
             <div className={`stage-note ${stageChip.kind}`} role="status">
               {stageChip.kind === 'failed' ? (
                 <>
-                  <span>Couldn't make a preview copy for “{stageChip.m.name}” — this file can't play in the preview as-is. Export still uses the original.</span>
-                  <button className="stage-note-btn" onClick={() => retryPreview(stageChip.m)}>Retry</button>
+                  <span>{t('player.failedCopy', { name: stageChip.m.name })}</span>
+                  <button className="stage-note-btn" onClick={() => retryPreview(stageChip.m)}>{t('common.retry')}</button>
                 </>
               ) : (
-                <span>Preparing preview… making a playable copy of “{stageChip.m.name}”. Export uses the original.</span>
+                <span>{t('player.preparing', { name: stageChip.m.name })}</span>
               )}
             </div>
           )}
@@ -814,7 +816,7 @@ export default function Preview({
             return <CropEditOverlay project={project} clip={srcClip} media={srcMedia} value={cropEdit.draftCrop} aspectId={cropEdit.draftAspect} onDraft={onCropDraft} time={time} />;
           })()}
           {colorPick && (
-            <div className="color-pick" role="button" aria-label="Click the color to key out"
+            <div className="color-pick" role="button" aria-label={t('player.colorPick')}
               onClick={async (e) => {
                 const srcClip = [...project.videoClips, ...(project.overlayClips || [])].find((c) => c.id === colorPick.id);
                 const srcMedia = srcClip && project.media.find((m) => m.id === srcClip.mediaId);
@@ -837,7 +839,7 @@ export default function Preview({
             const bw = trackPick.box ? trackPick.box.w * fit.fx * 100 : 9;
             const bh = trackPick.box ? trackPick.box.h * fit.fy * 100 : 9;
             return (
-              <div className="track-pick" role="button" aria-label="Click the object to track"
+              <div className="track-pick" role="button" aria-label={t('player.trackPick')}
                 onClick={(e) => {
                   const r = e.currentTarget.getBoundingClientRect();
                   const sx = (e.clientX - r.left) / r.width;
@@ -853,7 +855,7 @@ export default function Preview({
                     <span className="track-dot" style={{ left: `${at.x * 100}%`, top: `${at.y * 100}%` }} />
                   </>
                 )}
-                <span className="track-pick-hint">{trackPick.point ? 'Click again to move the point, then Track in the inspector' : 'Click the object you want to follow'}</span>
+                <span className="track-pick-hint">{trackPick.point ? t('player.trackAgain') : t('player.trackClick')}</span>
               </div>
             );
           })()}
@@ -861,16 +863,16 @@ export default function Preview({
             <div className="stage-lost" role="status">
               <div className="stage-lost-box">
                 <Unlink size={34} aria-hidden="true" />
-                <b>Media Not Found</b>
+                <b>{t('player.mediaNotFound')}</b>
                 <span className="stage-lost-name">{lostMain.name}</span>
-                <span className="stage-lost-hint">The file moved or was deleted — relink it from the Media panel.</span>
+                <span className="stage-lost-hint">{t('player.lostHint')}</span>
               </div>
             </div>
           )}
           {!project.videoClips.length && (
             <div className="stage-empty">
               <img src="./logo.png" alt="" draggable={false} />
-              <span>Drop a video or photo here, or on the timeline</span>
+              <span>{t('player.empty')}</span>
             </div>
           )}
         </div>
@@ -878,36 +880,36 @@ export default function Preview({
       <div className="transport">
         <span className="tc"><b>{formatTime(time)}</b><span> / {formatTime(duration)}</span></span>
         <div className="transport-btns">
-          <button className="icon-btn" aria-label="Go to start (Home)" title="Go to start (Home)" onClick={() => onSeek(0)}><SkipBack size={16} /></button>
-          <button className="icon-btn" aria-label="Previous frame (←)" title="Previous frame (←)" onClick={() => onSeek(time - 1 / project.fps)}><ChevronLeft size={18} /></button>
-          <button className="play-btn" onClick={onTogglePlay} aria-label={playing ? 'Pause (Space)' : 'Play (Space)'} title="Space">
+          <button className="icon-btn" aria-label={t('player.goStart')} title={t('player.goStart')} onClick={() => onSeek(0)}><SkipBack size={16} /></button>
+          <button className="icon-btn" aria-label={t('player.prevFrame')} title={t('player.prevFrame')} onClick={() => onSeek(time - 1 / project.fps)}><ChevronLeft size={18} /></button>
+          <button className="play-btn" onClick={onTogglePlay} aria-label={playing ? t('player.pause') : t('player.play')} title={t('player.space')}>
             {playing ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}
           </button>
-          <button className="icon-btn" aria-label="Next frame (→)" title="Next frame (→)" onClick={() => onSeek(time + 1 / project.fps)}><ChevronRight size={18} /></button>
-          <button className="icon-btn" aria-label="Go to end" title="Go to end" onClick={() => onSeek(duration)}><SkipForward size={16} /></button>
+          <button className="icon-btn" aria-label={t('player.nextFrame')} title={t('player.nextFrame')} onClick={() => onSeek(time + 1 / project.fps)}><ChevronRight size={18} /></button>
+          <button className="icon-btn" aria-label={t('player.goEnd')} title={t('player.goEnd')} onClick={() => onSeek(duration)}><SkipForward size={16} /></button>
         </div>
         <span className="tc-spacer">
           {onQualityChange && (
             <span className="transport-menu-wrap">
               <button className={`proxy-btn quality-btn ${quality !== 'full' ? 'on' : ''}`} onClick={() => setMenu(menu === 'quality' ? null : 'quality')}
                 aria-haspopup="menu" aria-expanded={menu === 'quality'}
-                title="Playback quality: lower levels play a scaled copy so editing stays smooth. Export always uses the original videos.">
-                <Gauge size={12} /> {QUALITY_LABELS[quality]} <ChevronUp size={11} />
+                title={t('player.qualityTitle')}>
+                <Gauge size={12} /> {t('player.qualityShort.' + quality)} <ChevronUp size={11} />
               </button>
               {menu === 'quality' && (
-                <div className="transport-menu" role="menu" aria-label="Playback quality">
+                <div className="transport-menu" role="menu" aria-label={t('player.qualityMenu')}>
                   {[
-                    ['full', 'Full quality', 'Original video resolution'],
-                    ['high', 'High quality', 'Smooth playback, no impact on exported video'],
-                    ['medium', 'Medium quality', 'Smoother playback, no impact on exported video'],
-                    ['low', 'Low quality', 'Smoothest playback, no impact on exported video'],
+                    ['full', t('player.qFull'), t('player.qFullDesc')],
+                    ['high', t('player.qHigh'), t('player.qSmoothDesc')],
+                    ['medium', t('player.qMedium'), t('player.qSmootherDesc')],
+                    ['low', t('player.qLow'), t('player.qSmoothestDesc')],
                   ].map(([id, name, desc]) => (
                     <button key={id} className={`transport-menu-item ${quality === id ? 'active' : ''}`} role="menuitemradio" aria-checked={quality === id}
                       onClick={() => { setMenu(null); onQualityChange(id); }}>
                       <span className="tm-check">{quality === id ? <Check size={14} /> : null}</span>
                       <span className="tm-text"><b>{name}</b><small>{desc}</small></span>
                       {preparing && quality === id && (
-                        <span className="tm-busy" role="status" title="Building this level's copies in the background — playback continues with the current copy">
+                        <span className="tm-busy" role="status" title={t('player.preparingCopies')}>
                           <LoaderCircle size={12} />
                         </span>
                       )}
@@ -920,20 +922,20 @@ export default function Preview({
           {onPerfToggle && (
             <button className={`proxy-btn perf-btn ${perfMode === 'low-end' ? 'on' : ''}`} onClick={() => onPerfToggle(perfMode !== 'low-end')}
               aria-pressed={perfMode === 'low-end'}
-              title="Performance mode for weak PCs: Low playback copies, one background job at a time, lighter thumbnails and waveforms, exports yield CPU to the rest of the PC. Export quality is never changed.">
-              <Zap size={12} /> Performance
+              title={t('player.perfTitle')}>
+              <Zap size={12} /> {t('player.performance')}
             </button>
           )}
           <span className="transport-menu-wrap">
             <button className={`proxy-btn zoom-btn ${view.fit ? '' : 'on'}`} onClick={() => setMenu(menu === 'zoom' ? null : 'zoom')}
               aria-haspopup="menu" aria-expanded={menu === 'zoom'}
-              title="Zoom the preview (view only — clips and export are not affected). Mouse wheel over the video zooms too.">
-              <ZoomIn size={12} /> {view.fit ? 'Fit' : `${Math.round(view.z * 100)}%`} <ChevronUp size={11} />
+              title={t('player.zoomTitle')}>
+              <ZoomIn size={12} /> {view.fit ? t('player.fit') : `${Math.round(view.z * 100)}%`} <ChevronUp size={11} />
             </button>
             {menu === 'zoom' && (
-              <div className="transport-menu zoom-menu" role="menu" aria-label="Preview zoom">
+              <div className="transport-menu zoom-menu" role="menu" aria-label={t('player.zoomMenu')}>
                 {[
-                  ['fit', 'Fit'],
+                  ['fit', t('player.fit')],
                   [50, '50%'],
                   [100, '100%'],
                   [150, '150%'],
@@ -951,7 +953,7 @@ export default function Preview({
               </div>
             )}
           </span>
-          <button className="icon-btn" onClick={toggleFull} aria-label={full ? 'Exit full screen (Esc)' : (firstBinding(getCurrentKeymap(), 'fullscreen') ? `Full screen (${firstBinding(getCurrentKeymap(), 'fullscreen')})` : 'Full screen')} title={full ? 'Exit full screen (Esc)' : (firstBinding(getCurrentKeymap(), 'fullscreen') ? `Full screen (${firstBinding(getCurrentKeymap(), 'fullscreen')})` : 'Full screen')}>
+          <button className="icon-btn" onClick={toggleFull} aria-label={full ? t('player.exitFull') : (firstBinding(getCurrentKeymap(), 'fullscreen') ? t('player.fullScreenKey', { key: firstBinding(getCurrentKeymap(), 'fullscreen') }) : t('player.fullScreen'))} title={full ? t('player.exitFull') : (firstBinding(getCurrentKeymap(), 'fullscreen') ? t('player.fullScreenKey', { key: firstBinding(getCurrentKeymap(), 'fullscreen') }) : t('player.fullScreen'))}>
             {full ? <Minimize size={16} /> : <Maximize size={16} />}
           </button>
         </span>
@@ -1061,7 +1063,7 @@ function CropEditOverlay({ project, clip, media, value, aspectId, onDraft, time 
     window.addEventListener('pointerup', up);
   };
   return (
-    <div className="crop-edit" aria-label="Crop frame" ref={rootRef}>
+    <div className="crop-edit" aria-label={tr('player.cropFrame')} ref={rootRef}>
       <div className="crop-edit-xform" style={{ transform: layerStyle(clip, project.width, project.height, (hasMotion(clip) || clip.pin) ? { transform: tNow, opacity: 1 } : undefined).transform }}>
         <div className="crop-edit-src"
           style={{ left: `${((1 - geom.fx) / 2) * 100}%`, top: `${((1 - geom.fy) / 2) * 100}%`, width: `${geom.fx * 100}%`, height: `${geom.fy * 100}%`, transform: `scale(${geom.flipX ? -1 : 1}, ${geom.flipY ? -1 : 1})` }}>
@@ -1080,7 +1082,7 @@ function CropEditOverlay({ project, clip, media, value, aspectId, onDraft, time 
             <i className="crop-grid-h crop-center" style={{ top: '50%' }} />
           </div>
           {CROP_HANDLES.map((h) => (
-            <span key={h} className="crop-handle" role="slider" aria-label={`Crop edge ${h}`} title="Drag to crop"
+            <span key={h} className="crop-handle" role="slider" aria-label={tr('player.cropEdge', { edge: h })} title={tr('player.dragToCrop')}
               style={{ left: `${pos[h][0] * 100}%`, top: `${pos[h][1] * 100}%`, cursor: CROP_CURSORS[h] }}
               onPointerDown={(e) => startDrag(e, h)} />
           ))}

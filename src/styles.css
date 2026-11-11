@@ -130,6 +130,94 @@ body {
   user-select: none;
   overflow: hidden;
 }
+/* Cairo — the Arabic interface face (Hamza's brand font), bundled under the
+   SIL Open Font License 1.1 (see src/assets/fonts/cairo/OFL.txt). Static
+   weights from the official Google Fonts Cairo release: 400/600/700/900,
+   Arabic + Latin subsets, woff2. Served locally — the app never downloads
+   fonts for its own interface. */
+@font-face {
+  font-family: 'Cairo';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./assets/fonts/cairo/cairo-arabic-400-normal.woff2') format('woff2');
+  unicode-range: U+0600-06FF, U+0750-077F, U+08A0-08FF, U+FB50-FDFF, U+FE70-FEFF, U+2000-206F;
+}
+@font-face {
+  font-family: 'Cairo';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('./assets/fonts/cairo/cairo-arabic-600-normal.woff2') format('woff2');
+  unicode-range: U+0600-06FF, U+0750-077F, U+08A0-08FF, U+FB50-FDFF, U+FE70-FEFF, U+2000-206F;
+}
+@font-face {
+  font-family: 'Cairo';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./assets/fonts/cairo/cairo-arabic-700-normal.woff2') format('woff2');
+  unicode-range: U+0600-06FF, U+0750-077F, U+08A0-08FF, U+FB50-FDFF, U+FE70-FEFF, U+2000-206F;
+}
+@font-face {
+  font-family: 'Cairo';
+  font-style: normal;
+  font-weight: 900;
+  font-display: swap;
+  src: url('./assets/fonts/cairo/cairo-arabic-900-normal.woff2') format('woff2');
+  unicode-range: U+0600-06FF, U+0750-077F, U+08A0-08FF, U+FB50-FDFF, U+FE70-FEFF, U+2000-206F;
+}
+@font-face {
+  font-family: 'Cairo';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./assets/fonts/cairo/cairo-latin-400-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Cairo';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('./assets/fonts/cairo/cairo-latin-600-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Cairo';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./assets/fonts/cairo/cairo-latin-700-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Cairo';
+  font-style: normal;
+  font-weight: 900;
+  font-display: swap;
+  src: url('./assets/fonts/cairo/cairo-latin-900-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* Arabic interface (Settings › Language): the whole shell flips to RTL via
+   dir="rtl" on <html>; the font stack leads with the bundled Cairo, then
+   system Arabic faces as fallback. The timeline and the player keep
+   dir="ltr" on their own roots so time always runs left-to-right. */
+html.lang-ar body {
+  font-family: 'Cairo', 'Segoe UI', Tahoma, 'Noto Naskh Arabic', 'Noto Sans Arabic', sans-serif;
+  font-feature-settings: normal;
+}
+html.lang-ar input, html.lang-ar textarea, html.lang-ar select, html.lang-ar button {
+  font-family: inherit;
+}
+/* Arabic labels run wider than English in fixed chip grids (e.g. the
+   project frame-rate segment "60 إطارات"): let those buttons wrap and
+   breathe instead of clipping at the panel edge. */
+html.lang-ar .proj-seg.proj-grid5 button {
+  white-space: normal;
+  padding: 6px 2px;
+  line-height: 1.25;
+}
 h2, h3 { margin: 0; }
 p { margin: 0; }
 .muted { color: var(--text-3); font-size: var(--fs-3); }
@@ -518,11 +606,10 @@ kbd {
    Hamza's UI review, 2026-11-10; add-layer and the magnet live in the layer
    menu now). The five controls sit in a .tl-ctls cluster at the row's right
    edge — lock · eye · speaker · solo · more, 20px cells on a 2px gap — and
-   take NO width by default (display rules at the end of this file), so the
-   layer name gets the head's full width; they appear on row hover/focus, and
-   a control in an active state (locked, hidden, muted, soloed) stays
-   visible. Missing controls render an empty .tl-ctl-slot inside the cluster
-   so the revealed columns never shift. */
+   are always visible (display rules at the end of this file; Hamza,
+   2026-11-11), so the layer name truncates against the fixed cluster.
+   Missing controls render an empty .tl-ctl-slot inside the cluster
+   so the columns never shift. */
 .tl-layer-stack { position: relative; flex: 1; min-height: 0; }
 .tl-layer-row { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; column-gap: var(--sp-0); align-items: center; padding: 0 4px; }
 .tl-ctls { display: flex; align-items: center; gap: var(--sp-0); }
@@ -1317,6 +1404,14 @@ body.resizing-row, body.resizing-row * { cursor: row-resize !important; user-sel
 .rec-device select { flex: 1; min-width: 160px; max-width: 320px; }
 .rec-shape.seg-tabs.small { margin: 0; }
 .rec-shape button { display: inline-flex; align-items: center; gap: 5px; padding: 0 10px; }
+/* Screen recorder: mic-off warning, silent-recording notice, source-list error. */
+.rec-micwarn, .rec-notice { display: flex; gap: var(--sp-3); align-items: flex-start; padding: 10px 12px; border-radius: var(--r-md); border: 1px solid var(--danger); background: rgba(239, 68, 68, 0.10); color: var(--text); font-size: var(--fs-3); }
+.rec-micwarn > svg, .rec-notice > svg { flex: none; margin-top: 2px; color: #f87171; }
+.rec-micwarn-text, .rec-notice-text { flex: 1; min-width: 0; }
+.rec-micwarn-text p, .rec-notice-text p { margin: 2px 0 0; color: var(--text-2); line-height: 1.45; }
+.rec-micwarn-actions { display: flex; flex-direction: column; gap: var(--sp-2); flex: none; }
+.rec-srcerror { grid-column: 1 / -1; display: flex; flex-direction: column; gap: var(--sp-2); align-items: flex-start; padding: 12px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-1); font-size: var(--fs-3); }
+.rec-srcerror p { margin: 0; line-height: 1.45; }
 .select-box { position: absolute; z-index: 30; pointer-events: none; border: 1px solid var(--primary); background: rgba(130, 92, 251, 0.12); border-radius: 2px; }
 .multi-note { margin: 10px 0 4px; padding: 8px 10px; border-radius: var(--r-md); background: var(--primary-soft); color: var(--text); font-size: var(--fs-3); line-height: 1.45; }
 .tc-spacer { display: flex; justify-content: flex-end; align-items: center; gap: var(--sp-2); }
@@ -2732,6 +2827,18 @@ input[type='range']:not(.grade-range)::-moz-range-thumb { width: 12px; height: 1
 .x-foot-left { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .x-queue-hint { color: var(--text-3); font-size: var(--fs-2h); }
 
+/* ---- AI Enhance: the dialog's field rows and the completion toast ---- */
+.enhance-field { margin-top: var(--sp-3); text-align: left; }
+.enhance-label { display: block; font-size: var(--fs-2); font-weight: 600; color: var(--text-2); margin-bottom: 4px; }
+.enhance-field .seg-tabs { margin: 0; }
+.enhance-target { font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-toast {
+  position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 95;
+  background: var(--surface-3, #23233a); border: 1px solid var(--border); border-radius: var(--r-lg);
+  padding: 10px 16px; color: var(--text); font-size: var(--fs-3h); box-shadow: 0 12px 32px rgba(0,0,0,.45);
+  max-width: min(560px, calc(100vw - 40px)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
 .xjobs { position: fixed; right: 18px; bottom: 18px; z-index: 90; display: flex; flex-direction: column; gap: var(--sp-4); width: min(360px, calc(100vw - 36px)); max-height: calc(100vh - 120px); overflow-y: auto; }
 .xjob { background: var(--surface-3, #23233a); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 11px 13px; color: var(--text); font-size: var(--fs-3h); box-shadow: 0 12px 32px rgba(0,0,0,.45); display: flex; flex-direction: column; gap: 7px; }
 .xjob-head { display: flex; align-items: center; gap: var(--sp-3); min-width: 0; }
@@ -3167,25 +3274,45 @@ input.switch:checked::after { transform: translateX(14px); }
   background: var(--surface-1); border-bottom: 1px solid var(--border);
   /* A 30px gutter at the wrap's right end: App's panel-hide button (‹) is
      absolutely positioned over exactly that corner cell — with the gutter,
-     the corner carries the ‹ alone and the strip (with its in-row ») ends
-     before it. Hamza's screenshot review, 2026-11-10. */
+     the corner carries the ‹ alone and the strip (with its in-row
+     scroll-arrow pair) ends before it. Hamza's screenshot review,
+     2026-11-10. */
   padding-right: 30px;
 }
 .toprail { display: flex; align-items: stretch; gap: 2px; padding: 4px 0 4px 8px;
   flex: 1 1 auto; min-width: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
 .toprail::-webkit-scrollbar { display: none; }
 .toprail-arrow {
-  /* The strip's final element, inside the scroll row: sticky to the row's
-     right edge with an opaque ground, so tabs slide under it (CapCut's
-     pattern) instead of the arrow owning a separate corner cell. */
-  position: sticky; right: 0; z-index: 2;
   flex: none; width: 30px; display: grid; place-items: center;
-  background: var(--surface-1); box-shadow: -1px 0 0 var(--border);
+  background: transparent;
   border: 0; color: var(--text-2); cursor: pointer;
 }
-.toprail-arrow:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
-.toprail-arrow:disabled { opacity: 0.25; cursor: default; }
+.toprail-arrow:hover { background: var(--surface-2); color: var(--text); }
 .toprail-arrow:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+
+/* ---- Toprail end arrows: the scroll buttons sit at the strip's two
+   physical ends (Hamza, 2026-11-11 — "the left button goes on the
+   left, the right button goes on the right", reversing the grouped
+   pair of 257beac). They are overlays pinned to the wrap's ends —
+   absolute insets, physical by construction in LTR and RTL alike
+   (in-row sticky cells held in LTR but drifted with the content in
+   the RTL scroller). The NEXT cell stops 30px short of the wrap's
+   right edge, clear of the gutter that carries App's panel-hide ‹.
+   Each button renders only while content hides on its side
+   (TopRail.jsx), so there is no disabled state — the strip reclaims
+   the cell, and the matching has-prev / has-next end padding below is
+   what lets the first / last tab rest clear of its button; the rest
+   of the time tabs scroll under the opaque cells. ---- */
+.toprail-wrap { position: relative; }
+.toprail-end {
+  position: absolute; top: 0; bottom: 0; z-index: 3;
+  display: flex; align-items: stretch;
+  background: var(--surface-1);
+}
+.toprail-end-prev { left: 0; box-shadow: 1px 0 0 var(--border); }
+.toprail-end-next { right: 30px; box-shadow: -1px 0 0 var(--border); }
+.toprail-wrap.has-prev .toprail { padding-left: 30px; }
+.toprail-wrap.has-next .toprail { padding-right: 30px; }
 
 /* ---- The left column: the category rail sits over the library panel only
    (Hamza, 2026-11-10 — the strip ends where the player begins) ---- */
@@ -3319,20 +3446,12 @@ input.switch:checked::after { transform: translateX(14px); }
 .stage { box-shadow: none; }
 .stage-empty { background: #000; }
 
-/* Lane-head controls stay quiet until needed (Hamza's addendum, 2026-11-10,
-   the reference's pattern): lock / eye / mute / solo / menu sit at low
-   opacity, come fully in while the lane's head is hovered, and any control
-   in its active state (locked, hidden, muted, soloed) is always full. */
-/* Lane-head controls take NO width by default (Hamza's screenshot review,
-   2026-11-10 — opacity alone starved the layer name into "Ove…"/"Stic…"): an
-   inactive control is display:none, a control in an active state (.on —
-   locked, hidden, muted, soloed) stays visible, and hovering or
-   keyboard-focusing the layer row reveals the full cluster. The ⋯ menu has
-   no active state, so it is hover/focus only. */
-.tl-ctls .tl-ctl, .tl-ctls .tl-ctl-slot { display: none; }
-.tl-ctls .tl-ctl.on { display: grid; }
-.tl-layer-row:hover .tl-ctls .tl-ctl, .tl-layer-row:focus-within .tl-ctls .tl-ctl { display: grid; }
-.tl-layer-row:hover .tl-ctls .tl-ctl-slot, .tl-layer-row:focus-within .tl-ctls .tl-ctl-slot { display: block; }
+/* Lane-head controls are ALWAYS visible (Hamza, 2026-11-11 — reversing the
+   2026-11-10 hover reveal): every control and every empty slot renders in
+   every lane state, hovered or not, so the cluster's columns never shift
+   and the layer name truncates against a fixed cluster. */
+.tl-ctls .tl-ctl { display: grid; }
+.tl-ctls .tl-ctl-slot { display: block; }
 
 /* Keyboard shortcuts dialog (opened from the TopBar Menu). */
 .shortcuts-modal { position: relative; align-items: stretch; text-align: left; gap: var(--sp-3); }

@@ -31,6 +31,8 @@ import CurveEditor from './CurveEditor.jsx';
 import SpeedCurveEditor from './SpeedCurveEditor.jsx';
 import VolKeyEditor from './VolKeyEditor.jsx';
 import { hasCurve } from '../speedCurve.js';
+import { tr, useT } from '../i18n/index.jsx';
+import { libName } from '../i18n/libNames.js';
 
 const pct = (v) => `${Math.round(v * 100)}%`;
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
@@ -40,6 +42,7 @@ const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
 // folded state persists per section id (R3, src/ui/Section.jsx), so the panel
 // reopens the way the user left it. Children stay mounted while folded.
 function Section({ id, title, onReset, children, check, keys }) {
+  const t = useT();
   const [open, toggle] = useSectionOpen(id || `clip:${title}`);
   return (
     <section className={`ci-section ${open ? '' : 'collapsed'}`}>
@@ -47,8 +50,8 @@ function Section({ id, title, onReset, children, check, keys }) {
         {check}
         <b>{title}</b>
         {keys}
-        {onReset && <button className="icon-btn sm" aria-label={`Reset ${title}`} title="Reset" onClick={onReset}><RotateCcw size={13} /></button>}
-        <SectionChevron open={open} onToggle={toggle} label={`${open ? 'Collapse' : 'Expand'} ${title}`} />
+        {onReset && <button className="icon-btn sm" aria-label={t('ci.resetAria', { title })} title={t('common.reset')} onClick={onReset}><RotateCcw size={13} /></button>}
+        <SectionChevron open={open} onToggle={toggle} label={open ? t('ci.collapse', { title }) : t('ci.expand', { title })} />
       </div>
       <div className="ci-body">{children}</div>
     </section>
@@ -73,6 +76,7 @@ function MaskIcon({ type }) {
 // Auto removal (AI): the people in a video are found on this PC (the model downloads once, about
 // 15 MB) and a matte is made once per video; then the background is transparent in the preview and the export.
 function AutoRemoval({ clip, media, set, dispatch }) {
+  const t = useT();
   const [job, setJob] = useState(null); // { stage: 'download' | 'matte', fraction } while working
   const [error, setError] = useState('');
   useEffect(() => window.api.onMattingProgress((p) => { if (p.path === media.path) setJob({ stage: p.stage, fraction: p.fraction }); }), [media.path]);
@@ -97,19 +101,19 @@ function AutoRemoval({ clip, media, set, dispatch }) {
   };
   const pctOf = (f) => `${Math.round((f || 0) * 100)}%`;
   return (
-    <Section id="removebg:auto" title="Auto removal"
-      check={<Toggle aria-label="Auto removal" checked={on || !!job} disabled={!isVideo || !!job} onChange={(e) => toggle(e.target.checked)} />}>
+    <Section id="removebg:auto" title={t('ci.autoRemoval')}
+      check={<Toggle aria-label={t('ci.autoRemoval')} checked={on || !!job} disabled={!isVideo || !!job} onChange={(e) => toggle(e.target.checked)} />}>
       <p className="dim small">
-        {isVideo ? 'AI finds the people in the video and removes the background, without a green screen. Runs on this PC.' : 'Auto removal works on videos.'}
+        {isVideo ? t('ci.autoNoteVideo') : t('ci.autoNotePhoto')}
       </p>
       {job && (
         <div className="progress-block" aria-live="polite">
-          <span>{job.stage === 'download' ? `Downloading the AI model (15 MB)… ${pctOf(job.fraction)}` : `Removing the background… ${pctOf(job.fraction)}`}</span>
+          <span>{job.stage === 'download' ? t('ci.downloadingModel', { pct: pctOf(job.fraction) }) : t('ci.removingBg', { pct: pctOf(job.fraction) })}</span>
           <div className="progress"><div style={{ width: pctOf(job.fraction) }} /></div>
-          <button className="btn btn-sm" onClick={() => window.api.mattingCancel()}>Cancel</button>
+          <button className="btn btn-sm" onClick={() => window.api.mattingCancel()}>{t('common.cancel')}</button>
         </div>
       )}
-      {!job && isVideo && !ready && <p className="dim small">The first time takes a while (about 3 times the video's length on a laptop); then it is instant.</p>}
+      {!job && isVideo && !ready && <p className="dim small">{t('ci.autoFirstTime')}</p>}
       {error && <p className="error-text">{error}</p>}
     </Section>
   );
@@ -118,8 +122,9 @@ function AutoRemoval({ clip, media, set, dispatch }) {
 // Stabilize: the clip's part of the video is steadied by the main process (vid.stab) into a new file,
 // which the clip then plays. clip.stabilize keeps the level and the original { mediaId, in, out }, so Off (or
 // another level) starts again from the original.
-const STAB_LEVELS = [['off', 'Off'], ['minimal', 'Minimal crop'], ['recommended', 'Recommended'], ['most', 'Most stable']];
+const STAB_LEVELS = [['off', 'ci.stabOff'], ['minimal', 'ci.stabMinimal'], ['recommended', 'ci.stabRecommended'], ['most', 'ci.stabMost']];
 function Stabilize({ clip, media, project, set, dispatch }) {
+  const t = useT();
   const [job, setJob] = useState(null); // { fraction } while working
   const [error, setError] = useState('');
   const st = clip.stabilize || null;
@@ -147,19 +152,19 @@ function Stabilize({ clip, media, project, set, dispatch }) {
     set({ mediaId: m.id, in: 0, out: m.duration, stabilize: { level, mediaId: st ? st.mediaId : clip.mediaId, in: from, out: to } });
   };
   return (
-    <Section id="video:stabilize" title="Stabilize">
-      <p className="dim small">Steadies shaky camera footage, like a gimbal. The picture is zoomed in a little to hide the moving edges.</p>
-      <div className="seg-tabs small stab-levels" role="radiogroup" aria-label="Stabilize">
+    <Section id="video:stabilize" title={t('ci.stabilize')}>
+      <p className="dim small">{t('ci.stabNote')}</p>
+      <div className="seg-tabs small stab-levels" role="radiogroup" aria-label={t('ci.stabilize')}>
         {STAB_LEVELS.map(([id, name]) => (
           <button key={id} role="radio" aria-checked={(st?.level || 'off') === id} className={(st?.level || 'off') === id ? 'on' : ''}
-            disabled={!!job} onClick={() => choose(id)}>{name}</button>
+            disabled={!!job} onClick={() => choose(id)}>{t(name)}</button>
         ))}
       </div>
       {job && (
         <div className="progress-block" aria-live="polite">
-          <span>{job.fraction < 0.5 ? 'Analyzing the camera shake…' : 'Stabilizing…'} {Math.round(job.fraction * 100)}%</span>
+          <span>{job.fraction < 0.5 ? t('ci.analyzingShake') : t('ci.stabilizing')} {Math.round(job.fraction * 100)}%</span>
           <div className="progress"><div style={{ width: `${Math.round(job.fraction * 100)}%` }} /></div>
-          <button className="btn btn-sm" onClick={() => window.api.stabilizeCancel()}>Cancel</button>
+          <button className="btn btn-sm" onClick={() => window.api.stabilizeCancel()}>{t('common.cancel')}</button>
         </div>
       )}
       {error && <p className="error-text">{error}</p>}
@@ -171,22 +176,23 @@ function Stabilize({ clip, media, project, set, dispatch }) {
 // through the clip in the main process, and the path is stored on the clip (clip.track). Followers pin
 // to it with PinToTrack below. Progress and cancel live in App's render-job pill, like the other renders.
 function MotionTracking({ clip, media, set, onTrackPick, track }) {
+  const t = useT();
   if (!media || media.type !== 'video') return null;
   const tr = clip.track && clip.track.points && clip.track.points.length ? clip.track : null;
   const low = tr ? tr.points.filter((p) => (p.c ?? 1) < 0.35).length : 0;
   return (
-    <Section id="video:tracking" title="Motion tracking">
-      <p className="dim small">Follow a moving point in this clip — a face, a product, a car. Overlay and text clips can then be pinned to it and travel with it.</p>
+    <Section id="video:tracking" title={t('ci.motionTracking')}>
+      <p className="dim small">{t('ci.trackNote')}</p>
       {tr ? (
         <>
-          <p className="dim small">Tracked {tr.points.length} points across the clip{low ? `; ${low} were uncertain and held their place (for example behind something)` : ''}.</p>
+          <p className="dim small">{t('ci.trackedPoints', { count: tr.points.length })}{low ? t('ci.trackedUncertain', { count: low }) : ''}.</p>
           <div className="row">
-            <button className="btn btn-sm" disabled={!onTrackPick} onClick={() => onTrackPick({ track, id: clip.id })}>Track again…</button>
-            <button className="btn btn-sm btn-ghost" onClick={() => set({ track: null })}>Remove track</button>
+            <button className="btn btn-sm" disabled={!onTrackPick} onClick={() => onTrackPick({ track, id: clip.id })}>{t('ci.trackAgain')}</button>
+            <button className="btn btn-sm btn-ghost" onClick={() => set({ track: null })}>{t('ci.removeTrack')}</button>
           </div>
         </>
       ) : (
-        <button className="btn btn-sm" disabled={!onTrackPick} onClick={() => onTrackPick({ track, id: clip.id })}>Track motion…</button>
+        <button className="btn btn-sm" disabled={!onTrackPick} onClick={() => onTrackPick({ track, id: clip.id })}>{t('ci.trackMotion')}</button>
       )}
     </Section>
   );
@@ -196,29 +202,30 @@ function MotionTracking({ clip, media, set, onTrackPick, track }) {
 // it (src/track.js evaluates the offset live, in the preview and the export alike). Rendered as a
 // Section inside ClipInspector and as a card in the text inspector (card prop).
 export function PinToTrack({ clip, project, set, card = false }) {
+  const t = useT();
   const sources = trackedClips(project).filter((s) => s.clip.id !== clip.id);
   const pinnedTo = clip.pin && clip.pin.to ? findClipAnywhere(project, clip.pin.to) : null;
   const nameOf = (ref) => {
     const m = ref && project.media.find((x) => x.id === ref.clip.mediaId);
-    return m?.name || 'a clip';
+    return m?.name || t('ci.aClip');
   };
   const body = pinnedTo ? (
     <>
-      <p className="dim small">Following the motion tracked in “{nameOf(pinnedTo)}”. The clip keeps the position it has when it starts, then travels with the point.</p>
-      <button className="btn btn-sm" onClick={() => set({ pin: null })}>Unpin</button>
+      <p className="dim small">{t('ci.pinFollowing', { name: nameOf(pinnedTo) })}</p>
+      <button className="btn btn-sm" onClick={() => set({ pin: null })}>{t('ci.unpin')}</button>
     </>
   ) : sources.length ? (
     <>
-      <p className="dim small">Make this clip follow a moving point tracked in another clip.</p>
+      <p className="dim small">{t('ci.pinNote')}</p>
       {sources.map((s) => (
-        <button key={s.clip.id} className="btn btn-sm" onClick={() => set({ pin: { to: s.clip.id } })}>Pin to “{nameOf(s)}”</button>
+        <button key={s.clip.id} className="btn btn-sm" onClick={() => set({ pin: { to: s.clip.id } })}>{t('ci.pinTo', { name: nameOf(s) })}</button>
       ))}
     </>
   ) : (
-    <p className="dim small">No tracked clips yet. Select a video clip and use Track motion in its inspector first.</p>
+    <p className="dim small">{t('ci.pinNo')}</p>
   );
-  if (card) return <InspCard id="text:pin" title="Pin to track">{body}</InspCard>;
-  return <Section id="video:pin" title="Pin to track">{body}</Section>;
+  if (card) return <InspCard id="text:pin" title={t('ci.pinToTrack')}>{body}</InspCard>;
+  return <Section id="video:pin" title={t('ci.pinToTrack')}>{body}</Section>;
 }
 
 // One effect bound to this clip, managed from the clip's own inspector (R3 —
@@ -228,6 +235,7 @@ export function PinToTrack({ clip, project, set, card = false }) {
 // writing the clip's fxTiming/fxStrength/fxRegions maps exactly as the
 // Effects-lane effect panel does — one behaviour, two doors.
 function FxEntry({ clip, track, fx, dispatch, defaultOpen = false }) {
+  const t = useT();
   const [open, setOpen] = useState(defaultOpen);
   const e = EFFECTS.find((x) => x.id === fx);
   return (
@@ -235,11 +243,11 @@ function FxEntry({ clip, track, fx, dispatch, defaultOpen = false }) {
       <div className="fx-entry-head">
         <button type="button" className="fx-entry-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
           <span className="fx-icon"><FxGlyph group={e?.group} size={15} /></span>
-          <b>{e?.name || fx}</b>
+          <b>{libName('fx', fx, e?.name || fx)}</b>
           <ChevronDown size={14} className={open ? 'rot' : ''} />
         </button>
-        <button type="button" className="icon-btn sm fx-entry-remove" aria-label={`Remove ${e?.name || fx}`}
-          title="Remove effect" onClick={() => dispatch({ type: 'removeEffect', id: `${track}|${clip.id}|${fx}` })}>
+        <button type="button" className="icon-btn sm fx-entry-remove" aria-label={t('ci.removeFxAria', { name: libName('fx', fx, e?.name || fx) })}
+          title={t('insp.removeEffect')} onClick={() => dispatch({ type: 'removeEffect', id: `${track}|${clip.id}|${fx}` })}>
           <X size={13} />
         </button>
       </div>
@@ -251,6 +259,7 @@ function FxEntry({ clip, track, fx, dispatch, defaultOpen = false }) {
 // Properties of a picture clip (main track or overlay), the clip properties panel.
 // time: playhead; start: where the clip starts on the timeline (values and keyframes follow the playhead).
 export default function ClipInspector({ clip, media, project, set, dispatch, track, time = 0, start = 0, onSeek = () => {}, onEnhance = null, onTrackPick = null, onCropEdit = null, onColorPick = null }) {
+  const t = useT();
   const [tab, setTab] = useState('video');
   const [sub, setSub] = useState('basic');
   const [maskEdit, setMaskEdit] = useState(false);
@@ -273,11 +282,11 @@ export default function ClipInspector({ clip, media, project, set, dispatch, tra
   const lt = inside ? Math.min(len, Math.max(0, time - start)) : null;
   // Values at the playhead (keyframes applied); an edit of a keyframed value adds a keyframe there.
   const at = baseAt(clip, lt ?? 0);
-  const t = { ...transformOf(clip), scale: at.scale, x: at.x, y: at.y, rot: at.rot };
-  const { sx } = scaleXY(t);
+  const tf = { ...transformOf(clip), scale: at.scale, x: at.x, y: at.y, rot: at.rot };
+  const { sx } = scaleXY(tf);
   const setT = (patch) => set(editAt(clip, patch, lt ?? 0));
   const keys = (props, label) => (
-    <KeyNav clip={clip} props={props} lt={lt} start={start} fps={fps} set={set} onSeek={onSeek} label={label} />
+    <KeyNav clip={clip} props={props} lt={lt} start={start} fps={fps} set={set} onSeek={onSeek} label={t('lib.prop.' + label)} />
   );
   const dropKeys = (props) => {
     const k = { ...(clip.keyframes || {}) };
@@ -293,7 +302,7 @@ export default function ClipInspector({ clip, media, project, set, dispatch, tra
   const cropNow = cropOf(clip);
   const fitW = media?.width ? Math.min(1, (media.width / media.height) / (W / H)) : 1;
   const fitH = media?.width ? Math.min(1, (media.height / media.width) / (H / W)) : 1;
-  const { sx: ex, sy: ey } = scaleXY(t);
+  const { sx: ex, sy: ey } = scaleXY(tf);
   // Align pad anchors for one axis, from the scaled picture's size on it as a fraction of the
   // frame (w). Smaller than the frame: flush inside it (left cell = picture's left edge on the
   // frame's left edge). Larger: pan, so the chosen edge of the picture meets the frame's edge
@@ -314,12 +323,12 @@ export default function ClipInspector({ clip, media, project, set, dispatch, tra
     for (let i = 0; i < 3; i++) if (Math.abs(v - anchors[i]) <= eps) return i;
     return -1;
   };
-  const acol = matchAxis(t.x, anchorsX, 0.6 / W);
-  const arow = matchAxis(t.y, anchorsY, 0.6 / H);
+  const acol = matchAxis(tf.x, anchorsX, 0.6 / W);
+  const arow = matchAxis(tf.y, anchorsY, 0.6 / H);
   const activeAnchor = acol >= 0 && arow >= 0 ? arow * 3 + acol : -1;
-  const PAD_LABELS = ['Align top-left', 'Align top', 'Align top-right', 'Align left', 'Align center', 'Align right', 'Align bottom-left', 'Align bottom', 'Align bottom-right'];
-  const alignPad = PAD_LABELS.map((label, i) => ({
-    label,
+  const PAD_LABELS = ['ci.alignTopLeft', 'ci.alignTop', 'ci.alignTopRight', 'ci.alignLeft', 'ci.alignCenter', 'ci.alignRight', 'ci.alignBottomLeft', 'ci.alignBottom', 'ci.alignBottomRight'];
+  const alignPad = PAD_LABELS.map((labelKey, i) => ({
+    label: t(labelKey),
     patch: { x: anchorsX[i % 3], y: anchorsY[Math.floor(i / 3)] },
     dot: { left: `${[14, 50, 86][i % 3]}%`, top: `${[18, 50, 82][Math.floor(i / 3)]}%` },
   }));
@@ -339,7 +348,7 @@ export default function ClipInspector({ clip, media, project, set, dispatch, tra
     setT({ uniform: true, scale: Math.min(4, cover / contain), x: 0, y: 0 });
   };
 
-  const tabs = [['video', 'Video'], ['animation', 'Animation'], ...(isVideo ? [['audio', 'Audio'], ['speed', 'Speed']] : []), ['adjust', 'Adjust']];
+  const tabs = [['video', t('ci.tabVideo')], ['animation', t('ci.tabAnimation')], ...(isVideo ? [['audio', t('ci.tabAudio')], ['speed', t('ci.tabSpeed')]] : []), ['adjust', t('panel.tab.adjust')]];
 
   return (
     <div className="clip-inspector">
@@ -349,77 +358,77 @@ export default function ClipInspector({ clip, media, project, set, dispatch, tra
         ))}
       </div>
       <div className="info">{media?.name}<br />
-        <span className="dim">{media?.width}×{media?.height}{isVideo ? ` · ${formatTime(media.duration)}` : ' · photo'} · on timeline: {clipLen(clip).toFixed(2)}s</span>
+        <span className="dim">{media?.width}×{media?.height}{isVideo ? ` · ${formatTime(media.duration)}` : ` · ${t('ci.photo')}`} · {t('ci.onTimeline', { dur: clipLen(clip).toFixed(2) })}</span>
       </div>
 
       {tab === 'video' && (
         <>
           <div className="seg-tabs small" role="tablist">
-            {[['basic', 'Basic'], ['removebg', 'Remove BG'], ['mask', 'Mask']].map(([id, name]) => (
+            {[['basic', t('ci.subBasic')], ['removebg', t('ci.removeBg')], ['mask', t('ci.mask')]].map(([id, name]) => (
               <button key={id} role="tab" aria-selected={sub === id} className={sub === id ? 'on' : ''} onClick={() => setSub(id)}>{name}</button>
             ))}
           </div>
 
           {sub === 'basic' && (
             <>
-              <Section id="video:transform" title="Transform" keys={keys(['scale', 'x', 'y', 'rot'], 'transform')}
+              <Section id="video:transform" title={t('ci.transform')} keys={keys(['scale', 'x', 'y', 'rot'], 'transform')}
                 onReset={() => set({ transform: { ...DEFAULT_TRANSFORM }, keyframes: dropKeys(['scale', 'x', 'y', 'rot']) })}>
-                {S({ label: 'Scale', value: t.scale, min: 0.05, max: 4, step: 0.01, fmt: pct, numScale: 100, onChange: (scale) => setT({ scale }), extra: keys(['scale'], 'scale') })}
+                {S({ label: t('insp.scale'), value: tf.scale, min: 0.05, max: 4, step: 0.01, fmt: pct, numScale: 100, onChange: (scale) => setT({ scale }), extra: keys(['scale'], 'scale') })}
                 <div className="fitfill-row">
                   <button type="button" className="btn btn-sm" onClick={() => fitFill('fit')}
-                    title="Show the whole picture inside the frame">Fit</button>
+                    title={t('ci.fitTitle')}>{t('ci.fit')}</button>
                   <button type="button" className="btn btn-sm" onClick={() => fitFill('fill')}
-                    title="Cover the whole frame with the picture (the overflow is cropped)">Fill</button>
-                  <span className="dim small">Fit: whole picture visible · Fill: frame covered, overflow cropped</span>
+                    title={t('ci.fillTitle')}>{t('ci.fill')}</button>
+                  <span className="dim small">{t('ci.fitFillNote')}</span>
                 </div>
                 <label className="field row">
-                  <span>Uniform scale</span>
-                  <Toggle checked={t.uniform} onChange={(e) => setT({ uniform: e.target.checked })} />
+                  <span>{t('ci.uniformScale')}</span>
+                  <Toggle checked={tf.uniform} onChange={(e) => setT({ uniform: e.target.checked })} />
                 </label>
-                {!t.uniform && (
+                {!tf.uniform && (
                   <>
-                    {S({ label: 'Scale width', value: t.scaleX, min: 0.05, max: 4, step: 0.01, fmt: pct, numScale: 100, onChange: (scaleX) => setT({ scaleX }) })}
-                    {S({ label: 'Scale height', value: t.scaleY, min: 0.05, max: 4, step: 0.01, fmt: pct, numScale: 100, onChange: (scaleY) => setT({ scaleY }) })}
+                    {S({ label: t('ci.scaleWidth'), value: tf.scaleX, min: 0.05, max: 4, step: 0.01, fmt: pct, numScale: 100, onChange: (scaleX) => setT({ scaleX }) })}
+                    {S({ label: t('ci.scaleHeight'), value: tf.scaleY, min: 0.05, max: 4, step: 0.01, fmt: pct, numScale: 100, onChange: (scaleY) => setT({ scaleY }) })}
                   </>
                 )}
                 <div className="numrow keyed">
-                  <span className="numrow-label">Position</span>
-                  <NumBox label="X" value={Number((t.x * W).toFixed(1))} precision={1} suffix="px" onChange={(v) => setT({ x: v / W })} />
-                  <NumBox label="Y" value={Number((t.y * H).toFixed(1))} precision={1} suffix="px" onChange={(v) => setT({ y: v / H })} />
+                  <span className="numrow-label">{t('ci.position')}</span>
+                  <NumBox label="X" value={Number((tf.x * W).toFixed(1))} precision={1} suffix="px" onChange={(v) => setT({ x: v / W })} />
+                  <NumBox label="Y" value={Number((tf.y * H).toFixed(1))} precision={1} suffix="px" onChange={(v) => setT({ y: v / H })} />
                   {keys(['x', 'y'], 'position')}
                 </div>
-                {S({ label: 'Rotate', value: t.rot, min: -180, max: 180, step: 1, fmt: (v) => `${Number(v.toFixed(1))}°`, onChange: (rot) => setT({ rot }), extra: keys(['rot'], 'rotation') })}
+                {S({ label: t('ci.rotate'), value: tf.rot, min: -180, max: 180, step: 1, fmt: (v) => `${Number(v.toFixed(1))}°`, onChange: (rot) => setT({ rot }), extra: keys(['rot'], 'rotation') })}
                 <div className="align-wrap">
-                  <div className="align-pad" role="group" aria-label="Align to frame">
+                  <div className="align-pad" role="group" aria-label={t('ci.alignToFrame')}>
                     {alignPad.map((cell, i) => (
                       <button key={cell.label} type="button" className={i === activeAnchor ? 'on' : ''}
                         aria-label={cell.label} aria-pressed={i === activeAnchor} title={cell.label}
                         onClick={() => setT(cell.patch)}><i style={cell.dot} /></button>
                     ))}
                   </div>
-                  <span className="dim small">Snap the clip to a corner, edge or the center of the frame.</span>
+                  <span className="dim small">{t('ci.alignNote')}</span>
                 </div>
-                <span className="dim small">Scale {pct(sx)} · ◇ adds a keyframe at the playhead: the clip moves from one keyframe to the next</span>
+                <span className="dim small">{t('ci.scaleKfNote', { pct: pct(sx) })}</span>
               </Section>
               {hasAnyKeys(clip) && lt !== null && nextArrival(clip, lt, fps) !== null && (
-                <Section id="video:segment-easing" title="Segment easing">
-                  <span className="dim small">How the motion travels into the keyframe at {localTime(clip, nextArrival(clip, lt, fps)).toFixed(2)}s. New segments start on Smooth.</span>
+                <Section id="video:segment-easing" title={t('ci.segmentEasing')}>
+                  <span className="dim small">{t('ci.segEaseNote', { time: localTime(clip, nextArrival(clip, lt, fps)).toFixed(2) })}</span>
                   <CurveEditor compact value={segmentEase(clip, lt, fps)} resetValue="smooth"
                     onChange={(ease) => set(setSegmentEase(clip, lt, ease, fps))} />
                 </Section>
               )}
-              <Section id="video:blend" title="Blend" onReset={() => set({ blend: 'normal', opacity: 1, keyframes: dropKeys(['opacity']) })}>
+              <Section id="video:blend" title={t('ci.blend')} onReset={() => set({ blend: 'normal', opacity: 1, keyframes: dropKeys(['opacity']) })}>
                 <label className="field">
-                  <span>Mode</span>
-                  <Dropdown value={clip.blend || 'normal'} ariaLabel="Blend mode"
-                    options={BLEND_MODES.map((b) => ({ value: b.id, label: b.name }))}
+                  <span>{t('ci.mode')}</span>
+                  <Dropdown value={clip.blend || 'normal'} ariaLabel={t('ci.blendMode')}
+                    options={BLEND_MODES.map((b) => ({ value: b.id, label: libName('blend', b.id, b.name) }))}
                     onChange={(blend) => set({ blend })} />
                 </label>
-                {S({ label: 'Opacity', value: at.opacity, min: 0, max: 1, step: 0.01, fmt: pct, numScale: 100, onChange: (opacity) => setT({ opacity }), extra: keys(['opacity'], 'opacity') })}
+                {S({ label: t('insp.opacity'), value: at.opacity, min: 0, max: 1, step: 0.01, fmt: pct, numScale: 100, onChange: (opacity) => setT({ opacity }), extra: keys(['opacity'], 'opacity') })}
                 {['mirror', 'flipv'].map((id) => (
                   <label className="field row" key={id}>
-                    <span>{id === 'mirror' ? 'Flip horizontal' : 'Flip vertical'}</span>
-                    <Toggle aria-label={id === 'mirror' ? 'Flip horizontal' : 'Flip vertical'}
+                    <span>{id === 'mirror' ? t('ci.flipH') : t('ci.flipV')}</span>
+                    <Toggle aria-label={id === 'mirror' ? t('ci.flipH') : t('ci.flipV')}
                       checked={(clip.effects || []).includes(id)}
                       onChange={(e) => {
                         const fx = clip.effects || [];
@@ -428,9 +437,9 @@ export default function ClipInspector({ clip, media, project, set, dispatch, tra
                   </label>
                 ))}
               </Section>
-              <Section id="video:crop" title="Crop" onReset={() => set({ crop: { ...DEFAULT_CROP }, cropAspect: 'free' })}>
-                <p className="dim small">Cut away the edges of the picture, in percent of the source. The part that remains fills the clip's place, in the preview and the export.</p>
-                <div className="chips pad-x" role="group" aria-label="Crop aspect">
+              <Section id="video:crop" title={t('ci.crop')} onReset={() => set({ crop: { ...DEFAULT_CROP }, cropAspect: 'free' })}>
+                <p className="dim small">{t('ci.cropNote')}</p>
+                <div className="chips pad-x" role="group" aria-label={t('ci.cropAspect')}>
                   {CROP_ASPECTS.map((a) => {
                     const cur = (clip.cropAspect || 'free') === a.id;
                     return (
@@ -440,11 +449,11 @@ export default function ClipInspector({ clip, media, project, set, dispatch, tra
                           const R = aspectRatioOf(a.id, media?.width, media?.height);
                           if (!R) return;
                           set({ crop: cropForAspect(cropNow, media.width, media.height, R), cropAspect: a.id });
-                        }}>{a.label}</button>
+                        }}>{a.id === 'free' || a.id === 'original' ? libName('crop', a.id, a.label) : a.label}</button>
                     );
                   })}
                 </div>
-                {[['l', 'Left'], ['t', 'Top'], ['r', 'Right'], ['b', 'Bottom']].map(([k, name]) => (
+                {[['l', t('ci.left')], ['t', t('ci.top')], ['r', t('ci.right')], ['b', t('ci.bottom')]].map(([k, name]) => (
                   <div className="numrow" key={k}>
                     <span className="numrow-label">{name}</span>
                     <NumBox label="" value={Number((cropNow[k] * 100).toFixed(1))} step={1} precision={1} min={0} max={90} suffix="%"
@@ -453,9 +462,9 @@ export default function ClipInspector({ clip, media, project, set, dispatch, tra
                 ))}
                 <button type="button" className="btn btn-sm" disabled={!onCropEdit || !media}
                   onClick={() => onCropEdit && onCropEdit({ track, id: clip.id })}>
-                  <Crop size={13} /> Crop on the player
+                  <Crop size={13} /> {t('ci.cropOnPlayer')}
                 </button>
-                <p className="dim small">Drag the frame on the player itself — you can keep playing or scrubbing while you crop.</p>
+                <p className="dim small">{t('ci.cropPlayerNote')}</p>
               </Section>
               {media && <Stabilize clip={clip} media={media} project={project} set={set} dispatch={dispatch} />}
               {media && <MotionTracking clip={clip} media={media} set={set} onTrackPick={onTrackPick} track={track} />}
@@ -465,99 +474,99 @@ export default function ClipInspector({ clip, media, project, set, dispatch, tra
 
           {sub === 'removebg' && media && <AutoRemoval clip={clip} media={media} set={set} dispatch={dispatch} />}
           {sub === 'removebg' && (
-            <Section id="removebg:chroma" title="Chroma key" onReset={() => set({ chroma: { ...DEFAULT_CHROMA } })}
-              check={<Toggle aria-label="Chroma key" checked={chroma.on} onChange={(e) => setC({ on: e.target.checked })} />}>
-              <p className="dim small">Removes a solid background color, such as a green screen.</p>
+            <Section id="removebg:chroma" title={t('ci.chromaKey')} onReset={() => set({ chroma: { ...DEFAULT_CHROMA } })}
+              check={<Toggle aria-label={t('ci.chromaKey')} checked={chroma.on} onChange={(e) => setC({ on: e.target.checked })} />}>
+              <p className="dim small">{t('ci.chromaNote')}</p>
               <div className="numrow">
-                <span className="numrow-label">Color</span>
-                <input type="color" value={chroma.color} aria-label="Key color" onChange={(e) => setC({ on: true, color: e.target.value })} />
-                <button className="btn btn-sm" disabled={!onColorPick} onClick={() => onColorPick && onColorPick({ track, id: clip.id })} title="Pick a color from the player"><Pipette size={13} /> Pick</button>
+                <span className="numrow-label">{t('ci.color')}</span>
+                <input type="color" value={chroma.color} aria-label={t('ci.keyColor')} onChange={(e) => setC({ on: true, color: e.target.value })} />
+                <button className="btn btn-sm" disabled={!onColorPick} onClick={() => onColorPick && onColorPick({ track, id: clip.id })} title={t('ci.pickTitle')}><Pipette size={13} /> {t('ci.pick')}</button>
                 <span className="chips">
                   {['#00ff00', '#00b140', '#0047bb', '#ffffff', '#000000'].map((c) => (
-                    <button key={c} className="swatch" style={{ background: c }} aria-label={`Key ${c}`} onClick={() => setC({ on: true, color: c })} />
+                    <button key={c} className="swatch" style={{ background: c }} aria-label={t('ci.keyAria', { color: c })} onClick={() => setC({ on: true, color: c })} />
                   ))}
                 </span>
               </div>
               <BrandSwatches onPick={(c) => setC({ on: true, color: c })} />
-              {S({ label: 'Intensity', value: chroma.intensity, min: 0, max: 100, step: 1, onChange: (intensity) => setC({ intensity }) })}
-              {S({ label: 'Feather edge', value: chroma.feather, min: 0, max: 100, step: 1, onChange: (feather) => setC({ feather }) })}
-              {S({ label: 'Remove color spill', value: chroma.spill, min: 0, max: 100, step: 1, onChange: (spill) => setC({ spill }) })}
+              {S({ label: t('ci.intensity'), value: chroma.intensity, min: 0, max: 100, step: 1, onChange: (intensity) => setC({ intensity }) })}
+              {S({ label: t('ci.featherEdge'), value: chroma.feather, min: 0, max: 100, step: 1, onChange: (feather) => setC({ feather }) })}
+              {S({ label: t('ci.spill'), value: chroma.spill, min: 0, max: 100, step: 1, onChange: (spill) => setC({ spill }) })}
             </Section>
           )}
           {sub === 'removebg' && (
-            <Section id="removebg:custom" title="Custom removal">
-              <p className="dim small">Paint over the parts to remove by hand, or paint removed parts back. The painted mask applies to the whole clip, and combines with Auto removal and Chroma key (everything painted or keyed away stays away).</p>
-              {hasCustomMask(clip) && <p className="dim small">{clip.customMask.strokes.length} stroke{clip.customMask.strokes.length === 1 ? '' : 's'} painted.</p>}
+            <Section id="removebg:custom" title={t('ci.customRemoval')}>
+              <p className="dim small">{t('ci.customNote')}</p>
+              {hasCustomMask(clip) && <p className="dim small">{t(clip.customMask.strokes.length === 1 ? 'ci.strokesOne' : 'ci.strokesOther', { count: clip.customMask.strokes.length })}</p>}
               <div className="fitfill-row">
-                <button type="button" className="btn btn-sm" onClick={() => setMaskEdit(true)}>Paint removal…</button>
-                {hasCustomMask(clip) && <button type="button" className="btn btn-sm" onClick={() => set({ customMask: null })}>Clear</button>}
+                <button type="button" className="btn btn-sm" onClick={() => setMaskEdit(true)}>{t('ci.paintRemoval')}</button>
+                {hasCustomMask(clip) && <button type="button" className="btn btn-sm" onClick={() => set({ customMask: null })}>{t('common.clear')}</button>}
               </div>
             </Section>
           )}
 
           {sub === 'mask' && (
             <>
-              <Section id="mask:mask" title="Mask" onReset={() => set({ mask: { ...DEFAULT_MASK } })}>
+              <Section id="mask:mask" title={t('ci.mask')} onReset={() => set({ mask: { ...DEFAULT_MASK } })}>
                 <div className="mask-grid">
-                  {[{ id: 'none', name: 'None' }, ...MASK_SHAPES].map((m) => (
+                  {[{ id: 'none', name: t('ci.none') }, ...MASK_SHAPES].map((m) => (
                     <button key={m.id} className={`mask-tile ${mask.type === m.id ? 'on' : ''}`} aria-pressed={mask.type === m.id}
                       onClick={() => setM(['circle', 'star', 'heart'].includes(m.id)
                         ? { type: m.id, h: Math.min(2, (mask.w * W) / H) } // square in pixels
                         : { type: m.id })}>
-                      <MaskIcon type={m.id} /><span>{m.name}</span>
+                      <MaskIcon type={m.id} /><span>{m.id === 'none' ? m.name : libName('mask', m.id, m.name)}</span>
                     </button>
                   ))}
                 </div>
               </Section>
               {mask.type !== 'none' && (
-                <Section id="mask:settings" title="Mask settings">
+                <Section id="mask:settings" title={t('ci.maskSettings')}>
                   {mask.type === 'text' && (
                     <label className="field">
-                      <span>Text</span>
+                      <span>{t('ci.textLabel')}</span>
                       <input type="text" value={mask.text} onChange={(e) => setM({ text: e.target.value })} />
                     </label>
                   )}
                   <div className="numrow">
-                    <span className="numrow-label">Position</span>
+                    <span className="numrow-label">{t('ci.position')}</span>
                     <NumBox label="X" value={Number((mask.x * W).toFixed(1))} precision={1} suffix="px" onChange={(v) => setM({ x: v / W })} />
                     <NumBox label="Y" value={Number((mask.y * H).toFixed(1))} precision={1} suffix="px" onChange={(v) => setM({ y: v / H })} />
                   </div>
-                  {S({ label: 'Rotate', value: mask.rot, min: -180, max: 180, step: 1, fmt: (v) => `${v}°`, onChange: (rot) => setM({ rot }) })}
-                  {mask.type !== 'split' && S({ label: mask.type === 'filmstrip' ? 'Band height' : 'Height', value: mask.h, min: 0.02, max: 2, step: 0.01, fmt: pct, numScale: 100, onChange: (h) => setM({ h }) })}
-                  {!['split', 'filmstrip', 'text'].includes(mask.type) && S({ label: 'Width', value: mask.w, min: 0.02, max: 2, step: 0.01, fmt: pct, numScale: 100, onChange: (w) => setM({ w }) })}
-                  {mask.type === 'rectangle' && S({ label: 'Round corners', value: mask.round, min: 0, max: 1, step: 0.01, fmt: pct, numScale: 100, onChange: (round) => setM({ round }) })}
-                  {S({ label: 'Feather', value: mask.feather, min: 0, max: 100, step: 1, onChange: (feather) => setM({ feather }) })}
+                  {S({ label: t('ci.rotate'), value: mask.rot, min: -180, max: 180, step: 1, fmt: (v) => `${v}°`, onChange: (rot) => setM({ rot }) })}
+                  {mask.type !== 'split' && S({ label: mask.type === 'filmstrip' ? t('ci.bandHeight') : t('ci.height'), value: mask.h, min: 0.02, max: 2, step: 0.01, fmt: pct, numScale: 100, onChange: (h) => setM({ h }) })}
+                  {!['split', 'filmstrip', 'text'].includes(mask.type) && S({ label: t('ci.width'), value: mask.w, min: 0.02, max: 2, step: 0.01, fmt: pct, numScale: 100, onChange: (w) => setM({ w }) })}
+                  {mask.type === 'rectangle' && S({ label: t('ci.roundCorners'), value: mask.round, min: 0, max: 1, step: 0.01, fmt: pct, numScale: 100, onChange: (round) => setM({ round }) })}
+                  {S({ label: t('ci.feather'), value: mask.feather, min: 0, max: 100, step: 1, onChange: (feather) => setM({ feather }) })}
                   <label className="field row">
-                    <span>Invert</span>
+                    <span>{t('ci.invert')}</span>
                     <Toggle checked={mask.invert} onChange={(e) => setM({ invert: e.target.checked })} />
                   </label>
                 </Section>
               )}
               {mask.type !== 'none' && (
-                <Section id="mask:outline" title="Outline and glow" onReset={() => setM({ stroke: 0, strokeColor: DEFAULT_MASK.strokeColor, glow: 0, glowColor: DEFAULT_MASK.glowColor, glowStrength: DEFAULT_MASK.glowStrength })}>
+                <Section id="mask:outline" title={t('ci.outlineGlow')} onReset={() => setM({ stroke: 0, strokeColor: DEFAULT_MASK.strokeColor, glow: 0, glowColor: DEFAULT_MASK.glowColor, glowStrength: DEFAULT_MASK.glowStrength })}>
                   <div className="numrow">
-                    <span className="numrow-label">Stroke</span>
-                    <input type="color" value={mask.strokeColor} aria-label="Stroke color" onChange={(e) => setM({ strokeColor: e.target.value, stroke: mask.stroke || 6 })} />
+                    <span className="numrow-label">{t('ci.stroke')}</span>
+                    <input type="color" value={mask.strokeColor} aria-label={t('ci.strokeColor')} onChange={(e) => setM({ strokeColor: e.target.value, stroke: mask.stroke || 6 })} />
                     <span className="chips">
                       {['#ffffff', '#000000', '#ec4899', '#facc15', '#22d3ee'].map((c) => (
-                        <button key={c} className="chip-color" style={{ background: c }} aria-label={`Stroke ${c}`} onClick={() => setM({ strokeColor: c, stroke: mask.stroke || 6 })} />
+                        <button key={c} className="chip-color" style={{ background: c }} aria-label={t('ci.strokeAria', { color: c })} onClick={() => setM({ strokeColor: c, stroke: mask.stroke || 6 })} />
                       ))}
                     </span>
                   </div>
                   <BrandSwatches onPick={(c) => setM({ strokeColor: c, stroke: mask.stroke || 6 })} />
-                  {S({ label: 'Stroke width', value: mask.stroke, min: 0, max: 40, step: 1, fmt: (v) => (v ? `${v}px` : 'Off'), onChange: (stroke) => setM({ stroke }) })}
+                  {S({ label: t('ci.strokeWidth'), value: mask.stroke, min: 0, max: 40, step: 1, fmt: (v) => (v ? `${v}px` : t('ci.off')), onChange: (stroke) => setM({ stroke }) })}
                   <div className="numrow">
-                    <span className="numrow-label">Glow</span>
-                    <input type="color" value={mask.glowColor} aria-label="Glow color" onChange={(e) => setM({ glowColor: e.target.value, glow: mask.glow || 20 })} />
+                    <span className="numrow-label">{t('ci.glow')}</span>
+                    <input type="color" value={mask.glowColor} aria-label={t('ci.glowColor')} onChange={(e) => setM({ glowColor: e.target.value, glow: mask.glow || 20 })} />
                     <span className="chips">
                       {['#ec4899', '#a855f7', '#22d3ee', '#22c55e', '#facc15', '#ffffff'].map((c) => (
-                        <button key={c} className="chip-color" style={{ background: c }} aria-label={`Glow ${c}`} onClick={() => setM({ glowColor: c, glow: mask.glow || 20 })} />
+                        <button key={c} className="chip-color" style={{ background: c }} aria-label={t('ci.glowAria', { color: c })} onClick={() => setM({ glowColor: c, glow: mask.glow || 20 })} />
                       ))}
                     </span>
                   </div>
                   <BrandSwatches onPick={(c) => setM({ glowColor: c, glow: mask.glow || 20 })} />
-                  {S({ label: 'Glow size', value: mask.glow, min: 0, max: 80, step: 1, fmt: (v) => (v ? `${v}px` : 'Off'), onChange: (glow) => setM({ glow }) })}
-                  {mask.glow > 0 && S({ label: 'Glow strength', value: mask.glowStrength, min: 5, max: 100, step: 1, fmt: (v) => `${v}%`, onChange: (glowStrength) => setM({ glowStrength }) })}
+                  {S({ label: t('ci.glowSize'), value: mask.glow, min: 0, max: 80, step: 1, fmt: (v) => (v ? `${v}px` : t('ci.off')), onChange: (glow) => setM({ glow }) })}
+                  {mask.glow > 0 && S({ label: t('ci.glowStrength'), value: mask.glowStrength, min: 5, max: 100, step: 1, fmt: (v) => `${v}%`, onChange: (glowStrength) => setM({ glowStrength }) })}
                 </Section>
               )}
             </>
@@ -569,21 +578,21 @@ export default function ClipInspector({ clip, media, project, set, dispatch, tra
 
       {tab === 'audio' && (
         <>
-          <Section id="audio:basic" title="Basic">
-            {S({ label: 'Volume', value: clip.volume ?? 1, max: 2, fmt: pct, numScale: 100, onChange: (volume) => set({ volume }) })}
-            {S({ label: 'Fade in', value: clip.fadeIn || 0, max: 5, step: 0.1, fmt: (v) => `${v.toFixed(1)}s`, onChange: (fadeIn) => set({ fadeIn }) })}
-            {S({ label: 'Fade out', value: clip.fadeOut || 0, max: 5, step: 0.1, fmt: (v) => `${v.toFixed(1)}s`, onChange: (fadeOut) => set({ fadeOut }) })}
+          <Section id="audio:basic" title={t('ci.basic')}>
+            {S({ label: t('insp.volume'), value: clip.volume ?? 1, max: 2, fmt: pct, numScale: 100, onChange: (volume) => set({ volume }) })}
+            {S({ label: t('insp.fadeIn'), value: clip.fadeIn || 0, max: 5, step: 0.1, fmt: (v) => `${v.toFixed(1)}s`, onChange: (fadeIn) => set({ fadeIn }) })}
+            {S({ label: t('insp.fadeOut'), value: clip.fadeOut || 0, max: 5, step: 0.1, fmt: (v) => `${v.toFixed(1)}s`, onChange: (fadeOut) => set({ fadeOut }) })}
             <AudioFxControls fx={clip.audioFx} onChange={(audioFx) => set({ audioFx })}
               previewState={!hasAudioFx(clip.audioFx) ? null : (audioFxPathOf(clip, media) ? 'ready' : 'pending')} />
             <label className="field row">
-              <span>Mute</span>
+              <span>{t('ci.mute')}</span>
               <Toggle checked={!!clip.muted} onChange={(e) => set({ muted: e.target.checked })} />
             </label>
           </Section>
-          <Section id="audio:volkeys" title="Volume keyframes">
+          <Section id="audio:volkeys" title={t('insp.volumeKeyframes')}>
             <VolKeyEditor clip={clip} len={len} set={set} dispatch={dispatch} playheadLt={time - start} />
           </Section>
-          <Section id="audio:enhance" title="Enhance voice">
+          <Section id="audio:enhance" title={t('insp.enhanceVoice')}>
             <EnhanceVoice clip={clip} media={media} set={set} onEnhance={onEnhance} />
           </Section>
         </>
@@ -591,23 +600,23 @@ export default function ClipInspector({ clip, media, project, set, dispatch, tra
 
       {tab === 'speed' && (
         <>
-        <Section id="speed:standard" title="Standard">
+        <Section id="speed:standard" title={t('ci.standard')}>
           <label className="field">
-            <span>Speed <b>{clip.speed || 1}×</b></span>
+            <span>{t('ci.speed')} <b>{clip.speed || 1}×</b></span>
             <div className="chips">
               {SPEEDS.map((s) => (
                 <button key={s} className={`chip ${(clip.speed || 1) === s ? 'on' : ''}`} onClick={() => set({ speed: s })}>{s}×</button>
               ))}
             </div>
           </label>
-          {hasCurve(clip) && <p className="dim small">This clip has a speed curve (below). Choosing a constant speed here removes it.</p>}
+          {hasCurve(clip) && <p className="dim small">{t('ci.speedCurveNote')}</p>}
           <div className="numrow">
-            <span className="numrow-label">Source</span>
-            <NumBox label="In" step={0.1} value={clip.in} onChange={(v) => set({ in: Math.max(0, Math.min(v, clip.out - 0.1)) })} />
-            <NumBox label="Out" step={0.1} value={clip.out} onChange={(v) => set({ out: Math.max(clip.in + 0.1, Math.min(v, media?.duration ?? v)) })} />
+            <span className="numrow-label">{t('ci.source')}</span>
+            <NumBox label={t('ci.in')} step={0.1} value={clip.in} onChange={(v) => set({ in: Math.max(0, Math.min(v, clip.out - 0.1)) })} />
+            <NumBox label={t('ci.out')} step={0.1} value={clip.out} onChange={(v) => set({ out: Math.max(clip.in + 0.1, Math.min(v, media?.duration ?? v)) })} />
           </div>
         </Section>
-        <Section id="speed:curve" title="Speed curve">
+        <Section id="speed:curve" title={t('ci.speedCurve')}>
           <SpeedCurveEditor clip={clip} set={set} dispatch={dispatch} />
         </Section>
         </>
@@ -620,12 +629,12 @@ export default function ClipInspector({ clip, media, project, set, dispatch, tra
       )}
       {tab === 'adjust' && (
         <>
-          <Section id="adjust:filter" title="Filter" onReset={() => set({ filter: 'none' })}>
-            <Dropdown value={clip.filter || 'none'} ariaLabel="Filter"
+          <Section id="adjust:filter" title={t('ci.filter')} onReset={() => set({ filter: 'none' })}>
+            <Dropdown value={clip.filter || 'none'} ariaLabel={t('ci.filter')}
               options={FILTERS.map((f) => ({ value: f.id, label: f.name }))}
               onChange={(filter) => set({ filter })} />
           </Section>
-          <Section id="adjust:color" title="Color">
+          <Section id="adjust:color" title={t('ci.colorSection')}>
             <GradePanel grade={clip.grade} adjust={clip.adjust} dispatch={dispatch} autoFrom={media ? { media, clip } : undefined}
               onGrade={(grade) => set({ grade })} onAdjust={(adjust) => set({ adjust })}
               onApplyAll={() => dispatch({ type: 'updateMany', updates: [
@@ -634,29 +643,29 @@ export default function ClipInspector({ clip, media, project, set, dispatch, tra
               ] })} />
           </Section>
           {!!clip.effects?.length && (
-            <Section id="adjust:effects" title="Effects">
+            <Section id="adjust:effects" title={t('ci.effects')}>
               {clip.effects.map((fx) => (
                 <FxEntry key={fx} clip={clip} track={track} fx={fx} dispatch={dispatch} defaultOpen={clip.effects.length === 1} />
               ))}
             </Section>
           )}
           {track === 'video' && (
-            <Section id="adjust:transition" title="Transition in">
-              <Dropdown value={clip.transition?.type || 'none'} ariaLabel="Transition in"
-                options={[{ value: 'none', label: 'None' }, ...TRANSITIONS.map((o) => ({ value: o.id, label: o.name }))]}
+            <Section id="adjust:transition" title={t('ci.transitionIn')}>
+              <Dropdown value={clip.transition?.type || 'none'} ariaLabel={t('ci.transitionIn')}
+                options={[{ value: 'none', label: t('ci.none') }, ...TRANSITIONS.map((o) => ({ value: o.id, label: libName('tr', o.id, o.name) }))]}
                 onChange={(v) => set({ transition: v === 'none' ? null : { type: v, duration: clip.transition?.duration || 0.5, ...(/zoom/i.test(v) ? { ease: 'smooth' } : {}) } })} />
               {clip.transition && S({
-                label: 'Duration', value: clip.transition.duration, min: 0.2, max: 2, step: 0.1, fmt: (v) => `${v.toFixed(1)}s`,
+                label: t('insp.duration'), value: clip.transition.duration, min: 0.2, max: 2, step: 0.1, fmt: (v) => `${v.toFixed(1)}s`,
                 onChange: (d) => set({ transition: { ...clip.transition, duration: d } }),
               })}
               {clip.transition && directionGroupFor(clip.transition.type) && (() => {
                 const { group, dir } = directionGroupFor(clip.transition.type);
                 const arrows = { left: '←', right: '→', up: '↑', down: '↓' };
                 return (
-                  <div className="dir-seg" role="group" aria-label={`${group.name} direction`}>
+                  <div className="dir-seg" role="group" aria-label={t('ci.direction', { name: group.name })}>
                     {['left', 'right', 'up', 'down'].map((d) => (
                       <button key={d} className={`btn btn-sm ${d === dir ? 'btn-primary' : ''}`} aria-pressed={d === dir}
-                        title={`${group.name} ${d}`} onClick={() => set({ transition: { ...clip.transition, type: group.ids[d] } })}>{arrows[d]} {d}</button>
+                        title={t('ci.direction', { name: `${group.name} ${t('ci.dir.' + d)}` })} onClick={() => set({ transition: { ...clip.transition, type: group.ids[d] } })}>{arrows[d]} {t('ci.dir.' + d)}</button>
                     ))}
                   </div>
                 );
@@ -664,17 +673,17 @@ export default function ClipInspector({ clip, media, project, set, dispatch, tra
             </Section>
           )}
           {track === 'overlay' && (
-            <Section id="adjust:timeline" title="Timeline">
+            <Section id="adjust:timeline" title={t('ci.timeline')}>
               <div className="numrow">
-                <span className="numrow-label">Start</span>
+                <span className="numrow-label">{t('ci.start')}</span>
                 <NumBox label="" step={0.1} suffix="s" value={clip.start} onChange={(v) => set({ start: Math.max(0, v) })} />
               </div>
             </Section>
           )}
           {!isVideo && (
-            <Section id="adjust:photo" title="Photo">
+            <Section id="adjust:photo" title={t('ci.photoSection')}>
               <div className="numrow">
-                <span className="numrow-label">Duration</span>
+                <span className="numrow-label">{t('insp.duration')}</span>
                 <NumBox label="" step={0.1} suffix="s" value={clip.out} onChange={(v) => set({ in: 0, out: Math.max(0.1, v) })} />
               </div>
             </Section>

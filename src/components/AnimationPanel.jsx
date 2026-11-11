@@ -1,4 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useT } from '../i18n/index.jsx';
+import { libName, slugifyPhrase } from '../i18n/libNames.js';
 import { Ban } from '../icons.jsx';
 import { ANIMATIONS, DEFAULT_ANIM_DURATION, animOf, previewState } from '../anim.js';
 import { samplePhotoUrl, samplePictureUrl } from '../fx/previews.jsx';
@@ -49,6 +51,7 @@ function AnimThumb({ kind, id }) {
 
 // Clip panel > Animation: In, Out and Combo animations. A Combo replaces In and Out.
 export default function AnimationPanel({ clip, len, set, dispatch }) {
+  const t = useT();
   const current = animOf(clip, len);
   const [kind, setKind] = useState(current.combo ? 'combo' : current.out && !current.in ? 'out' : 'in');
   const chosen = clip.anim?.[kind]?.type || null;
@@ -69,38 +72,38 @@ export default function AnimationPanel({ clip, len, set, dispatch }) {
   const dur = current[kind]?.duration;
   return (
     <div className="anim-panel">
-      <div className="seg-tabs small" role="tablist" aria-label="Animation type">
+      <div className="seg-tabs small" role="tablist" aria-label={t('anim.type')}>
         {KINDS.map(([id, name]) => (
           <button key={id} role="tab" aria-selected={kind === id} className={kind === id ? 'on' : ''} onClick={() => setKind(id)}>
-            {name}{clip.anim?.[id] ? ' •' : ''}
+            {t('anim.kind.' + id)}{clip.anim?.[id] ? ' •' : ''}
           </button>
         ))}
       </div>
       <p className="dim small">
-        {kind === 'in' ? 'Plays when the clip starts.' : kind === 'out' ? 'Plays when the clip ends.' : 'Plays during the whole clip. It replaces In and Out.'}
-        {' '}Hover a tile to preview it.
+        {t(kind === 'in' ? 'anim.inNote' : kind === 'out' ? 'anim.outNote' : 'anim.loopNote')}
+        {' '}{t('anim.hoverPreview')}
       </p>
       <div className="anim-grid">
         <button className={`tile ${!chosen ? 'on' : ''}`} aria-pressed={!chosen} onClick={() => pick(null)}>
           <span className="tile-preview anim-none"><Ban size={22} /></span>
-          <span className="tile-label">None</span>
+          <span className="tile-label">{t('el.none')}</span>
         </button>
       </div>
       {cats.map((cat) => (
         <div key={cat} className="anim-cat">
-          <div className="anim-cat-title">{cat}</div>
+          <div className="anim-cat-title">{libName('cat', slugifyPhrase(cat), cat)}</div>
           <div className="anim-grid">
             {ANIMATIONS[kind].filter((a) => a.cat === cat).map((a) => (
-              <button key={a.id} className={`tile ${chosen === a.id ? 'on' : ''}`} aria-pressed={chosen === a.id} title={a.name} onClick={() => pick(a.id)}>
+              <button key={a.id} className={`tile ${chosen === a.id ? 'on' : ''}`} aria-pressed={chosen === a.id} title={libName('canim', kind + '.' + a.id, a.name)} onClick={() => pick(a.id)}>
                 <span className="tile-preview"><AnimThumb kind={kind} id={a.id} /></span>
-                <span className="tile-label">{a.name}</span>
+                <span className="tile-label">{libName('canim', kind + '.' + a.id, a.name)}</span>
               </button>
             ))}
           </div>
         </div>
       ))}
       {chosen && kind !== 'combo' && (
-        <Slider dispatch={dispatch} label="Duration" value={dur} min={0.1} max={Math.max(0.2, Math.min(5, len))} step={0.1}
+        <Slider dispatch={dispatch} label={t('insp.duration')} value={dur} min={0.1} max={Math.max(0.2, Math.min(5, len))} step={0.1}
           fmt={(v) => `${v.toFixed(1)}s`} onChange={(d) => set({ anim: { ...clip.anim, [kind]: { ...clip.anim[kind], duration: d } } })} />
       )}
     </div>

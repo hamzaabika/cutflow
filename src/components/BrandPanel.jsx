@@ -4,6 +4,7 @@ import Dropdown from './Dropdown.jsx';
 import { loadBrand, saveBrand, sanitizeBrand, sanitizeColor } from '../brand.js';
 import { allFonts } from '../fonts.js';
 import { toFileUrl } from '../store.js';
+import { useT } from '../i18n/index.jsx';
 
 // Brand kit panel (R1): the settings-level brand registry from src/brand.js —
 // logo files, palette colours and a font pick, shared by every project.
@@ -11,6 +12,7 @@ import { toFileUrl } from '../store.js';
 // colour marked "Text" are what new text clips start with (App.jsx merges
 // brandTextPatch under the caller's patch, so templates keep their own style).
 export default function BrandPanel({ onAddFile }) {
+  const t = useT();
   const [brand, setBrand] = useState(() => loadBrand());
   const [colorDraft, setColorDraft] = useState('#825cfb');
   const fileRef = useRef(null);
@@ -49,7 +51,7 @@ export default function BrandPanel({ onAddFile }) {
   });
 
   const fontOptions = [
-    { value: '', label: 'No brand font' },
+    { value: '', label: t('brand.noFont') },
     ...allFonts().map((f) => ({ value: f.id, label: f.name })),
   ];
 
@@ -57,61 +59,61 @@ export default function BrandPanel({ onAddFile }) {
     <div className="brand-panel">
       <div className="lib-head">
         <div>
-          <h2>Brand kit</h2>
-          <p>Your logo, colours and font — saved on this PC, reused in every project.</p>
+          <h2>{t('brand.title')}</h2>
+          <p>{t('brand.note')}</p>
         </div>
       </div>
 
-      <span className="lib-group-name pad-x">Logos</span>
+      <span className="lib-group-name pad-x">{t('brand.logos')}</span>
       <div className="pad-block brand-logos">
         {brand.logos.map((l) => (
           <div key={l.path} className="brand-logo-row">
             <span className="brand-logo-thumb"><img src={toFileUrl(l.path)} alt="" draggable={false} /></span>
             <span className="brand-logo-name" title={l.path}>{l.name}</span>
             <button className="btn btn-sm" onClick={() => onAddFile && onAddFile(l.path, 'overlay')}
-              title="Place this logo on the timeline as an overlay at the playhead">
-              <Layers size={13} /> Overlay
+              title={t('brand.placeLogo')}>
+              <Layers size={13} /> {t('brand.overlay')}
             </button>
             <button className="icon-btn brand-x" onClick={() => update({ ...brand, logos: brand.logos.filter((x) => x.path !== l.path) })}
-              aria-label={`Remove ${l.name} from the brand kit`} title="Remove from the kit (the file itself is not deleted)">
+              aria-label={t('brand.removeLogo', { name: l.name })} title={t('brand.removeLogoTitle')}>
               <X size={14} />
             </button>
           </div>
         ))}
-        {!brand.logos.length && <p className="hint">No logos yet. Add the image files you stamp on your videos.</p>}
-        <button className="btn btn-sm" onClick={() => fileRef.current?.click()}><ImagePlus size={14} /> Add logo…</button>
-        <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={onLogoFiles} aria-label="Choose logo image files" />
+        {!brand.logos.length && <p className="hint">{t('brand.noLogos')}</p>}
+        <button className="btn btn-sm" onClick={() => fileRef.current?.click()}><ImagePlus size={14} /> {t('brand.addLogo')}</button>
+        <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={onLogoFiles} aria-label={t('brand.chooseLogos')} />
       </div>
 
-      <span className="lib-group-name pad-x">Colours</span>
+      <span className="lib-group-name pad-x">{t('brand.colours')}</span>
       <div className="pad-block brand-colors">
         {brand.colors.map((c) => (
           <div key={c} className={`brand-swatch-row ${brand.color === c ? 'is-text' : ''}`}>
             <button className="brand-swatch" style={{ background: c }} onClick={() => update({ ...brand, color: c })}
-              title={brand.color === c ? 'This is the colour new text starts with' : 'Make this the colour new text starts with'}
-              aria-label={`Use ${c} for new text`} />
+              title={t(brand.color === c ? 'brand.colorIsText' : 'brand.colorMakeText')}
+              aria-label={t('brand.useColor', { color: c })} />
             <span className="brand-hex">{c}</span>
-            {brand.color === c && <span className="brand-text-mark"><Check size={12} /> Text</span>}
+            {brand.color === c && <span className="brand-text-mark"><Check size={12} /> {t('brand.textMark')}</span>}
             <button className="icon-btn brand-x" onClick={() => removeColor(c)}
-              aria-label={`Remove colour ${c}`} title="Remove colour">
+              aria-label={t('brand.removeColour', { color: c })} title={t('brand.removeColourTitle')}>
               <X size={14} />
             </button>
           </div>
         ))}
-        {!brand.colors.length && <p className="hint">No colours yet. Add your brand palette; the first colour becomes your text colour.</p>}
+        {!brand.colors.length && <p className="hint">{t('brand.noColours')}</p>}
         <div className="brand-add-color">
           <input type="color" className="brand-color-input" value={colorDraft}
-            onChange={(e) => setColorDraft(e.target.value)} aria-label="Pick a colour to add" />
+            onChange={(e) => setColorDraft(e.target.value)} aria-label={t('brand.pickColour')} />
           <span className="brand-hex">{colorDraft}</span>
-          <button className="btn btn-sm" onClick={addColor}>Add colour</button>
+          <button className="btn btn-sm" onClick={addColor}>{t('brand.addColour')}</button>
         </div>
       </div>
 
-      <span className="lib-group-name pad-x">Font</span>
+      <span className="lib-group-name pad-x">{t('brand.font')}</span>
       <div className="pad-block brand-font">
         <Dropdown value={brand.font} options={fontOptions} onChange={(v) => update({ ...brand, font: v })}
-          ariaLabel="Brand font" />
-        <p className="hint">New text clips start with this font and the colour marked Text. Templates and existing clips keep their own styles.</p>
+          ariaLabel={t('brand.fontAria')} />
+        <p className="hint">{t('brand.fontNote')}</p>
       </div>
     </div>
   );

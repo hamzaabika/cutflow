@@ -1,4 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { tr } from '../i18n/index.jsx';
+import { libName, slugifyPhrase } from '../i18n/libNames.js';
 import { ChevronDown, Loader2, Plus, Search, Star, X } from '../icons.jsx';
 import { CUSTOM_GROUP, allFonts, fontById, fontsReady, importFonts, onFontsChanged, removeFont } from '../fonts.js';
 
@@ -95,20 +97,20 @@ export default function FontPicker({ value, onChange }) {
           <div className="font-tools">
             <form className="lib-search" onSubmit={(e) => { e.preventDefault(); if (shown[0]) { onChange(shown[0].id); setOpen(false); } }}>
               <Search size={14} aria-hidden="true" />
-              <input type="search" autoFocus value={q} placeholder="Search fonts" aria-label="Search fonts" onChange={(e) => setQ(e.target.value)} />
-              {q && <button type="button" className="lib-search-clear" aria-label="Clear search" onClick={() => setQ('')}><X size={13} /></button>}
+              <input type="search" autoFocus value={q} placeholder={tr('font.search')} aria-label={tr('font.search')} onChange={(e) => setQ(e.target.value)} />
+              {q && <button type="button" className="lib-search-clear" aria-label={tr('search.clear')} onClick={() => setQ('')}><X size={13} /></button>}
             </form>
-            <button type="button" className="btn btn-sm" onClick={() => add()} disabled={busy} title="Add .ttf, .otf or .woff font files (or drop them on this list). They stay for every project.">
+            <button type="button" className="btn btn-sm" onClick={() => add()} disabled={busy} title={tr('font.addNote')}>
               {busy ? <Loader2 size={13} className="spin" /> : <Plus size={13} />} Add font
             </button>
           </div>
           {!words && (
             <div className="chips scroll-x">
-              {groups.map((g) => <button key={g} type="button" className={`chip ${group === g ? 'on' : ''}`} onClick={() => setGroup(g)}>{g}</button>)}
+              {groups.map((g) => <button key={g} type="button" className={`chip ${group === g ? 'on' : ''}`} onClick={() => setGroup(g)}>{g === 'All' ? tr('panel.text.all') : g === 'Favorites' ? tr('panel.text.favorites') : libName('fontgroup', slugifyPhrase(g), g)}</button>)}
             </div>
           )}
           {note && <p className="error-text">{note}</p>}
-          <div className="font-list" ref={listRef} role="listbox" aria-label="Fonts">
+          <div className="font-list" ref={listRef} role="listbox" aria-label={tr('font.fonts')}>
             {shown.map((f) => (
               <div key={f.id} className={`font-row ${f.id === cur.id ? 'on' : ''}`} role="option" aria-selected={f.id === cur.id}>
                 <button type="button" className="font-name" style={fontStyle(f)} onClick={() => { onChange(f.id); setOpen(false); }} title={f.name}>
@@ -116,7 +118,7 @@ export default function FontPicker({ value, onChange }) {
                   {f.group === 'Arabic' && <span className="font-sample">{ARABIC_SAMPLE}</span>}
                 </button>
                 {f.group === CUSTOM_GROUP && (
-                  <button type="button" className="font-icon" onClick={() => remove(f)} aria-label={`Remove ${f.name}`} title="Remove from your fonts"><X size={13} /></button>
+                  <button type="button" className="font-icon" onClick={() => remove(f)} aria-label={`Remove ${f.name}`} title={tr('font.remove')}><X size={13} /></button>
                 )}
                 <button type="button" className={`font-icon ${favs.has(f.id) ? 'fav' : ''}`} onClick={() => toggleFav(f.id)}
                   aria-label={favs.has(f.id) ? `Remove ${f.name} from favorites` : `Add ${f.name} to favorites`} aria-pressed={favs.has(f.id)}>
@@ -126,13 +128,13 @@ export default function FontPicker({ value, onChange }) {
             ))}
             {!shown.length && (
               <p className="empty-note">
-                {group === 'Favorites' && !words ? 'Click the star next to a font to keep it here.'
-                  : group === CUSTOM_GROUP && !words ? 'Add your own .ttf or .otf fonts with “Add font”, or drop them here.'
+                {group === 'Favorites' && !words ? tr('font.empty2')
+                  : group === CUSTOM_GROUP && !words ? tr('font.empty1')
                     : `No font named “${q}”.`}
               </p>
             )}
           </div>
-          {dropOver && <div className="font-drop">Drop fonts to add them</div>}
+          {dropOver && <div className="font-drop">{tr('font.dropHint')}</div>}
         </div>
       )}
     </div>

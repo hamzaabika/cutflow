@@ -46,6 +46,17 @@ export function audioPhases() {
 }
 export const audioPhaseId = (progress) => (progress < AUDIO_PHASE_SPLIT ? 'mix' : 'master');
 
+// The AI-enhance job's phases (electron/esrgan.cjs): frames are extracted,
+// upscaled by the local Real-ESRGAN engine, then re-encoded — the same
+// three stages the pipeline reports, in its own progress fractions.
+export function enhancePhases() {
+  return [
+    { id: 'frames', label: 'Frames', stage: 'Extracting frames' },
+    { id: 'upscale', label: 'AI upscale', stage: 'Upscaling frames' },
+    { id: 'encode', label: 'Encoding', stage: 'Encoding video' },
+  ];
+}
+
 // Each phase's display state for a job: everything before the active phase is
 // done, everything after it is pending. A queued job has done nothing; a
 // finished job has done everything.

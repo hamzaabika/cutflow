@@ -2,6 +2,7 @@
 // export show the same picture. Most are a preset of Adjust settings; a few are their own expression.
 // clip.filter: the id; clip.filterIntensity: 0..100 (default 100), how strongly the look is applied.
 import { gradeExpr } from './grade.js';
+import { libName } from '../i18n/libNames.js';
 
 // Split toning with curves: red up / blue down in the highlights, the opposite in the shadows (teal & orange).
 const split = (k) => ({
@@ -148,4 +149,6 @@ export const lutFilterRef = (clip) => (typeof clip.filter === 'string' && clip.f
   ? { bundled: clip.filter.slice(4) } : null);
 export const hasFilter = (clip) => (!!byId[clip.filter] && clip.filter !== 'none' && (clip.filterIntensity ?? 100) > 0) || !!lutFilterRef(clip);
 const LUT_NAMES = { 'slay-01-amber.cube': 'Amber', 'slay-02-fade.cube': 'Fade', 'slay-03-neon.cube': 'Neon', 'slay-04-film.cube': 'Film', 'slay-05-portrait.cube': 'Portrait', 'cf-01-teak.cube': 'Teak', 'cf-02-glacier.cube': 'Glacier', 'cf-03-rose.cube': 'Rosé', 'cf-04-slate.cube': 'Slate', 'cf-05-ember.cube': 'Ember', 'cf-06-lagoon.cube': 'Lagoon', 'cf-07-velvet.cube': 'Velvet', 'cf-08-mono.cube': 'Mono', 'cf-09-goldenhour.cube': 'Golden Hour', 'cf-10-forest.cube': 'Forest', 'cf-11-candy.cube': 'Candy', 'cf-12-denim.cube': 'Denim', 'cf-13-noir.cube': 'Noir LUT', 'cf-14-peach.cube': 'Peach', 'cf-15-arctic.cube': 'Arctic', 'cf-16-vintage70.cube': 'Vintage 70', 'cf-17-neon.cube': 'Neon Night', 'cf-18-sepia.cube': 'Sepia', 'cf-19-meadow.cube': 'Meadow', 'cf-20-dusk.cube': 'Dusk' };
-export const filterName = (id) => byId[id]?.name || (String(id).startsWith('lut:') ? `${LUT_NAMES[id.slice(4)] || 'LUT'} (LUT)` : id);
+export const filterName = (id) => (String(id).startsWith('lut:')
+  ? `${libName('lut', id.slice(4).replace(/\.cube$/, ''), LUT_NAMES[id.slice(4)] || 'LUT')} (LUT)`
+  : libName('filter', id, byId[id]?.name || id));

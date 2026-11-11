@@ -4,6 +4,8 @@
 // { p1x, p1y, p2x, p2y } object, or undefined (linear). Rendering math lives in fx/easing.js; this is
 // only the control. The graph's y range (-0.4…1.45) leaves room to SEE overshoot curves pass 1.
 import React, { useEffect, useRef, useState } from 'react';
+import { useT } from '../i18n/index.jsx';
+import { libName } from '../i18n/libNames.js';
 import { Pause, Play, RotateCcw } from '../icons.jsx';
 import { EASE_PRESETS, bezierSolver, easeValue, isCustomEase, ptsOf } from '../fx/easing.js';
 
@@ -35,6 +37,7 @@ function Glyph({ pts, dashed = false }) {
 }
 
 export default function CurveEditor({ value, onChange, compact = false, resetValue = undefined }) {
+  const t = useT();
   const svgRef = useRef(null);
   const dragRef = useRef(null); // 'p1' | 'p2' while dragging
   const [activeGrip, setActiveGrip] = useState(null); // dragging or hovered grip, for the readout
@@ -124,19 +127,19 @@ export default function CurveEditor({ value, onChange, compact = false, resetVal
 
   return (
     <div className={`curve-editor ${compact ? 'compact' : ''}`}>
-      <div className="curve-chips" role="group" aria-label="Easing preset">
+      <div className="curve-chips" role="group" aria-label={t('curve.preset')}>
         {EASE_PRESETS.map((p) => (
           <button key={p.id} type="button" className={`curve-chip ${activeId === p.id ? 'on' : ''}`} onClick={() => pick(p.id)}>
             <Glyph pts={p.pts} />
-            <span>{p.name}</span>
+            <span>{libName('ease', p.id, p.name)}</span>
           </button>
         ))}
         <button type="button" className={`curve-chip ${activeId === 'custom' ? 'on' : ''}`} onClick={() => pick('custom')}>
           <Glyph pts={[0.3, 0.05, 0.7, 0.95]} dashed />
-          <span>Custom</span>
+          <span>{t('curve.custom')}</span>
         </button>
       </div>
-      <svg ref={svgRef} className="curve-graph" viewBox="0 0 120 84" role="img" aria-label="Easing curve"
+      <svg ref={svgRef} className="curve-graph" viewBox="0 0 120 84" role="img" aria-label={t('curve.easing')}
         onPointerMove={onMove} onPointerUp={endDrag} onPointerLeave={endDrag}>
         <defs>
           <filter id="curve-glow" x="-20%" y="-40%" width="140%" height="180%">
@@ -168,7 +171,7 @@ export default function CurveEditor({ value, onChange, compact = false, resetVal
       </svg>
       <div className="curve-preview">
         <button type="button" className={`curve-play ${playing ? 'on' : ''}`} onClick={() => setPlaying((p) => !p)}
-          aria-label={playing ? 'Stop motion preview' : 'Play motion preview'} title={playing ? 'Stop preview' : 'Preview this motion'}>
+          aria-label={t(playing ? 'curve.stop' : 'curve.play')} title={t(playing ? 'curve.stopTitle' : 'curve.playTitle')}>
           {playing ? <Pause size={12} /> : <Play size={12} />}
         </button>
         <div className="curve-track" aria-hidden="true">

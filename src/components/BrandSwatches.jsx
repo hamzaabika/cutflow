@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useT } from '../i18n/index.jsx';
 import { loadBrand } from '../brand.js';
 
 // The brand palette as pickable swatches (R3, the R1 deferral): wherever the
@@ -10,6 +11,7 @@ import { loadBrand } from '../brand.js';
 // re-reads when the Brand panel saves (it dispatches 'clipcraft:brand') or
 // another window changes the kit ('storage').
 export default function BrandSwatches({ onPick }) {
+  const t = useT();
   const [colors, setColors] = useState(() => loadBrand().colors);
   useEffect(() => {
     const read = () => setColors(loadBrand().colors);
@@ -20,7 +22,7 @@ export default function BrandSwatches({ onPick }) {
   if (!colors.length) return null;
   return (
     <div className="brand-swatches">
-      <span className="brand-swatches-label">Brand</span>
+      <span className="brand-swatches-label">{t('brand.swatches')}</span>
       {colors.map((c) => (
         <button key={c} type="button" className="chip-color" style={{ background: c }}
           title={`Brand colour ${c}`} aria-label={`Use brand colour ${c}`} onClick={() => onPick(c)} />

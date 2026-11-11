@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useT } from '../i18n/index.jsx';
 import { Layers, Loader2, Plus, Star } from '../icons.jsx';
 import { formatTime, toFileUrl } from '../store.js';
 import { FavStar, useFavorites } from '../favorites.jsx';
@@ -6,6 +7,7 @@ import { Thumb } from './StockLibrary.jsx';
 
 // Favorite videos and photos: Pixabay results and imported files, ready to add to any project.
 export default function MediaFavorites({ onStockAdd, onAddFile }) {
+  const t = useT();
   const favs = useFavorites().list.filter((e) => e.type === 'video' || e.type === 'photo');
   const [busy, setBusy] = useState({});
   const [error, setError] = useState('');
@@ -18,13 +20,13 @@ export default function MediaFavorites({ onStockAdd, onAddFile }) {
   };
   return (
     <>
-      <div className="tab-title">Favorite videos and photos</div>
+      <div className="tab-title">{t('fav.title')}</div>
       {error && <p className="error-text">{error}</p>}
       {!favs.length && (
         <div className="empty-state">
           <span className="empty-disc"><Star size={26} /></span>
-          <b>No favorites yet</b>
-          <p>Click the star on a stock video or photo, or on your own media, to keep it here for all your projects.</p>
+          <b>{t('fav.emptyTitle')}</b>
+          <p>{t('fav.emptyNote')}</p>
         </div>
       )}
       <div className="stock-grid">
@@ -46,8 +48,8 @@ export default function MediaFavorites({ onStockAdd, onAddFile }) {
                 <span className="stock-busy"><Loader2 size={18} className="spin" /> Adding…</span>
               ) : !e.missing && (
                 <span className="stock-actions">
-                  <button onClick={() => add(e, 'overlay')} aria-label="Add as overlay" title="Add as overlay (picture in picture)"><Layers size={13} /></button>
-                  <button onClick={() => add(e, 'main')} aria-label="Add to the main track" title="Add to the main track"><Plus size={14} /></button>
+                  <button onClick={() => add(e, 'overlay')} aria-label={t('fav.addOverlay')} title={t('fav.addOverlayTitle')}><Layers size={13} /></button>
+                  <button onClick={() => add(e, 'main')} aria-label={t('fav.addMain')} title={t('fav.addMain')}><Plus size={14} /></button>
                 </span>
               )}
             </div>

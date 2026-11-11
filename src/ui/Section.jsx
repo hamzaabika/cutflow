@@ -1,3 +1,4 @@
+import { tr } from '../i18n/index.jsx';
 import React, { useCallback, useState } from 'react';
 import { ChevronDown } from '../icons.jsx';
 
@@ -59,7 +60,7 @@ export function InspCard({ id, title, right = null, className = '', children }) 
       <div className="insp-card-head">
         <span className="insp-card-title">{title}</span>
         {right}
-        <SectionChevron open={open} onToggle={toggle} label={`${open ? 'Collapse' : 'Expand'} ${title}`} />
+        <SectionChevron open={open} onToggle={toggle} label={tr(open ? 'misc.section.collapse' : 'misc.section.expand', { title })} />
       </div>
       <div className="insp-card-body">{children}</div>
     </div>

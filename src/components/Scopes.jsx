@@ -8,6 +8,8 @@
 // and the last good sample is retained: switching modes or a momentarily
 // unreadable frame never blanks the scope.
 import React, { useEffect, useRef, useState } from 'react';
+import { tr, useT } from '../i18n/index.jsx';
+import { libName } from '../i18n/libNames.js';
 import { histogramBins, waveformLuma, channelPlanes, vectorPoints, pickScopeSource, pickSlotIndex } from '../scopesMath.js';
 
 const MODES = [
@@ -22,7 +24,7 @@ function drawScope(ctx, W, H, mode, data) {
   ctx.fillStyle = '#0c0c14'; ctx.fillRect(0, 0, W, H);
   if (!data) {
     ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.font = '11px system-ui';
-    ctx.fillText('Play or seek the preview — scopes read its current frame.', 10, H / 2);
+    ctx.fillText(tr('scopes.idle'), 10, H / 2);
     return;
   }
   const px = data.data; const n = SW * SH;
@@ -107,6 +109,7 @@ function sampleStageFrame(scratch) {
 }
 
 export default function Scopes() {
+  const t = useT();
   const canvasRef = useRef(null);
   const scratchRef = useRef(null);
   const lastDataRef = useRef(null); // last good sample — never blank once we have one
@@ -141,13 +144,13 @@ export default function Scopes() {
 
   return (
     <div className="scopes">
-      <div className="seg-tabs small" role="group" aria-label="Scope type">
+      <div className="seg-tabs small" role="group" aria-label={t('scopes.aria')}>
         {MODES.map((m) => (
-          <button key={m.id} className={mode === m.id ? 'on' : ''} aria-pressed={mode === m.id} onClick={() => setMode(m.id)}>{m.name}</button>
+          <button key={m.id} className={mode === m.id ? 'on' : ''} aria-pressed={mode === m.id} onClick={() => setMode(m.id)}>{libName('scope', m.id, m.name)}</button>
         ))}
       </div>
-      <canvas ref={canvasRef} width={264} height={110} className="scopes-canvas" aria-label={`${MODES.find((m) => m.id === mode).name} of the current preview frame`} />
-      <p className="hint">Scopes read the frame the player is showing, with filters and grading applied.</p>
+      <canvas ref={canvasRef} width={264} height={110} className="scopes-canvas" aria-label={t('scopes.frameOf', { name: libName('scope', mode, MODES.find((m) => m.id === mode).name) })} />
+      <p className="hint">{t('scopes.note')}</p>
     </div>
   );
 }

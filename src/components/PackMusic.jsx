@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useT } from '../i18n/index.jsx';
 import { Loader2, Pause, Play, Plus } from '../icons.jsx';
 import SearchBox from './SearchBox.jsx';
 import { formatTime, toFileUrl } from '../store.js';
@@ -12,6 +13,7 @@ import { useAssets } from '../useAssets.js';
 // instrumentals, "آهات" vocal tracks; the SFX subs from the pack folders). Rows preview
 // from disk and add at the playhead through App's addFile, like every other file add.
 export default function PackMusic({ collection, onAddFile, group = 'Music' }) {
+  const t = useT();
   const lib = useAssets();
   const [q, setQ] = useState('');
   const [adding, setAdding] = useState('');
@@ -50,14 +52,14 @@ export default function PackMusic({ collection, onAddFile, group = 'Music' }) {
 
   return (
     <>
-      <div className="tab-title">{isMusic ? 'Music' : 'Sound effects'} · {collection}</div>
+      <div className="tab-title">{t(isMusic ? 'pack.music' : 'pack.sfx')} · {collection}</div>
       {err && <p className="error-text">{err}</p>}
       {!lib ? (
         <p className="empty-note"><Loader2 size={14} className="spin" /> Reading the assets folder…</p>
       ) : !lib.hasLibrary || !items.length && !query ? (
         <>
           <p className="empty-note">No {collection} {isMusic ? 'tracks' : 'sounds'} in the assets folder yet.</p>
-          <p className="lib-note">From your assets folder — free to use, no credits needed.</p>
+          <p className="lib-note">{t('pack.note')}</p>
         </>
       ) : (
         <>
@@ -72,18 +74,18 @@ export default function PackMusic({ collection, onAddFile, group = 'Music' }) {
                 <div className="lib-meta">
                   <b title={item.name}>{item.name}</b>
                   <span className="lib-sub"><span>{collection}{item.duration ? ` · ${formatTime(item.duration).slice(0, 5)}` : ''}</span>
-                    {item.kind === 'video' && <i className="lic cc0">Video</i>}
-                    {item.missing && <i className="lic by">Missing file</i>}</span>
+                    {item.kind === 'video' && <i className="lic cc0">{t('pack.video')}</i>}
+                    {item.missing && <i className="lic by">{t('pack.missing')}</i>}</span>
                 </div>
                 <button className="lib-add" onClick={() => add(item)} disabled={item.missing || adding === item.path}
-                  aria-label={`Add ${item.name} at the playhead`} title="Add at the playhead">
+                  aria-label={t('pack.addAt', { name: item.name })} title={t('pack.addAtTitle')}>
                   {adding === item.path ? <Loader2 size={15} className="spin" /> : <Plus size={16} />}
                 </button>
               </div>
             ))}
           </div>
           {!shown.length && <p className="empty-note">{items.length ? `Nothing in ${collection} matches “${q.trim()}”.` : `No ${collection} ${isMusic ? 'tracks' : 'sounds'} in the assets folder yet.`}</p>}
-          <p className="lib-note">From your assets folder — free to use, no credits needed.</p>
+          <p className="lib-note">{t('pack.note')}</p>
         </>
       )}
     </>

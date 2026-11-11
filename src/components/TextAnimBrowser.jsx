@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { tr } from '../i18n/index.jsx';
+import { libName, slugifyPhrase } from '../i18n/libNames.js';
 import { Ban, ChevronDown } from '../icons.jsx';
 import TextPreview from './TextPreview.jsx';
 import { textAnimCategories, textAnimPresets } from '../fx/textAnim.js';
@@ -13,7 +15,7 @@ import { ANIM_UNITS, INHERENT_UNIT_ANIMS } from '../text/units.js';
 // The Animate control under the tiles picks the preset's unit: the whole text at once, word by word, or
 // letter by letter, with the stagger defined in src/text/units.js. It is stored on the same animIn /
 // animOut record as the preset, per In / Out slot.
-const UNIT_LABELS = { whole: 'Whole text', word: 'Word by word', char: 'Letters' };
+const UNIT_KEYS = { whole: 'tab2.whole', word: 'tab2.word', char: 'tab2.letters' };
 
 export default function TextAnimBrowser({ kind, value, unit = 'whole', baseStyle, sampleText, onPick, onClear, onUnit }) {
   const presets = textAnimPresets(kind);
@@ -33,7 +35,7 @@ export default function TextAnimBrowser({ kind, value, unit = 'whole', baseStyle
   // With a unit smaller than the whole text, the stagger is only visible on a few words: preview on the
   // clip's own text when it has at least two words, otherwise on a short stock phrase.
   const words = (sampleText || '').split(/\s+/).filter(Boolean).length;
-  const previewText = unit === 'whole' || words >= 2 ? sampleText : 'Cut it your way';
+  const previewText = unit === 'whole' || words >= 2 ? sampleText : tr('tab2.sample');
   // The tile previews isolate the animation being browsed: the other slot and the loop are off.
   const styleFor = (p) => (kind === 'in'
     ? { ...baseStyle, animIn: { id: p.anim, dur: p.dur, unit }, animOut: { id: 'none', dur: 0.3 }, animLoop: { id: 'none', speed: 1 } }
@@ -44,25 +46,25 @@ export default function TextAnimBrowser({ kind, value, unit = 'whole', baseStyle
   return (
     <div className="tan">
       <button className={`tan-none ${value === 'none' ? 'on' : ''}`} onClick={onClear} aria-pressed={value === 'none'}>
-        <Ban size={14} aria-hidden="true" /> No animation
+        <Ban size={14} aria-hidden="true" /> {tr('tab2.noAnimation')}
       </button>
       {value !== 'none' && (
         <div className="tan-unit">
-          <span className="tan-unit-label">Animate</span>
-          <div className="seg-tabs small" role="group" aria-label="Animation unit">
+          <span className="tan-unit-label">{tr('tab2.animate')}</span>
+          <div className="seg-tabs small" role="group" aria-label={tr('tab2.unit')}>
             {ANIM_UNITS.map((u) => (
               <button key={u} className={unit === u ? 'on' : ''} aria-pressed={unit === u}
                 disabled={inherent || !onUnit} onClick={() => onUnit && onUnit(u)}>
-                {UNIT_LABELS[u]}
+                {tr(UNIT_KEYS[u])}
               </button>
             ))}
           </div>
-          {inherent && <p className="tan-note">This preset already animates per word or letter on its own.</p>}
+          {inherent && <p className="tan-note">{tr('tab2.inherent')}</p>}
           {!inherent && unit === 'char' && (
-            <p className="tan-note">Letters animate one by one inside each word. Arabic text animates word by word instead — its letters stay joined.</p>
+            <p className="tan-note">{tr('tab2.lettersNote')}</p>
           )}
           {!inherent && unit === 'word' && (
-            <p className="tan-note">Each word plays the same motion in turn, first word to last, inside the duration above.</p>
+            <p className="tan-note">{tr('tab2.wordNote')}</p>
           )}
         </div>
       )}
@@ -73,7 +75,7 @@ export default function TextAnimBrowser({ kind, value, unit = 'whole', baseStyle
           <div key={cat} className="tan-cat">
             <button className="tan-cat-head" aria-expanded={open} onClick={() => toggle(cat)}>
               <ChevronDown size={14} className={open ? '' : 'closed'} aria-hidden="true" />
-              <span>{cat}</span>
+              <span>{libName('cat', slugifyPhrase(cat), cat)}</span>
               <span className="tan-count">{list.length}</span>
             </button>
             {open && (
@@ -81,11 +83,11 @@ export default function TextAnimBrowser({ kind, value, unit = 'whole', baseStyle
                 {list.map((p) => (
                   <div key={p.name} className={`tpl-item ${value === p.anim ? 'on' : ''}`}
                     onMouseEnter={() => setHover(p.name)} onMouseLeave={() => setHover(null)}>
-                    <button className="tpl-btn" onClick={() => onPick(p)} title={`${p.name} · ${p.dur.toFixed(1)}s`}>
+                    <button className="tpl-btn" onClick={() => onPick(p)} title={`${libName('tanim', slugifyPhrase(p.name), p.name)} · ${p.dur.toFixed(1)}s`}>
                       <TextPreview style={styleFor(p)} text={previewText} hover={hover === p.name}
                         width={128} height={72} loopDur={loopFor(p)} />
                     </button>
-                    <span className="tpl-name">{p.name}</span>
+                    <span className="tpl-name">{libName('tanim', slugifyPhrase(p.name), p.name)}</span>
                   </div>
                 ))}
               </div>

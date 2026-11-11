@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useT } from '../i18n/index.jsx';
 import { Eraser, Paintbrush, RotateCcw, Trash2, X } from '../icons.jsx';
 import { previewPath, toFileUrl } from '../store.js';
 import { rasterizeCustomMask } from '../customMask.js';
@@ -9,6 +10,7 @@ import Toggle from '../ui/Toggle.jsx';
 // that applies to the WHOLE clip — the copy in the dialog says so. "Show result" renders the
 // exact rasterizer output over the frame, so what is painted is what the export removes.
 export default function CustomMaskEditor({ clip, media, onClose, onSave }) {
+  const t = useT();
   const [strokes, setStrokes] = useState(() => (clip.customMask?.strokes || []).map((s) => ({ ...s, points: s.points.map((p) => [...p]) })));
   const [tool, setTool] = useState('erase');
   const [size, setSize] = useState(10); // brush diameter, % of the frame width
@@ -87,12 +89,12 @@ export default function CustomMaskEditor({ clip, media, onClose, onSave }) {
   const up = () => { drawing.current = null; };
 
   return (
-    <div className="cmask-overlay" role="dialog" aria-modal="true" aria-label="Custom removal">
+    <div className="cmask-overlay" role="dialog" aria-modal="true" aria-label={t('mask.customRemoval')}>
       <div className="cmask-modal">
         <div className="cmask-head">
-          <b>Custom removal</b>
-          <span className="dim small">Paint what to remove — the mask applies to the whole clip.</span>
-          <button className="icon-btn sm" aria-label="Close" onClick={onClose}><X size={15} /></button>
+          <b>{t('mask.customRemoval')}</b>
+          <span className="dim small">{t('mask.hint')}</span>
+          <button className="icon-btn sm" aria-label={t('mask.close')} onClick={onClose}><X size={15} /></button>
         </div>
         <div className="cmask-stage" ref={stageRef} style={{ aspectRatio: String(aspect) }}>
           {isVideo ? (
@@ -110,26 +112,26 @@ export default function CustomMaskEditor({ clip, media, onClose, onSave }) {
             : <canvas ref={paintRef} className="cmask-top" onPointerDown={down} onPointerMove={move} onPointerUp={up} />}
         </div>
         <div className="cmask-tools">
-          <div className="seg-tabs small" role="radiogroup" aria-label="Brush">
+          <div className="seg-tabs small" role="radiogroup" aria-label={t('mask.brush')}>
             <button role="radio" aria-checked={tool === 'erase'} className={tool === 'erase' ? 'on' : ''} onClick={() => setTool('erase')}><Eraser size={13} /> Erase</button>
             <button role="radio" aria-checked={tool === 'restore'} className={tool === 'restore' ? 'on' : ''} onClick={() => setTool('restore')}><Paintbrush size={13} /> Restore</button>
           </div>
           <label className="cmask-size">Brush size
-            <input type="range" min="2" max="30" step="1" value={size} aria-label="Brush size" onChange={(e) => setSize(Number(e.target.value))} />
+            <input type="range" min="2" max="30" step="1" value={size} aria-label={t('mask.brushSize')} onChange={(e) => setSize(Number(e.target.value))} />
             <span>{size}%</span>
           </label>
           <button className="btn btn-sm" onClick={() => setStrokes((p) => p.slice(0, -1))} disabled={!strokes.length}><RotateCcw size={13} /> Undo stroke</button>
           <button className="btn btn-sm" onClick={() => setStrokes([])} disabled={!strokes.length}><Trash2 size={13} /> Clear</button>
           <label className="field row">
-            <span>Show result</span>
+            <span>{t('mask.showResult')}</span>
             <Toggle checked={showResult} onChange={(e) => setShowResult(e.target.checked)} />
           </label>
         </div>
         <div className="cmask-foot">
           <span className="dim small">{strokes.length} stroke{strokes.length === 1 ? '' : 's'} · combines with Auto removal and Chroma key</span>
           <span className="cmask-actions">
-            <button className="btn" onClick={onClose}>Cancel</button>
-            <button className="btn btn-primary" onClick={() => onSave(strokes)}>Save mask</button>
+            <button className="btn" onClick={onClose}>{t('common.cancel')}</button>
+            <button className="btn btn-primary" onClick={() => onSave(strokes)}>{t('mask.save')}</button>
           </span>
         </div>
       </div>

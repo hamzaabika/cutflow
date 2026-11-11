@@ -1,10 +1,11 @@
+import { tr } from '../i18n/index.jsx';
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ChevronRight } from '../icons.jsx';
 
 // Floating menu at (x, y). items: [{ label, icon, shortcut, onClick, disabled, hint } |
 // { label, icon, submenu: [items], disabled, hint } | 'sep'].
 // Closes on a click outside, Escape, scroll or resize; stays inside the window.
-export default function ContextMenu({ x, y, items, onClose, label = 'Clip menu' }) {
+export default function ContextMenu({ x, y, items, onClose, label = tr('menu.clipMenu') }) {
   const ref = useRef(null);
   const subRef = useRef(null);
   const [pos, setPos] = useState({ left: x, top: y });
