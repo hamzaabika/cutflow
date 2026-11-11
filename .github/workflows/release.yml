@@ -167,6 +167,15 @@ jobs:
             echo
             echo "Free, open-source desktop video editor — no watermark, no account, no subscription. Linux, Windows and macOS builds below."
             echo
+            echo "## What's new in $v"
+            echo
+            echo "- Interface in English, French and Arabic — full Arabic RTL, Cairo font, and everything translated, library names included"
+            echo "- AI Video Enhancer — upscale clips 2x or 4x on your own machine with Real-ESRGAN, free and fully offline, with native engines for Linux, Windows and macOS"
+            echo "- Screen recorder — remembers your microphone choice, warns you about silent recordings, and works properly on Wayland"
+            echo "- Stickers — drag, scale and rotate them directly in the player"
+            echo "- Timeline lane controls are always visible"
+            echo "- Tab strip navigation arrows at both ends"
+            echo
             echo "### Install"
             echo "- **Linux (.deb):** \`sudo apt install ./cutflow_${v}_amd64.deb\`"
             echo "- **Windows (.exe):** run \`Cutflow-Setup-${v}.exe\`. The build is unsigned, so SmartScreen will warn — click **More info → Run anyway**."
@@ -176,8 +185,6 @@ jobs:
             echo '```'
             cat SHA256SUMS.txt
             echo '```'
-            echo
-            echo "Screenshots, the logo and the demo videos attached to this release are the README media."
           } > release-notes.md
           cat release-notes.md
 
@@ -193,9 +200,6 @@ jobs:
           body_path: release-notes.md
           files: |
             installers/*
-            screenshots/*.png
-            public/logo.png
-            videos/*.mp4
 
       - name: Report failure as an issue
         if: failure()
