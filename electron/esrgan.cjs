@@ -29,15 +29,30 @@ const { ffmpegPath, ffprobePath, probe } = require('./ffmpeg.cjs');
 // tiles and run out of memory on an iGPU at 4x).
 const TILE_SIZE = 256;
 
+// The engine's path RELATIVE to vendor/realesrgan, per platform — a pure
+// helper so the platform selection is testable without a Windows/Mac host.
+// Each OS package of the same engine build (v0.2.5.0) ships its own binary
+// name/layout (see the vendor README for hashes):
+//   linux  → realesrgan-ncnn-vulkan            (ELF, the original layout)
+//   win32  → realesrgan-ncnn-vulkan.exe        (+ vcomp140.dll /
+//            vcomp140d.dll beside it — the exe loads them from its own dir)
+//   darwin → macos/realesrgan-ncnn-vulkan      (Mach-O universal; kept in a
+//            subfolder so it never collides with the Linux ELF's name)
+// The .param/.bin models are platform-independent and shared by all three.
+function engineRelPath(platform = process.platform) {
+  if (platform === 'win32') return 'realesrgan-ncnn-vulkan.exe';
+  if (platform === 'darwin') return path.join('macos', 'realesrgan-ncnn-vulkan');
+  return 'realesrgan-ncnn-vulkan';
+}
+
 // The engine directory, resolved the way ffmpeg-static resolves its binary:
 // electron/ in dev, app.asar.unpacked in packaged builds (package.json's
-// asarUnpack carries vendor/realesrgan/**). The Windows package of the same
-// engine build ships the .exe name (see the vendor README).
+// asarUnpack carries vendor/realesrgan/**).
 function enginePaths(platform = process.platform) {
   const dir = path.join(__dirname, '..', 'vendor', 'realesrgan').replace('app.asar', 'app.asar.unpacked');
   return {
     dir,
-    bin: path.join(dir, platform === 'win32' ? 'realesrgan-ncnn-vulkan.exe' : 'realesrgan-ncnn-vulkan'),
+    bin: path.join(dir, engineRelPath(platform)),
     models: path.join(dir, 'models'),
   };
 }
@@ -200,4 +215,4 @@ async function runEnhance({ src, model, scale, outFile, onProgress, isCanceled, 
   }
 }
 
-module.exports = { MODELS, TILE_SIZE, enginePaths, planFor, outputNameFor, exactFps, extractArgs, engineArgs, encodeArgs, runEnhance };
+module.exports = { MODELS, TILE_SIZE, engineRelPath, enginePaths, planFor, outputNameFor, exactFps, extractArgs, engineArgs, encodeArgs, runEnhance };
