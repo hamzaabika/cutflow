@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-2.0.0-825cfb?style=flat-square">
+  <img alt="Version" src="https://img.shields.io/badge/version-2.1.0-825cfb?style=flat-square">
   <img alt="Platform" src="https://img.shields.io/badge/platform-Linux%20·%20Windows%20·%20macOS-825cfb?style=flat-square">
   <img alt="License" src="https://img.shields.io/badge/license-MIT-825cfb?style=flat-square">
   <img alt="Electron" src="https://img.shields.io/badge/Electron-47848F?style=flat-square&logo=electron&logoColor=white">
@@ -29,7 +29,7 @@
 <p align="center">
   <a href="https://getcutflow.pages.dev">Website</a> ·
   <a href="https://instagram.com/hamza_abika">Instagram</a> ·
-  <a href="https://github.com/hamzaabika/cutflow/releases/tag/v2.0.0">Release 2.0.0</a>
+  <a href="https://github.com/hamzaabika/cutflow/releases/tag/v2.1.0">Release 2.1.0</a>
 </p>
 
 <br>
@@ -86,6 +86,8 @@ Cutflow is a free, open-source desktop video editor and covers what people actua
 - 🔤 **Animated text done properly.** 54 text templates, word-by-word styling, and real RTL/Arabic shaping.
 - 🧩 **Offline templates + built-in stock.** And a screen recorder that drops captures straight onto the timeline.
 - **Screen recording** — remembers your microphone, warns when it is off, and tells you if a recording came out without sound.
+- 🌐 **Interface in English, French and Arabic.** The whole interface — menus, panels, timeline, settings — in English, French or Arabic (Modern Standard), switched live in **Settings › Language**. The first start follows your system language, and Arabic lays out fully right-to-left while the timeline and the player keep time running left to right.
+- ✨ **AI Video Enhance.** Upscale any clip 2x or 4x with local Real-ESRGAN models — Realistic, Animation and Fast. It runs entirely on your machine: free, offline, nothing uploaded. The result lands in your library as a new clip; the original is untouched.
 - 🤖 **FlowAI.** An AI editing assistant that runs on *your* provider and *your* key.
 - ⚡ **Fast, honest export.** Trimmed sources are seeked, not re-decoded from zero — exports of clips cut from long footage start instantly and run up to ~40% faster, byte-identical to before. Adaptive performance modes (Low-End / Balanced / High-Performance) tune background work to your machine, and never touch export quality.
 
@@ -135,16 +137,16 @@ FlowAI is an AI editing assistant inside the editor: one-click looks, or just sa
 
 ## Download
 
-Get **Cutflow 2.0.0** from the [GitHub Release](https://github.com/hamzaabika/cutflow/releases/tag/v2.0.0):
+Get **Cutflow 2.1.0** from the [GitHub Release](https://github.com/hamzaabika/cutflow/releases/tag/v2.1.0):
 
-- **Linux (.deb)** — `cutflow_2.0.0_amd64.deb`, then:
+- **Linux (.deb)** — `cutflow_2.1.0_amd64.deb`, then:
 
 ```bash
-sudo apt install ./cutflow_2.0.0_amd64.deb
+sudo apt install ./cutflow_2.1.0_amd64.deb
 ```
 
-- **Windows (.exe)** — `Cutflow-Setup-2.0.0.exe` (NSIS installer).
-- **macOS (.dmg)** — `Cutflow-2.0.0.dmg` (Apple silicon & Intel).
+- **Windows (.exe)** — `Cutflow-Setup-2.1.0.exe` (NSIS installer).
+- **macOS (.dmg)** — `Cutflow-2.1.0.dmg` (Apple silicon & Intel).
 
 SHA-256 checksums for every installer are printed in the release notes.
 
