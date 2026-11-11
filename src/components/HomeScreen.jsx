@@ -6,6 +6,7 @@ import {
   LayoutGrid, ListRows, Monitor, MoreVertical, Pencil, Play, Plus, RotateCcw, Settings, Trash2,
 } from '../icons.jsx';
 import { Button, ConfirmDialog, ContextMenu, Dropdown, IconButton, SearchBox } from '../ui/index.js';
+import { getLanguage, tr, useT } from '../i18n/index.jsx';
 
 // The developer's Instagram — shown in the home footer and the About dialog.
 export const DEV_INSTAGRAM_URL = 'https://www.instagram.com/hamza_abika/';
@@ -53,13 +54,14 @@ const frameKind = (ratio) => {
   return w === h ? 'sq' : w > h ? 'wide' : 'tall';
 };
 const SORTS = [
-  { value: 'recent', label: 'Recently edited' },
-  { value: 'name', label: 'Name A–Z' },
+  { value: 'recent' },
+  { value: 'name' },
 ];
 
+const DATE_LOCALES = { en: 'en-GB', fr: 'fr-FR', ar: 'ar' };
 const fmtDate = (ts) => {
   try {
-    return new Date(ts).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+    return new Date(ts).toLocaleDateString(DATE_LOCALES[getLanguage()] || 'en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
   } catch {
     return '';
   }
@@ -70,24 +72,24 @@ const relDate = (ts) => {
   if (!ts) return '';
   const startOf = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
   const days = Math.round((startOf(new Date()) - startOf(new Date(ts))) / 864e5);
-  if (days <= 0) return 'Today';
-  if (days === 1) return 'Yesterday';
-  if (days < 7) return `${days} days ago`;
+  if (days <= 0) return tr('home.today');
+  if (days === 1) return tr('home.yesterday');
+  if (days < 7) return tr('home.daysAgo', { days });
   return fmtDate(ts);
 };
 
 const greeting = () => {
   const h = new Date().getHours();
-  if (h < 5) return 'Still up';
-  if (h < 12) return 'Good morning';
-  if (h < 18) return 'Good afternoon';
-  return 'Good evening';
+  if (h < 5) return tr('home.greetStillUp');
+  if (h < 12) return tr('home.greetMorning');
+  if (h < 18) return tr('home.greetAfternoon');
+  return tr('home.greetEvening');
 };
 
 const baseName = (p) => String(p || '').split(/[\\/]/).pop();
 
 // Where a project lives, in the user's terms: its file's name, or the auto-save.
-const stateLine = (e) => (e.path ? baseName(e.path) : 'Auto-saved on this PC');
+const stateLine = (e) => (e.path ? baseName(e.path) : tr('home.autoSavedPc'));
 
 // '9:16' -> '9 / 16' for CSS aspect-ratio: card thumbnails take the PROJECT's true shape
 // (W4) instead of a forced 16/9 box that letterboxes portrait projects into a smear.
@@ -126,6 +128,7 @@ function EmptyStage() {
 // Rename in place: a small dialog over the switchboard. Enter saves, Escape cancels;
 // an unchanged or empty name simply closes (the store refuses empties too).
 function RenameDialog({ entry, onSubmit, onClose }) {
+  const t = useT();
   const [value, setValue] = useState(entry.name || '');
   const [busy, setBusy] = useState(false);
   const input = useRef(null);
@@ -143,13 +146,13 @@ function RenameDialog({ entry, onSubmit, onClose }) {
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="home-rename-title"
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <form className="modal home-rename" onSubmit={submit}>
-        <h3 id="home-rename-title">Rename project</h3>
+        <h3 id="home-rename-title">{t('home.renameTitle')}</h3>
         <input ref={input} className="home-rename-input" value={value} maxLength={120}
-          onChange={(e) => setValue(e.target.value)} aria-label="Project name"
+          onChange={(e) => setValue(e.target.value)} aria-label={t('topbar.projectName')}
           onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); onClose(); } }} />
         <div className="modal-actions">
-          <Button variant="ghost" type="button" onClick={onClose}>Cancel</Button>
-          <Button variant="primary" type="submit" disabled={busy || !value.trim()}>Rename</Button>
+          <Button variant="ghost" type="button" onClick={onClose}>{t('common.cancel')}</Button>
+          <Button variant="primary" type="submit" disabled={busy || !value.trim()}>{t('home.rename')}</Button>
         </div>
       </form>
     </div>
@@ -161,6 +164,7 @@ export default function HomeScreen({
   onRestoreTrashed, onDeleteTrashed, onEmptyTrash, onHistory,
   onImportMedia, onRecordStart, onSettings, unsavedNote, onRestoreUnsaved, onDiscardUnsaved,
 }) {
+  const t = useT();
   // The version badge reads the real app version (package.json via app:version) —
   // it must never drift from the shipped build again.
   const [version, setVersion] = useState('');
@@ -201,22 +205,22 @@ export default function HomeScreen({
     openMenu(entry, r.left, r.bottom + 4);
   };
   const menuItems = (entry) => [
-    { label: 'Open', icon: Play, onClick: () => onOpenRecent(entry) },
-    { label: 'Rename…', icon: Pencil, onClick: () => setRenameTarget(entry) },
-    { label: 'Duplicate', icon: CopyPlus, onClick: () => onDuplicate(entry) },
-    ...(entry.slotId ? [{ label: 'Project backups…', icon: History, onClick: () => onHistory(entry) }] : []),
+    { label: t('home.menuOpen'), icon: Play, onClick: () => onOpenRecent(entry) },
+    { label: t('home.menuRename'), icon: Pencil, onClick: () => setRenameTarget(entry) },
+    { label: t('home.menuDuplicate'), icon: CopyPlus, onClick: () => onDuplicate(entry) },
+    ...(entry.slotId ? [{ label: t('home.menuBackups'), icon: History, onClick: () => onHistory(entry) }] : []),
     'sep',
-    { label: 'Move to trash', icon: Trash2, onClick: () => onTrash(entry) },
+    { label: t('home.menuTrash'), icon: Trash2, onClick: () => onTrash(entry) },
   ];
   const cardKeys = (entry) => (e) => {
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenRecent(entry); }
   };
 
   const deleteText = deleteTarget === 'all'
-    ? 'Everything in the trash is deleted for good. Auto-saved copies are removed; project files on disk are never touched.'
+    ? t('home.deleteAllText')
     : deleteTarget?.kind === 'slot'
-      ? `The auto-saved copy of “${displayProjectName(deleteTarget.name)}” is deleted for good.${deleteTarget.path ? ' The project file on disk is not deleted.' : ''} This cannot be undone.`
-      : `“${displayProjectName(deleteTarget?.name)}” leaves the trash list. The project file itself stays on your disk — only this entry goes.`;
+      ? t('home.deleteSlotText', { name: displayProjectName(deleteTarget.name), fileNote: deleteTarget.path ? t('home.deleteSlotFileNote') : '' })
+      : t('home.deleteFileText', { name: displayProjectName(deleteTarget?.name) });
 
   return (
     <div className="home">
@@ -227,22 +231,22 @@ export default function HomeScreen({
             <span className="home-name">Cut<b>flow</b></span>
             <span className="home-ver-badge">{version ? `v${version}` : 'v2.0'}</span>
           </div>
-          <nav className="home-nav" aria-label="Home">
+          <nav className="home-nav" aria-label={t('home.navAria')}>
             <button className={`home-nav-item ${nav === 'home' ? 'on' : ''}`} aria-current={nav === 'home' ? 'page' : undefined} onClick={goHome}>
-              <Home size={16} /><span>Home</span>
+              <Home size={16} /><span>{t('home.navHome')}</span>
             </button>
             <button className={`home-nav-item ${nav === 'projects' ? 'on' : ''}`} aria-current={nav === 'projects' ? 'page' : undefined} onClick={goProjects}>
-              <FolderOpen size={16} /><span>Projects</span><span className="side-count">{recents.length}</span>
+              <FolderOpen size={16} /><span>{t('topbar.projects')}</span><span className="side-count">{recents.length}</span>
             </button>
             <button className="home-nav-item" onClick={() => onSettings?.()}>
-              <Settings size={16} /><span>Settings</span>
+              <Settings size={16} /><span>{t('settings.title')}</span>
             </button>
           </nav>
           <div className="home-side-foot">
-            <button className="home-support" onClick={() => window.api.openHelp(SUPPORT_URL)} aria-label="Support Cutflow on PayPal">
-              <Heart size={14} /><span>Support the project</span>
+            <button className="home-support" onClick={() => window.api.openHelp(SUPPORT_URL)} aria-label={t('home.supportAria')}>
+              <Heart size={14} /><span>{t('topbar.supportProject')}</span>
             </button>
-            <span className="home-greet">{greeting()} — ready when you are.</span>
+            <span className="home-greet">{t('home.greetLine', { greeting: greeting() })}</span>
           </div>
         </aside>
 
@@ -251,12 +255,12 @@ export default function HomeScreen({
         {unsavedNote && (
           <div className="home-recover" role="status">
             <div>
-              <b>Your last project was not saved.</b>
-              <span> It was kept on this PC ({new Date(unsavedNote.savedAt).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}).</span>
+              <b>{t('home.recoverTitle')}</b>
+              <span>{t('home.recoverKept', { date: new Date(unsavedNote.savedAt).toLocaleString(DATE_LOCALES[getLanguage()] || 'en-GB', { dateStyle: 'medium', timeStyle: 'short' }) })}</span>
             </div>
             <div className="home-recover-actions">
-              <Button variant="primary" size="sm" onClick={onRestoreUnsaved}>Restore</Button>
-              <Button size="sm" onClick={onDiscardUnsaved}>Discard</Button>
+              <Button variant="primary" size="sm" onClick={onRestoreUnsaved}>{t('home.restore')}</Button>
+              <Button size="sm" onClick={onDiscardUnsaved}>{t('home.discard')}</Button>
             </div>
           </div>
         )}
@@ -264,23 +268,23 @@ export default function HomeScreen({
         <section className="home-hero" aria-labelledby="home-new">
           <div className="home-create" role="button" tabIndex={0} onClick={createProject}
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); createProject(); } }}
-            aria-label="Create project">
+            aria-label={t('home.createAria')}>
             <div className="home-create-main">
               <span className="home-create-icon"><Plus size={26} /></span>
-              <span className="home-eyebrow">New project</span>
-              <h1 id="home-new">Create project</h1>
-              <p className="home-hero-sub">Opens a new project — reshape the frame any time in the editor.</p>
+              <span className="home-eyebrow">{t('home.newProject')}</span>
+              <h1 id="home-new">{t('home.createProject')}</h1>
+              <p className="home-hero-sub">{t('home.heroSub')}</p>
             </div>
             {/* Frame pills ride the card's right side: a pill only SELECTS
                 its frame (the white .on state); the card body creates with
                 the selection. Clicks/keys stop here so a pill gesture can
                 never also fire the card's create for the same gesture. */}
-            <span className="home-create-chips" role="group" aria-label="Frame shape for the new project"
+            <span className="home-create-chips" role="group" aria-label={t('home.frameGroupAria')}
               onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
               {CREATE_CHIPS.map((p) => (
                 <button key={p.ratio} type="button"
                   className={`home-chip${p.ratio === framePreset.ratio ? ' on' : ''}`}
-                  aria-label={`${p.ratio} frame`} aria-pressed={p.ratio === framePreset.ratio}
+                  aria-label={t('home.frameAria', { ratio: p.ratio })} aria-pressed={p.ratio === framePreset.ratio}
                   onClick={() => setFramePreset(p)}>
                   <span className={`home-chip-frame ${frameKind(p.ratio)}`} aria-hidden="true" />
                   {p.ratio}
@@ -290,33 +294,33 @@ export default function HomeScreen({
           </div>
         </section>
 
-        <section className="home-quick" aria-label="Quick tools">
+        <section className="home-quick" aria-label={t('home.quickTools')}>
           <button className="home-action" onClick={onOpen}>
             <span className="home-action-icon"><FolderOpen size={18} /></span>
-            <span className="home-action-text"><b>Open project…</b><span>Open a Cutflow project.</span></span>
+            <span className="home-action-text"><b>{t('topbar.openProject')}</b><span>{t('home.openProjectSub')}</span></span>
           </button>
           <button className="home-action" onClick={onImportMedia}>
             <span className="home-action-icon"><Import size={18} /></span>
-            <span className="home-action-text"><b>Import media…</b><span>New project, your clips.</span></span>
+            <span className="home-action-text"><b>{t('home.importMedia')}</b><span>{t('home.importMediaSub')}</span></span>
           </button>
           <button className="home-action" onClick={() => onRecordStart?.(HOME_FPS)}>
             <span className="home-action-icon"><Monitor size={18} /></span>
-            <span className="home-action-text"><b>Record screen</b><span>Capture screen &amp; audio.</span></span>
+            <span className="home-action-text"><b>{t('home.recordScreen')}</b><span>{t('home.recordScreenSub')}</span></span>
           </button>
         </section>
 
         <section className="home-recents" aria-labelledby="home-recent-title" ref={projectsRef}>
           <div className="home-recents-head">
-            <h2 id="home-recent-title"><Clock3 size={16} /> Recent projects</h2>
+            <h2 id="home-recent-title"><Clock3 size={16} /> {t('home.recentProjects')}</h2>
             {recents.length > 0 && (
               <span className="home-recents-tools">
-                <Dropdown value={sort} options={SORTS} onChange={setSort} ariaLabel="Sort projects" className="home-sort" />
-                <SearchBox value={query} onChange={setQuery} placeholder="Search projects…" ariaLabel="Search projects" />
-                <span className="home-view-toggle" role="group" aria-label="Projects view">
-                  <button type="button" className={view === 'grid' ? 'on' : ''} aria-label="Grid view" aria-pressed={view === 'grid'}
-                    title="Grid view" onClick={() => setView('grid')}><LayoutGrid size={15} /></button>
-                  <button type="button" className={view === 'list' ? 'on' : ''} aria-label="List view" aria-pressed={view === 'list'}
-                    title="List view" onClick={() => setView('list')}><ListRows size={15} /></button>
+                <Dropdown value={sort} options={SORTS.map((s) => ({ value: s.value, label: t(`home.sort.${s.value}`) }))} onChange={setSort} ariaLabel={t('home.sortProjects')} className="home-sort" />
+                <SearchBox value={query} onChange={setQuery} placeholder={t('home.searchProjectsPh')} ariaLabel={t('home.searchProjects')} />
+                <span className="home-view-toggle" role="group" aria-label={t('home.projectsView')}>
+                  <button type="button" className={view === 'grid' ? 'on' : ''} aria-label={t('home.gridView')} aria-pressed={view === 'grid'}
+                    title={t('home.gridView')} onClick={() => setView('grid')}><LayoutGrid size={15} /></button>
+                  <button type="button" className={view === 'list' ? 'on' : ''} aria-label={t('home.listView')} aria-pressed={view === 'list'}
+                    title={t('home.listView')} onClick={() => setView('list')}><ListRows size={15} /></button>
                 </span>
               </span>
             )}
@@ -324,12 +328,12 @@ export default function HomeScreen({
           {!recents.length && (
             <div className="home-empty">
               <EmptyStage />
-              <p><b>Nothing on the shelf yet.</b></p>
-              <p className="muted">The projects you save or open will wait for you here, one click away.</p>
+              <p><b>{t('home.emptyTitle')}</b></p>
+              <p className="muted">{t('home.emptyText')}</p>
             </div>
           )}
           {recents.length > 0 && !shown.length && (
-            <p className="muted">No projects match “{query}”.</p>
+            <p className="muted">{t('home.noMatch', { query })}</p>
           )}
           {featured && (
             <div className="home-continue" onClick={() => onOpenRecent(featured)} onKeyDown={cardKeys(featured)}
@@ -341,19 +345,19 @@ export default function HomeScreen({
                 {fmtDuration(featured.duration) && <span className="home-card-dur">{fmtDuration(featured.duration)}</span>}
               </div>
               <div className="home-continue-body">
-                <span className="home-eyebrow">Jump back in</span>
-                <b className="home-continue-name">{displayProjectName(featured.name) || 'Untitled'}</b>
+                <span className="home-eyebrow">{t('home.jumpBackIn')}</span>
+                <b className="home-continue-name">{displayProjectName(featured.name) || t('common.untitled')}</b>
                 <span className="home-continue-meta">
                   {featured.ratio || '16:9'} · {relDate(featured.modifiedAt)}{fmtDuration(featured.duration) ? ` · ${fmtDuration(featured.duration)}` : ''}
                 </span>
                 <span className="home-continue-meta home-card-state">{stateLine(featured)}</span>
                 <span className="home-continue-cta">
                   <Button variant="primary" size="sm" onClick={(e) => { e.stopPropagation(); onOpenRecent(featured); }}>
-                    <Play size={13} fill="currentColor" /> Resume
+                    <Play size={13} fill="currentColor" /> {t('home.resume')}
                   </Button>
                 </span>
               </div>
-              <IconButton className="home-card-menu" aria-label={`Actions for ${featured.name || 'project'}`} title="Project actions"
+              <IconButton className="home-card-menu" aria-label={t('home.actionsFor', { name: featured.name || t('home.projectFallback') })} title={t('home.projectActions')}
                 onClick={menuFor(featured)}><MoreVertical size={15} /></IconButton>
             </div>
           )}
@@ -364,11 +368,11 @@ export default function HomeScreen({
                   onContextMenu={(e) => { e.preventDefault(); openMenu(r, e.clientX, e.clientY); }}
                   tabIndex={0} role="button" title={r.path || r.name}>
                   <span className="home-row-thumb"><RecentThumb r={r} placeholder={16} /></span>
-                  <b className="home-row-name">{displayProjectName(r.name) || 'Untitled'}</b>
+                  <b className="home-row-name">{displayProjectName(r.name) || t('common.untitled')}</b>
                   <span className="home-row-meta">
                     {r.ratio || '16:9'} · {relDate(r.modifiedAt)}{fmtDuration(r.duration) ? ` · ${fmtDuration(r.duration)}` : ''} · {stateLine(r)}
                   </span>
-                  <IconButton className="home-card-menu" aria-label={`Actions for ${r.name || 'project'}`} title="Project actions"
+                  <IconButton className="home-card-menu" aria-label={t('home.actionsFor', { name: r.name || t('home.projectFallback') })} title={t('home.projectActions')}
                     onClick={menuFor(r)}><MoreVertical size={15} /></IconButton>
                 </div>
               ))}
@@ -386,11 +390,11 @@ export default function HomeScreen({
                     {fmtDuration(r.duration) && <span className="home-card-dur">{fmtDuration(r.duration)}</span>}
                   </div>
                   <div className="home-card-body">
-                    <b className="home-card-name">{displayProjectName(r.name) || 'Untitled'}</b>
+                    <b className="home-card-name">{displayProjectName(r.name) || t('common.untitled')}</b>
                     <span className="home-card-meta">{relDate(r.modifiedAt)}{fmtDuration(r.duration) ? ` · ${fmtDuration(r.duration)}` : ''}</span>
                     <span className="home-card-meta home-card-state">{stateLine(r)}</span>
                   </div>
-                  <IconButton className="home-card-menu" aria-label={`Actions for ${r.name || 'project'}`} title="Project actions"
+                  <IconButton className="home-card-menu" aria-label={t('home.actionsFor', { name: r.name || t('home.projectFallback') })} title={t('home.projectActions')}
                     onClick={menuFor(r)}><MoreVertical size={15} /></IconButton>
                 </div>
               ))}
@@ -404,11 +408,11 @@ export default function HomeScreen({
               <button className="home-trash-toggle" onClick={() => setTrashOpen(!trashOpen)} aria-expanded={trashOpen}>
                 {trashOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
                 <Trash2 size={15} />
-                <span id="home-trash-title">Trash · {trash.length}</span>
-                <span className="home-trash-note">kept for 30 days</span>
+                <span id="home-trash-title">{t('home.trashCount', { count: trash.length })}</span>
+                <span className="home-trash-note">{t('home.trashKept')}</span>
               </button>
               {trashOpen && (
-                <Button variant="ghost" size="sm" onClick={() => setDeleteTarget('all')}>Empty trash</Button>
+                <Button variant="ghost" size="sm" onClick={() => setDeleteTarget('all')}>{t('home.emptyTrash')}</Button>
               )}
             </div>
             {trashOpen && (
@@ -417,16 +421,16 @@ export default function HomeScreen({
                   <div key={t.kind === 'slot' ? `slot:${t.slotId}` : `file:${t.path}`} className="home-trash-row">
                     <span className="home-trash-thumb"><RecentThumb r={t} placeholder={16} /></span>
                     <span className="home-trash-info">
-                      <b className="home-trash-name">{displayProjectName(t.name) || 'Untitled'}</b>
+                      <b className="home-trash-name">{displayProjectName(t.name) || tr('common.untitled')}</b>
                       <span className="home-trash-meta">
-                        Deleted {relDate(t.trashedAt).toLowerCase()} · {daysLeftInTrash(t.trashedAt)} days left
-                        {t.kind === 'file' ? ' · the file stays on your disk' : ''}
+                        {tr('home.trashMeta', { when: relDate(t.trashedAt).toLowerCase(), days: daysLeftInTrash(t.trashedAt) })}
+                        {t.kind === 'file' ? tr('home.trashFileStaysSeg') : ''}
                       </span>
                     </span>
                     <Button variant="ghost" size="sm" onClick={() => onRestoreTrashed(t)}>
-                      <RotateCcw size={13} /> Restore
+                      <RotateCcw size={13} /> {tr('home.restore')}
                     </Button>
-                    <IconButton className="home-trash-del" aria-label={`Delete ${t.name || 'project'} forever`} title="Delete forever"
+                    <IconButton className="home-trash-del" aria-label={tr('home.deleteForeverAria', { name: t.name || tr('home.projectFallback') })} title={tr('home.deleteForever')}
                       onClick={() => setDeleteTarget(t)}><Trash2 size={14} /></IconButton>
                   </div>
                 ))}
@@ -437,20 +441,20 @@ export default function HomeScreen({
       </main>
 
       <footer className="home-foot">
-        <button className="home-dev" onClick={() => window.api.openHelp(DEV_INSTAGRAM_URL)} title="Developer on Instagram">
-          Developed by <b>Hamza Abika</b> <Instagram size={13} /> @hamza_abika
+        <button className="home-dev" onClick={() => window.api.openHelp(DEV_INSTAGRAM_URL)} title={t('home.devTitle')}>
+          {t('home.devBy')} <b>Hamza Abika</b> <Instagram size={13} /> @hamza_abika
         </button>
-        <span>Cut it your way — works offline · no watermark</span>
+        <span>{t('home.tagline')}</span>
       </footer>
         </div>
       </div>
 
-      {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems(menu.entry)} onClose={() => setMenu(null)} label="Project actions" />}
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems(menu.entry)} onClose={() => setMenu(null)} label={t('home.projectActions')} />}
       {renameTarget && <RenameDialog entry={renameTarget} onSubmit={onRename} onClose={() => setRenameTarget(null)} />}
       {deleteTarget && (
-        <ConfirmDialog icon={Trash2} title={deleteTarget === 'all' ? 'Empty the trash?' : 'Delete forever?'}
-          text={deleteText} confirmLabel={deleteTarget === 'all' ? 'Empty trash' : 'Delete forever'}
-          cancelLabel="Cancel"
+        <ConfirmDialog icon={Trash2} title={deleteTarget === 'all' ? t('home.emptyTrashTitle') : t('home.deleteForeverTitle')}
+          text={deleteText} confirmLabel={deleteTarget === 'all' ? t('home.emptyTrash') : t('home.deleteForever')}
+          cancelLabel={t('common.cancel')}
           onConfirm={() => { if (deleteTarget === 'all') onEmptyTrash(); else onDeleteTrashed(deleteTarget); setDeleteTarget(null); }}
           onCancel={() => setDeleteTarget(null)} />
       )}

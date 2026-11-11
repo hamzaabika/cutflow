@@ -10,7 +10,9 @@ const MIME = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video
 const mimeType = () => MIME.find((m) => window.MediaRecorder?.isTypeSupported(m)) || '';
 
 // One MediaRecorder writing to one file in the main process. Chunks are sent in order.
-function fileRecorder(stream, kind, bitrate) {
+// expectAudio (screen recorder only): sound was meant to be captured — the
+// main process checks the finished file for silence and flags it.
+function fileRecorder(stream, kind, bitrate, expectAudio = false) {
   const mr = new MediaRecorder(stream, { mimeType: mimeType(), videoBitsPerSecond: bitrate, audioBitsPerSecond: 160000 });
   let id = null;
   let chain = window.api.screenBegin(kind).then((v) => { id = v; });
@@ -26,7 +28,7 @@ function fileRecorder(stream, kind, bitrate) {
       if (mr.state !== 'inactive') mr.stop();
       await stopped;
       await chain;
-      return window.api.screenFinish(id);
+      return window.api.screenFinish(id, !!expectAudio);
     },
     async discard() {
       if (mr.state !== 'inactive') mr.stop();
@@ -39,7 +41,9 @@ function fileRecorder(stream, kind, bitrate) {
 
 export function useScreenRecorder(onDone) {
   // phase: 'idle' | 'countdown' | 'recording' | 'saving'
-  const [state, setState] = useState({ phase: 'idle', count: 0, seconds: 0, paused: false, error: '' });
+  // notice: set when a finished recording came out silent although sound
+  // was expected — the dialog shows it until dismissNotice clears it.
+  const [state, setState] = useState({ phase: 'idle', count: 0, seconds: 0, paused: false, error: '', notice: null });
   const live = useRef(null);
   const doneRef = useRef(onDone);
   doneRef.current = onDone;
@@ -70,16 +74,17 @@ export function useScreenRecorder(onDone) {
       if (discard || !l.recorders.length) {
         await Promise.all(l.recorders.map((r) => r.discard()));
         cleanup();
-        return setState({ phase: 'idle', count: 0, seconds: 0, paused: false, error: '' });
+        return setState({ phase: 'idle', count: 0, seconds: 0, paused: false, error: '', notice: null });
       }
       const [screen, camera] = await Promise.all(l.recorders.map((r) => r.finish()));
       cleanup();
       const bad = [screen, camera].find((x) => x && x.error);
-      setState({ phase: 'idle', count: 0, seconds: 0, paused: false, error: bad ? bad.error : '' });
+      const notice = !bad && screen && screen.soundMissing ? { name: screen.name || '' } : null;
+      setState({ phase: 'idle', count: 0, seconds: 0, paused: false, error: bad ? bad.error : '', notice });
       if (screen && !screen.error) doneRef.current({ screen, camera: camera && !camera.error ? camera : null, camShape: l.camShape, camStyle: l.camStyle, camGeom: l.camGeom }, l.at);
     } catch (e) {
       cleanup();
-      setState({ phase: 'idle', count: 0, seconds: 0, paused: false, error: e.message });
+      setState({ phase: 'idle', count: 0, seconds: 0, paused: false, error: e.message, notice: null });
     }
   }, []);
 
@@ -103,7 +108,7 @@ export function useScreenRecorder(onDone) {
   // opts: { sourceId, systemAudio, mic, micId, camera, cameraId, camShape, camStroke, camStrokeColor, camGlow, camGlowColor, hideApp, at }
   const start = useCallback(async (opts) => {
     if (live.current) return;
-    setState({ phase: 'countdown', count: 3, seconds: 0, paused: false, error: '' });
+    setState({ phase: 'countdown', count: 3, seconds: 0, paused: false, error: '', notice: null });
     const l = { streams: [], recorders: [], offs: [], at: opts.at || 0, acc: 0, paused: false, camShape: opts.camShape, sourceId: opts.sourceId,
       camStyle: { stroke: opts.camStroke || 0, strokeColor: opts.camStrokeColor || '#ffffff', glow: opts.camGlow || 0, glowColor: opts.camGlowColor || '#825cfb' } };
     live.current = l;
@@ -146,7 +151,10 @@ export function useScreenRecorder(onDone) {
       }
       await window.api.screenBar(true, opts.sourceId);
       l.offs.push(window.api.onScreenStop(() => stop()), window.api.onScreenPause(() => togglePause()));
-      l.recorders.push(fileRecorder(screenStream, 'screen', 8000000));
+      // Sound was expected when the microphone or the computer sound was on:
+      // the finished screen recording is then checked for silence.
+      const expectAudio = !!(opts.mic || opts.systemAudio);
+      l.recorders.push(fileRecorder(screenStream, 'screen', 8000000, expectAudio));
       if (cam) l.recorders.push(fileRecorder(cam, 'camera', 4000000));
       l.recorders.forEach((r) => r.start());
       l.since = Date.now();
@@ -162,11 +170,13 @@ export function useScreenRecorder(onDone) {
       window.api.screenCamera(false);
       window.api.screenWindow('restore');
       const msg = e.name === 'NotAllowedError' ? 'Recording was not allowed (camera or microphone blocked, or the source is gone).' : e.message;
-      setState({ phase: 'idle', count: 0, seconds: 0, paused: false, error: msg });
+      setState({ phase: 'idle', count: 0, seconds: 0, paused: false, error: msg, notice: null });
     }
   }, [stop, togglePause]);
 
+  const dismissNotice = useCallback(() => setState((s) => ({ ...s, notice: null })), []);
+
   useEffect(() => () => { if (live.current) stop(); }, [stop]);
 
-  return { ...state, active: state.phase !== 'idle', start, stop, togglePause, cancel: () => stop(true) };
+  return { ...state, active: state.phase !== 'idle', start, stop, togglePause, cancel: () => stop(true), dismissNotice };
 }

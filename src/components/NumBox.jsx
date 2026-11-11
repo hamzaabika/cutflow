@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useT } from '../i18n/index.jsx';
 import { ChevronDown, ChevronUp } from '../icons.jsx';
 
 // NumBox — the app's one numeric field, a scrub field in the editor tradition:
@@ -14,6 +15,7 @@ import { ChevronDown, ChevronUp } from '../icons.jsx';
 // - onDragStart/onDragEnd let callers wrap a whole scrub in one undo gesture.
 // Values and units are the caller's: nothing here rescales the model — display precision only.
 export default function NumBox({ label, value, onChange, step = 1, suffix, min, max, ariaLabel, className = '', layout, onDragStart, onDragEnd, precision }) {
+  const t = useT();
   const [text, setText] = useState(null); // string while editing, null when showing the prop value
   const [scrubbing, setScrubbing] = useState(false);
   const rootRef = useRef(null);
@@ -122,7 +124,7 @@ export default function NumBox({ label, value, onChange, step = 1, suffix, min, 
       className={`numbox ${layout === 'field' ? 'numbox-field' : ''} ${scrubbing ? 'scrubbing' : ''} ${className}`}
       onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}>
       {label != null && label !== '' && <span className="numbox-label">{label}</span>}
-      <input ref={inputRef} type="text" inputMode="decimal" aria-label={ariaLabel || (label ? `${label} value` : 'value')}
+      <input ref={inputRef} type="text" inputMode="decimal" aria-label={ariaLabel || (label ? t('numbox.valueOf', { label }) : t('numbox.value'))}
         value={shown}
         onChange={(e) => setText(e.target.value)}
         onFocus={(e) => { setText(disp(value)); requestAnimationFrame(() => e.target.select()); }}
@@ -130,8 +132,8 @@ export default function NumBox({ label, value, onChange, step = 1, suffix, min, 
         onKeyDown={onKeyDown} />
       {suffix && <i>{suffix}</i>}
       <span className="numbox-steps" aria-hidden="true">
-        <button type="button" tabIndex={-1} aria-label="Step up" onPointerDown={(e) => stepperDown(e, 1)}><ChevronUp size={10} /></button>
-        <button type="button" tabIndex={-1} aria-label="Step down" onPointerDown={(e) => stepperDown(e, -1)}><ChevronDown size={10} /></button>
+        <button type="button" tabIndex={-1} aria-label={t('num.stepUp')} onPointerDown={(e) => stepperDown(e, 1)}><ChevronUp size={10} /></button>
+        <button type="button" tabIndex={-1} aria-label={t('num.stepDown')} onPointerDown={(e) => stepperDown(e, -1)}><ChevronDown size={10} /></button>
       </span>
     </label>
   );

@@ -122,22 +122,22 @@ export function resolveExport(project, caps = {}) {
   const notes = [];
   if (codecFamily === 'h265' && !libx265) {
     codecFamily = 'h264';
-    notes.push('H.265 (libx265) is not available in this build — exporting H.264 instead.');
+    notes.push({ k: 'exp.note.h265missing' });
   } else if (codecFamily === 'h265') {
-    notes.push('H.265 encodes in software (libx265) in this build.');
+    notes.push({ k: 'exp.note.h265soft' });
   }
-  if (resCap && longest <= resCap) notes.push(`Project is ${W}×${H} — under the ${resCap} cap, so it exports at project size (never upscaled).`);
-  if (!resCap && stored.preset === 'ultra') notes.push(`Exports at the project's full ${W}×${H} — Ultra never upscales.`);
-  if (fpsChoice && fpsChoice > (project.fps || 30)) notes.push(`Timeline is ${project.fps} fps — frames are duplicated to reach ${fpsChoice} fps (no new motion).`);
+  if (resCap && longest <= resCap) notes.push({ k: 'exp.note.projectSize', p: { w: W, h: H, cap: resCap } });
+  if (!resCap && stored.preset === 'ultra') notes.push({ k: 'exp.note.ultra', p: { w: W, h: H } });
+  if (fpsChoice && fpsChoice > (project.fps || 30)) notes.push({ k: 'exp.note.fpsDup', p: { from: project.fps, to: fpsChoice } });
   if (format === 'webm' && !vp9) {
     format = 'mp4';
-    notes.push('WebM (VP9) is not available in this build — exporting MP4 instead.');
+    notes.push({ k: 'exp.note.webmMissing' });
   } else if (format === 'webm') {
-    notes.push('WebM encodes with VP9 + Opus — smaller on the web, slower than H.264 on the CPU.');
+    notes.push({ k: 'exp.note.webmCpu' });
   }
-  if (format === 'gif') notes.push('GIF export covers up to 30 s of timeline and has no sound; size and frame rate use the GIF settings.');
-  if (stored.subtitleTrack && format !== 'mp4' && format !== 'mov') notes.push('The subtitle track is only embedded in MP4 and MOV exports.');
-  if (stored.subtitleTrack && (format === 'mp4' || format === 'mov')) notes.push('Captions are embedded as a switchable mov_text track as well as burned in — the track carries plain text and timings, not the caption styling.');
+  if (format === 'gif') notes.push({ k: 'exp.note.gif' });
+  if (stored.subtitleTrack && format !== 'mp4' && format !== 'mov') notes.push({ k: 'exp.note.subtitleOnly' });
+  if (stored.subtitleTrack && (format === 'mp4' || format === 'mov')) notes.push({ k: 'exp.note.subtitleEmbedded' });
 
   return {
     preset: stored.preset,
@@ -210,25 +210,25 @@ export function summaryRows(eff, project) {
   if (eff.format === 'gif') {
     // The codec settings do not apply to a GIF; the summary says what actually happens.
     return [
-      ['Format', 'GIF'],
-      ['Size', `${eff.gifW}×${eff.gifH}`],
-      ['Frame rate', `${eff.gifFps} fps`],
-      ['Audio', 'None — GIF has no sound'],
+      ['exp.format', 'GIF'],
+      ['exp.size', `${eff.gifW}×${eff.gifH}`],
+      ['exp.frameRate', { k: 'exp.summary.gifFps', p: { fps: eff.gifFps } }],
+      ['exp.audio', { k: 'exp.summary.audioNone' }],
     ];
   }
   const rows = [
-    ['Preset', eff.presetName],
-    ['Format', eff.formatLabel || 'MP4'],
-    ['Codec', eff.codecLabel],
-    ['Resolution', eff.outW === project.width && eff.outH === project.height
-      ? `${eff.outW}×${eff.outH} (project size)`
-      : `${eff.outW}×${eff.outH} (scaled from ${project.width}×${project.height})`],
-    ['Frame rate', eff.fpsChoice ? `${eff.outFps} fps (from ${project.fps})` : `${eff.outFps} fps (project)`],
-    ['Quality', eff.mode === 'crf' ? `CRF ${eff.crf}` : `Target bitrate ${eff.bitrateMbps} Mbps`],
-    ['Encoder preset', eff.encoderPreset],
-    ['Audio', eff.format === 'webm' ? `Opus ${eff.audioKbps} kbps` : `AAC ${eff.audioKbps} kbps`],
+    ['exp.preset', eff.preset === 'custom' ? { k: 'exp.custom' } : eff.presetName],
+    ['exp.format', eff.formatLabel || 'MP4'],
+    ['exp.codec', eff.codecLabel],
+    ['exp.resolution', eff.outW === project.width && eff.outH === project.height
+      ? { k: 'exp.summary.projectSize', p: { size: `${eff.outW}×${eff.outH}` } }
+      : { k: 'exp.summary.scaledFrom', p: { size: `${eff.outW}×${eff.outH}`, from: `${project.width}×${project.height}` } }],
+    ['exp.frameRate', eff.fpsChoice ? { k: 'exp.summary.fpsFrom', p: { fps: eff.outFps, from: project.fps } } : { k: 'exp.summary.fpsProject', p: { fps: eff.outFps } }],
+    ['exp.quality', eff.mode === 'crf' ? `CRF ${eff.crf}` : { k: 'exp.summary.bitrate', p: { mbps: eff.bitrateMbps } }],
+    ['exp.encoderPreset', eff.encoderPreset],
+    ['exp.audio', eff.format === 'webm' ? { k: 'exp.summary.audioOpus', p: { kbps: eff.audioKbps } } : { k: 'exp.summary.audioAac', p: { kbps: eff.audioKbps } }],
   ];
-  if (eff.encoder) rows.splice(rows.findIndex(([k]) => k === 'Audio'), 0, ['Encoder', eff.encoder]);
-  if (eff.subtitleTrack && (eff.format === 'mp4' || eff.format === 'mov')) rows.push(['Subtitle track', 'Embedded (mov_text)']);
+  if (eff.encoder) rows.splice(rows.findIndex(([k]) => k === 'exp.audio'), 0, ['exp.encoder', eff.encoder]);
+  if (eff.subtitleTrack && (eff.format === 'mp4' || eff.format === 'mov')) rows.push(['exp.subtitleTrack', { k: 'exp.summary.subtitle' }]);
   return rows;
 }

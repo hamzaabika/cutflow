@@ -1,4 +1,5 @@
 import React, { useRef, useState } from 'react';
+import { useT } from '../i18n/index.jsx';
 import { Trash2 } from '../icons.jsx';
 import { formatTime } from '../store.js';
 import {
@@ -30,6 +31,7 @@ const speedFromY = (y) => Math.exp(LOG_MIN + ((PY1 - y) / (PY1 - PY0)) * (LOG_MA
 const round2 = (v) => Math.round(v * 100) / 100;
 
 export default function SpeedCurveEditor({ clip, set, dispatch }) {
+  const t = useT();
   const svgRef = useRef(null);
   const dragRef = useRef(null); // index into points while dragging
   const [sel, setSel] = useState(null); // index into the stored points
@@ -124,7 +126,7 @@ export default function SpeedCurveEditor({ clip, set, dispatch }) {
           {SPEED_PRESETS.map((p) => (
             <button key={p.id} className="chip" onClick={() => applyPreset(p)}>{p.label}</button>
           ))}
-          <button className="chip" onClick={seedFlat}>Custom curve…</button>
+          <button className="chip" onClick={seedFlat}>{t('spdc.custom')}</button>
         </div>
       </div>
     );
@@ -140,7 +142,7 @@ export default function SpeedCurveEditor({ clip, set, dispatch }) {
 
   return (
     <div className="sc-editor">
-      <svg ref={svgRef} className="sc-graph" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Speed curve"
+      <svg ref={svgRef} className="sc-graph" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={t('ci.speedCurve')}
         onDoubleClick={addPoint}>
         <line x1={PX0} x2={PX1} y1={Y(1)} y2={Y(1)} className="sc-grid" />
         <text x={PX1} y={Y(1) - 3} className="sc-axis" textAnchor="end">1×</text>
@@ -163,7 +165,7 @@ export default function SpeedCurveEditor({ clip, set, dispatch }) {
           <span className="dim small">
             At source {selPt.t.toFixed(2)} s · timeline {timelineOffsetAt(clip, selPt.t).toFixed(2)} s
           </span>
-          <NumBox label="Speed" suffix="×" step={0.05} min={CURVE_MIN_SPEED} max={CURVE_MAX_SPEED} precision={2}
+          <NumBox label={t('editor.speed')} suffix="×" step={0.05} min={CURVE_MIN_SPEED} max={CURVE_MAX_SPEED} precision={2}
             value={selPt.speed} ariaLabel="Point speed"
             onDragStart={() => dispatch({ type: 'beginGesture' })}
             onDragEnd={() => dispatch({ type: 'endGesture' })}
@@ -171,14 +173,14 @@ export default function SpeedCurveEditor({ clip, set, dispatch }) {
               const next = points.map((p, i) => (i === sel ? { ...p, speed: v } : p));
               commit(next);
             }} />
-          <button className="icon-btn sm" aria-label="Delete point" title="Delete point"
+          <button className="icon-btn sm" aria-label={t('spdc.deletePoint')} title={t('spdc.deletePoint')}
             disabled={points.length <= 2} onClick={deleteSel}><Trash2 size={13} /></button>
         </div>
       ) : (
-        <p className="dim small">Drag the points to shape the ramp. Double-click the graph to add a point.</p>
+        <p className="dim small">{t('spdc.note')}</p>
       )}
       <div className="row">
-        <button className="btn btn-sm btn-ghost" onClick={removeCurve}>Remove curve (keeps the duration)</button>
+        <button className="btn btn-sm btn-ghost" onClick={removeCurve}>{t('spdc.remove')}</button>
       </div>
       <p className="dim small">Preview and export read this same curve; the clip's sound is retimed with it.{clip.linkId ? ' The linked partner follows.' : ''}</p>
     </div>

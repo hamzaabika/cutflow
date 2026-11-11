@@ -1,8 +1,12 @@
 import React, { useEffect, useRef } from 'react';
 import Button from '../ui/Button.jsx';
+import { useT } from '../i18n/index.jsx';
 
 // A yes / no question in Cutflow's style. Enter confirms, Escape or a click outside cancels.
-export default function ConfirmDialog({ icon: Icon, title, text, confirmLabel = 'OK', cancelLabel = 'Cancel', onConfirm, onCancel, extra }) {
+export default function ConfirmDialog({ icon: Icon, title, text, confirmLabel, cancelLabel, onConfirm, onCancel, extra }) {
+  const t = useT();
+  confirmLabel = confirmLabel ?? t('common.ok');
+  cancelLabel = cancelLabel ?? t('common.cancel');
   const ok = useRef(null);
   useEffect(() => {
     ok.current?.focus();

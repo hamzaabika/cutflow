@@ -1,22 +1,24 @@
 import React, { useEffect, useState } from 'react';
-import { AudioLines, Cable, CircleAlert, CircleCheck, Copy, ExternalLink, Eye, EyeOff, Film, Gauge, Keyboard, Loader2, RotateCcw, Server, ShieldCheck, Sparkles, Trash2, X } from '../icons.jsx';
+import { AudioLines, Cable, CircleAlert, CircleCheck, Copy, ExternalLink, Eye, EyeOff, Film, Gauge, Keyboard, Languages, Loader2, RotateCcw, Server, ShieldCheck, Sparkles, Trash2, X } from '../icons.jsx';
 import Toggle from '../ui/Toggle.jsx';
 import { KEY_ACTIONS, actionLabel, applyKeymapOverrides, chordFromEvent, diffOverrides, formatChord, resolveKeymap, setKeyCaptureActive } from '../keymap.js';
+import { useLang, useT } from '../i18n/index.jsx';
 
 const PROVIDERS = [
-  { id: 'gemini', name: 'Google Gemini', needsKey: true, hint: 'The easiest key is a free one from Google AI Studio (starts with AIza). Vertex AI express keys (AQ.…) work too once the API is enabled for their project.', keyUrl: 'https://aistudio.google.com/app/apikey', keyUrlLabel: 'Get a free key (AI Studio)' },
-  { id: 'groq', name: 'Groq (fast, free tier)', needsKey: true, hint: 'Free key from the Groq console (starts with gsk_). Very fast. Recommended model: openai/gpt-oss-120b (works well with the FlowAI editing tools). "Load models" shows the ones your key can use.', keyUrl: 'https://console.groq.com/keys', keyUrlLabel: 'Get a free key (Groq)' },
-  { id: 'ollama', name: 'Ollama (local, free)', needsKey: false, hint: 'Runs on this PC, no key and no internet. Install Ollama and pull a model first.', baseUrl: 'http://localhost:11434', keyUrl: 'https://ollama.com/download', keyUrlLabel: 'Download Ollama' },
-  { id: 'openai', name: 'OpenAI', needsKey: true, hint: 'Key from platform.openai.com. Recommended model: gpt-4o-mini or better.', baseUrl: 'https://api.openai.com/v1', keyUrl: 'https://platform.openai.com/api-keys', keyUrlLabel: 'Get a key (OpenAI)' },
-  { id: 'openrouter', name: 'OpenRouter', needsKey: true, hint: 'One key for many models (OpenAI, Anthropic, Meta…). Model ids look like "openai/gpt-4o-mini".', keyUrl: 'https://openrouter.ai/keys', keyUrlLabel: 'Get a key (OpenRouter)' },
-  { id: 'claude', name: 'Anthropic Claude', needsKey: true, hint: 'Key from console.anthropic.com.', keyUrl: 'https://console.anthropic.com/settings/keys', keyUrlLabel: 'Open Anthropic console' },
-  { id: 'custom', name: 'Custom (OpenAI-compatible)', needsKey: true, hint: 'Any service that speaks the OpenAI chat API: set its address (base URL) and the exact model id below. LM Studio and similar local servers work too — the key may be any value the server accepts.', baseUrl: '' },
+  { id: 'gemini', name: 'Google Gemini', needsKey: true, hint: 'set.prov.gemini.hint', keyUrl: 'https://aistudio.google.com/app/apikey', keyUrlLabel: 'set.prov.gemini.keyLabel' },
+  { id: 'groq', name: 'Groq (fast, free tier)', needsKey: true, hint: 'set.prov.groq.hint', keyUrl: 'https://console.groq.com/keys', keyUrlLabel: 'set.prov.groq.keyLabel' },
+  { id: 'ollama', name: 'Ollama (local, free)', needsKey: false, hint: 'set.prov.ollama.hint', baseUrl: 'http://localhost:11434', keyUrl: 'https://ollama.com/download', keyUrlLabel: 'set.prov.ollama.keyLabel' },
+  { id: 'openai', name: 'OpenAI', needsKey: true, hint: 'set.prov.openai.hint', baseUrl: 'https://api.openai.com/v1', keyUrl: 'https://platform.openai.com/api-keys', keyUrlLabel: 'set.prov.openai.keyLabel' },
+  { id: 'openrouter', name: 'OpenRouter', needsKey: true, hint: 'set.prov.openrouter.hint', keyUrl: 'https://openrouter.ai/keys', keyUrlLabel: 'set.prov.openrouter.keyLabel' },
+  { id: 'claude', name: 'Anthropic Claude', needsKey: true, hint: 'set.prov.claude.hint', keyUrl: 'https://console.anthropic.com/settings/keys', keyUrlLabel: 'set.prov.claude.keyLabel' },
+  { id: 'custom', name: 'Custom (OpenAI-compatible)', needsKey: true, hint: 'set.prov.custom.hint', baseUrl: '' },
 ];
 
 
 // Pixabay key for the stock library (Media > Library).
 // Key of an online service (stock media), saved encrypted like the AI keys.
 function ServiceKey({ saved, onSaved, service, title, icon: Icon, text, url, urlLabel, signupUrl, signupLabel, keyLabel, test }) {
+  const t = useT();
   const [key, setKey] = useState('');
   const [show, setShow] = useState(false);
   const [busy, setBusy] = useState(null);
@@ -29,7 +31,7 @@ function ServiceKey({ saved, onSaved, service, title, icon: Icon, text, url, url
     if (!r.ok) return setResult({ ok: false, text: r.error });
     setKey('');
     onSaved(r.settings);
-    setResult({ ok: true, text: 'Saved.' });
+    setResult({ ok: true, text: t('set.saved') });
   };
   const runTest = async () => {
     setBusy('test');
@@ -40,7 +42,7 @@ function ServiceKey({ saved, onSaved, service, title, icon: Icon, text, url, url
   return (
     <section className="settings-section">
       <div className="settings-title"><Icon size={16} /> {title}</div>
-      <p className="muted">{text} Stored encrypted on this PC.</p>
+      <p className="muted">{text} {t('set.storedEncrypted')}</p>
       {signupUrl && (
         <button className="btn btn-ghost btn-sm link-btn" type="button" onClick={() => window.api.openHelp(signupUrl)}>
           <ExternalLink size={13} /> {signupLabel}
@@ -52,15 +54,15 @@ function ServiceKey({ saved, onSaved, service, title, icon: Icon, text, url, url
         </button>
       )}
       <label className="field">
-        <span>{keyLabel} {hint && <b className="key-ok"><ShieldCheck size={13} /> saved {hint}</b>}</span>
+        <span>{keyLabel} {hint && <b className="key-ok"><ShieldCheck size={13} /> {t('set.savedTag', { hint })}</b>}</span>
         <div className="key-row">
           <input type={show ? 'text' : 'password'} value={key} autoComplete="off" spellCheck={false} aria-label={keyLabel}
-            placeholder={hint ? 'Paste a new key to replace the saved one' : 'Paste your key here'} onChange={(e) => setKey(e.target.value)} />
-          <button className="icon-btn" type="button" onClick={() => setShow((v) => !v)} aria-label={show ? 'Hide key' : 'Show key'}>
+            placeholder={hint ? t('set.replaceKey') : t('set.pasteKey')} onChange={(e) => setKey(e.target.value)} />
+          <button className="icon-btn" type="button" onClick={() => setShow((v) => !v)} aria-label={show ? t('set.hideKey') : t('set.showKey')}>
             {show ? <EyeOff size={15} /> : <Eye size={15} />}
           </button>
           {hint && (
-            <button className="icon-btn" type="button" aria-label={`Delete saved ${keyLabel}`} title="Delete saved key"
+            <button className="icon-btn" type="button" aria-label={t('set.deleteKeyAria', { label: keyLabel })} title={t('set.deleteKeyTitle')}
               onClick={async () => { onSaved(await window.api.settingsClearServiceKey(service)); setResult(null); }}><Trash2 size={15} /></button>
           )}
         </div>
@@ -73,10 +75,10 @@ function ServiceKey({ saved, onSaved, service, title, icon: Icon, text, url, url
       )}
       <div className="settings-actions">
         <button className="btn" onClick={runTest} disabled={!!busy || (!key.trim() && !hint)}>
-          {busy === 'test' ? <Loader2 size={14} className="spin" /> : null} Test key
+          {busy === 'test' ? <Loader2 size={14} className="spin" /> : null} {t('set.testKey')}
         </button>
         <button className="btn btn-primary" onClick={save} disabled={!!busy || !key.trim()}>
-          {busy === 'save' ? <Loader2 size={14} className="spin" /> : null} Save key
+          {busy === 'save' ? <Loader2 size={14} className="spin" /> : null} {t('set.saveKey')}
         </button>
       </div>
     </section>
@@ -84,19 +86,21 @@ function ServiceKey({ saved, onSaved, service, title, icon: Icon, text, url, url
 }
 
 function StockSettings(props) {
+  const t = useT();
   return (
-    <ServiceKey {...props} service="pixabay" title="Stock videos and photos" icon={Film} keyLabel="Pixabay API key"
-      text="Media > Library searches Pixabay. Pixabay keys are free: sign in on pixabay.com and copy the key from the API page."
-      url="https://pixabay.com/api/docs/" urlLabel="Get a free Pixabay key" test={(k) => window.api.stockTest(k)} />
+    <ServiceKey {...props} service="pixabay" title={t('set.stockTitle')} icon={Film} keyLabel={t('set.pixabayKey')}
+      text={t('set.stockText')}
+      url="https://pixabay.com/api/docs/" urlLabel={t('set.pixabayKeyFree')} test={(k) => window.api.stockTest(k)} />
   );
 }
 
 // Soundza key for the sound-effects section (Audio > Soundza).
 function SoundzaSettings(props) {
+  const t = useT();
   return (
-    <ServiceKey {...props} service="soundza" title="Sound effects (Soundza)" icon={AudioLines} keyLabel="Soundza API key"
-      text="Audio > Soundza searches Soundza's free library of sound effects. Soundza keys are free: create an account, then copy a key from the developer keys page."
-      url="https://soundza.com/developers/keys" urlLabel="Get a free Soundza key" test={(k) => window.api.soundzaTest(k)} />
+    <ServiceKey {...props} service="soundza" title={t('set.soundzaTitle')} icon={AudioLines} keyLabel={t('set.soundzaKey')}
+      text={t('set.soundzaText')}
+      url="https://soundza.com/developers/keys" urlLabel={t('set.soundzaKeyFree')} test={(k) => window.api.soundzaTest(k)} />
   );
 }
 
@@ -105,27 +109,29 @@ function SoundzaSettings(props) {
 // billed by ElevenLabs on the user's own account — photo and video need a Pro plan or
 // higher; this key entry is what the studio's "key needed" prompt points at.
 function ElevenLabsSettings(props) {
+  const t = useT();
   return (
-    <ServiceKey {...props} service="elevenlabs" title="ElevenLabs (voices + generation)" icon={Sparkles} keyLabel="ElevenLabs API key"
-      text="Audio > Text to speech can speak with ElevenLabs voices, and Forge > ElevenLabs studio generates avatars, videos and photos with them. Generation runs on your ElevenLabs account and is billed by ElevenLabs; photo and video generation needs a Pro plan or higher."
-      url="https://elevenlabs.io/app/settings/api-keys" urlLabel="Get your ElevenLabs key" test={(k) => window.api.ttsTestKey(k)} />
+    <ServiceKey {...props} service="elevenlabs" title={t('set.elTitle')} icon={Sparkles} keyLabel={t('set.elKey')}
+      text={t('set.elText')}
+      url="https://elevenlabs.io/app/settings/api-keys" urlLabel={t('set.elKeyFree')} test={(k) => window.api.ttsTestKey(k)} />
   );
 }
 
 // Playback quality: the player can play scaled copies of every video (longest side capped per
 // level), so weak PCs edit smoothly. Made once per video, in the background. Export reads originals.
 const QUALITY_OPTIONS = [
-  ['full', 'Full', 'Original resolution'],
-  ['high', 'High', 'Up to 1280 px'],
-  ['medium', 'Medium', 'Up to 960 px'],
-  ['low', 'Low', 'Up to 640 px'],
+  ['full', 'player.qualityShort.full', 'player.qFullDesc'],
+  ['high', 'player.qualityShort.high', 'set.qHint.high'],
+  ['medium', 'player.qualityShort.medium', 'set.qHint.medium'],
+  ['low', 'player.qualityShort.low', 'set.qHint.low'],
 ];
 const PERF_MODE_OPTIONS = [
-  ['low-end', 'Low-End (Performance mode)', 'Low playback copies, lighter thumbnails and waveforms, one background job at a time, exports yield CPU to the rest of the PC'],
-  ['balanced', 'Balanced', 'Your playback quality, two background jobs at a time'],
-  ['high-performance', 'High-Performance', 'Full-quality playback, three background jobs at a time'],
+  ['low-end', 'set.perf.lowEnd', 'set.perfHint.lowEnd'],
+  ['balanced', 'set.perf.balanced', 'set.perfHint.balanced'],
+  ['high-performance', 'set.perf.high', 'set.perfHint.high'],
 ];
 function ProxySettings({ onCleared }) {
+  const t = useT();
   const [st, setSt] = useState(null);
   const [mode, setMode] = useState(null);
   useEffect(() => { window.api.proxyStatus().then(setSt).catch(() => {}); }, []);
@@ -139,51 +145,44 @@ function ProxySettings({ onCleared }) {
   };
   return (
     <section className="settings-section">
-      <div className="settings-title"><Gauge size={16} /> Playback quality (smooth editing on slower PCs)</div>
-      <p className="muted">At High, Medium or Low, Cutflow makes a scaled copy of every video and plays that while you edit, so even a
-        weak PC stays smooth. Each copy is made once per video, in the background; until it is ready the original plays.
-        Export always uses the original files, at full quality.</p>
-      <div className="seg-tabs small" role="radiogroup" aria-label="Playback quality">
+      <div className="settings-title"><Gauge size={16} /> {t('set.playbackQualityTitle')}</div>
+      <p className="muted">{t('set.playbackNote')}</p>
+      <div className="seg-tabs small" role="radiogroup" aria-label={t('set.playbackQualityAria')}>
         {QUALITY_OPTIONS.map(([id, label, hint]) => (
           <button key={id} type="button" role="radio" aria-checked={st.quality === id} className={st.quality === id ? 'on' : ''}
-            title={hint} onClick={async () => setSt(await window.api.qualitySet(id))}>{label}</button>
+            title={t(hint)} onClick={async () => setSt(await window.api.qualitySet(id))}>{t(label)}</button>
         ))}
       </div>
       <div className="proxy-store">
-        <span className="muted">{st.files ? `${st.files} prox${st.files > 1 ? 'ies' : 'y'} · ${mb(st.bytes)} on disk` : 'No proxy on disk.'}</span>
+        <span className="muted">{st.files ? t(st.files > 1 ? 'set.proxiesCount' : 'set.proxiesCountOne', { count: st.files, size: mb(st.bytes) }) : t('set.noProxy')}</span>
         {st.files > 0 && (
           <button className="btn btn-ghost btn-sm" type="button" onClick={clear} disabled={st.quality !== 'full'}
-            title={st.quality !== 'full' ? 'Choose Full quality first' : 'Delete the scaled copies (they are made again if a lower quality is chosen)'}>
-            <Trash2 size={13} /> Delete proxies
+            title={st.quality !== 'full' ? t('set.chooseFullFirst') : t('set.deleteProxiesTitle')}>
+            <Trash2 size={13} /> {t('set.deleteProxies')}
           </button>
         )}
       </div>
       {st.fxSegments && (
         <>
-          <div className="settings-title" style={{ marginTop: 22 }}><Gauge size={16} /> Effect segment cache</div>
-          <p className="muted">Rendered effect and transition segments are kept on disk so the next export of the
-            same frames is instant. The cache is size-bounded: past the cap, the least recently used segments
-            are deleted first (a segment an export is using is never deleted). {st.fxSegments.files
-              ? `${st.fxSegments.files} segment${st.fxSegments.files > 1 ? 's' : ''} · ${mb(st.fxSegments.bytes)} on disk.`
-              : 'No segments cached yet.'}</p>
-          <div className="seg-tabs small" role="radiogroup" aria-label="Effect segment cache size limit">
+          <div className="settings-title" style={{ marginTop: 22 }}><Gauge size={16} /> {t('set.fxCacheTitle')}</div>
+          <p className="muted">{t('set.fxCacheNote')} {st.fxSegments.files
+              ? t(st.fxSegments.files > 1 ? 'set.segmentsCount' : 'set.segmentsCountOne', { count: st.fxSegments.files, size: mb(st.fxSegments.bytes) })
+              : t('set.noSegments')}</p>
+          <div className="seg-tabs small" role="radiogroup" aria-label={t('set.fxCacheLimitAria')}>
             {[512, 1024, 2048, 4096, 8192].map((capMB) => (
               <button key={capMB} type="button" role="radio" aria-checked={st.fxSegments.capMB === capMB} className={st.fxSegments.capMB === capMB ? 'on' : ''}
-                title="The most disk space the effect segment cache may use"
+                title={t('set.fxCacheCapTitle')}
                 onClick={async () => setSt(await window.api.proxySetFxCacheCap(capMB))}>{capMB >= 1024 ? `${capMB / 1024} GB` : `${capMB} MB`}</button>
             ))}
           </div>
         </>
       )}
-      <div className="settings-title" style={{ marginTop: 22 }}><Gauge size={16} /> Performance mode</div>
-      <p className="muted">Modes trade background work against responsiveness: how many thumbnails, waveforms and copies
-        Cutflow builds at once, which playback quality it defaults to, and whether an export yields the PC's
-        processor to everything else. A mode never changes export quality — exports always render from the
-        original files at your chosen quality settings.</p>
-      <div className="seg-tabs small" role="radiogroup" aria-label="Performance mode">
+      <div className="settings-title" style={{ marginTop: 22 }}><Gauge size={16} /> {t('set.perfModeTitle')}</div>
+      <p className="muted">{t('set.perfNote')}</p>
+      <div className="seg-tabs small" role="radiogroup" aria-label={t('set.perfModeAria')}>
         {PERF_MODE_OPTIONS.map(([id, label, hint]) => (
           <button key={id} type="button" role="radio" aria-checked={mode === id} className={mode === id ? 'on' : ''}
-            title={hint} onClick={async () => { const r = await window.api.perfSetMode(id); setMode(r.mode); setSt(r); }}>{label}</button>
+            title={t(hint)} onClick={async () => { const r = await window.api.perfSetMode(id); setMode(r.mode); setSt(r); }}>{t(label)}</button>
         ))}
       </div>
     </section>
@@ -197,6 +196,7 @@ function ProxySettings({ onCleared }) {
 // is ever applied without the user's Accept. The token is minted fresh each
 // time the bridge starts and never leaves this PC.
 function BridgeSettings() {
+  const t = useT();
   const [st, setSt] = useState(null);
   const [copied, setCopied] = useState('');
   useEffect(() => { window.api.bridgeGetState?.().then(setSt).catch(() => {}); }, []);
@@ -207,46 +207,40 @@ function BridgeSettings() {
   };
   return (
     <section className="settings-section">
-      <div className="settings-title"><Cable size={16} /> Agent bridge (local agent access)</div>
-      <p className="muted">Lets a tool running on this PC — an automation script, another editor helper, an AI agent —
-        read the project you have open and propose edits to it. Proposals never touch your project directly:
-        they arrive as drafts under <b>Agent drafts</b> in the top bar, and only the ones you accept are applied.
-        The bridge listens on this PC only (127.0.0.1), and while it is off, nothing listens at all.</p>
-      <div className="seg-tabs small" role="radiogroup" aria-label="Agent bridge">
+      <div className="settings-title"><Cable size={16} /> {t('set.bridgeTitle')}</div>
+      <p className="muted">{t('set.bridgeNote1')} <b>{t('topbar.agentDrafts')}</b> {t('set.bridgeNote2')}</p>
+      <div className="seg-tabs small" role="radiogroup" aria-label={t('set.bridgeAria')}>
         <button type="button" role="radio" aria-checked={!st.enabled} className={!st.enabled ? 'on' : ''}
-          onClick={() => toggle(false)}>Off</button>
+          onClick={() => toggle(false)}>{t('ci.off')}</button>
         <button type="button" role="radio" aria-checked={st.enabled} className={st.enabled ? 'on' : ''}
-          onClick={() => toggle(true)}>On</button>
+          onClick={() => toggle(true)}>{t('set.on')}</button>
       </div>
       {st.enabled && st.listening && (
         <>
           <label className="field">
-            <span>Address (this PC only)</span>
+            <span>{t('set.address')}</span>
             <div className="key-row">
-              <input type="text" readOnly value={`http://127.0.0.1:${st.port}`} aria-label="Bridge address" spellCheck={false} />
-              <button className="icon-btn" type="button" aria-label="Copy bridge address" title="Copy address"
+              <input type="text" readOnly value={`http://127.0.0.1:${st.port}`} aria-label={t('set.bridgeAddress')} spellCheck={false} />
+              <button className="icon-btn" type="button" aria-label={t('set.copyAddress')} title={t('set.copyAddressTitle')}
                 onClick={() => copy(`http://127.0.0.1:${st.port}`, 'address')}>{copied === 'address' ? <CircleCheck size={15} /> : <Copy size={15} />}</button>
             </div>
           </label>
           <label className="field">
-            <span>Access token {copied === 'token' && <b className="key-ok">copied</b>}</span>
+            <span>{t('set.accessToken')} {copied === 'token' && <b className="key-ok">{t('set.copied')}</b>}</span>
             <div className="key-row">
-              <input type="text" readOnly value={st.token || ''} aria-label="Bridge access token" spellCheck={false} />
-              <button className="icon-btn" type="button" aria-label="Copy bridge token" title="Copy token"
+              <input type="text" readOnly value={st.token || ''} aria-label={t('set.bridgeToken')} spellCheck={false} />
+              <button className="icon-btn" type="button" aria-label={t('set.copyToken')} title={t('set.copyTokenTitle')}
                 onClick={() => copy(st.token || '', 'token')}>{copied === 'token' ? <CircleCheck size={15} /> : <Copy size={15} />}</button>
             </div>
           </label>
-          <p className="muted">Give the address and token to your tool. It opens a session (POST /v1/sessions), reads the
-            project (GET /v1/project, /v1/project/document, /v1/project/transcript) and edits a shadow draft
-            (POST /v1/shadows, then /v1/shadows/:id/ops). The token is new every time the bridge starts;
-            turning the bridge off closes the door and discards any drafts still waiting.</p>
+          <p className="muted">{t('set.bridgeHowto')}</p>
           <p className="muted">{st.live
-            ? <>Open project: <b>{st.live.name}</b> · revision {st.live.revision} · {st.pending} draft{st.pending === 1 ? '' : 's'} waiting for review.</>
-            : 'No project is open in the editor right now.'}</p>
+            ? <>{t(st.pending === 1 ? 'set.bridgeLiveOne' : 'set.bridgeLive', { name: st.live.name, rev: st.live.revision, count: st.pending })}</>
+            : t('set.bridgeNoProject')}</p>
         </>
       )}
       {st.enabled && !st.listening && (
-        <p className="muted">The bridge is switched on but could not start listening. Turning it off and on again usually fixes this.</p>
+        <p className="muted">{t('set.bridgeFailed')}</p>
       )}
     </section>
   );
@@ -259,6 +253,7 @@ function BridgeSettings() {
 // the resolved map is pushed into the renderer's shared keymap, so the
 // handler, menus and hint labels all move together.
 function ShortcutsSettings({ saved, onSaved }) {
+  const t = useT();
   const [bindings, setBindings] = useState(() => resolveKeymap(saved.keymap).bindings);
   const [capturing, setCapturing] = useState(null); // { actionId, slot } — slot == list length means "add"
   const [conflict, setConflict] = useState(null); // { actionId, slot, chord, otherId }
@@ -316,8 +311,8 @@ function ShortcutsSettings({ saved, onSaved }) {
 
   return (
     <section className="settings-section">
-      <div className="settings-title"><Keyboard size={16} /> Keyboard shortcuts</div>
-      <p className="muted">Click a key to change it, or + to give an action another key. Changes save immediately and are stored only on this PC. Taking a key that another action uses asks first.</p>
+      <div className="settings-title"><Keyboard size={16} /> {t('set.shortcutsTitle')}</div>
+      <p className="muted">{t('set.shortcutsNote')}</p>
       <div className="scuts">
         {KEY_ACTIONS.map((a) => {
           const list = bindings[a.id] || [];
@@ -325,42 +320,42 @@ function ShortcutsSettings({ saved, onSaved }) {
           const isCapturing = !!capturing && capturing.actionId === a.id;
           return (
             <div key={a.id} className="scut-row">
-              <span className="scut-label">{a.label}</span>
+              <span className="scut-label">{t('keymap.' + a.id)}</span>
               <span className="scut-keys">
                 {list.map((chord, i) => (
                   <span key={`${chord}-${i}`} className="scut-bind">
                     <button type="button" className={`scut-key${isCapturing && capturing.slot === i ? ' capturing' : ''}`}
                       onClick={() => { setConflict(null); setCapturing({ actionId: a.id, slot: i }); }}
-                      title="Click, then press the new key">
-                      {isCapturing && capturing.slot === i ? 'Press a key…' : formatChord(chord)}
+                      title={t('set.clickThenPress')}>
+                      {isCapturing && capturing.slot === i ? t('set.pressKey') : formatChord(chord)}
                     </button>
-                    <button type="button" className="scut-x" aria-label={`Remove ${formatChord(chord)} from ${a.label}`}
+                    <button type="button" className="scut-x" aria-label={t('set.removeBindingAria', { chord: formatChord(chord), label: t('keymap.' + a.id) })}
                       onClick={() => removeBinding(a.id, i)}><X size={11} /></button>
                   </span>
                 ))}
-                {!list.length && <span className="muted">Not bound</span>}
+                {!list.length && <span className="muted">{t('set.notBound')}</span>}
                 {list.length < 3 && (
-                  <button type="button" className="scut-key add" aria-label={`Add a key for ${a.label}`}
+                  <button type="button" className="scut-key add" aria-label={t('set.addKeyAria', { label: t('keymap.' + a.id) })}
                     onClick={() => { setConflict(null); setCapturing({ actionId: a.id, slot: list.length }); }}
-                    title={`Add another key for ${a.label}`}>
-                    {isCapturing && capturing.slot === list.length ? 'Press a key…' : '+'}
+                    title={t('set.addKeyTitle', { label: t('keymap.' + a.id) })}>
+                    {isCapturing && capturing.slot === list.length ? t('set.pressKey') : '+'}
                   </button>
                 )}
                 {!isDefault && (
-                  <button type="button" className="icon-btn" aria-label={`Reset ${a.label} to the default key`} title="Reset to default"
+                  <button type="button" className="icon-btn" aria-label={t('set.resetDefaultAria', { label: t('keymap.' + a.id) })} title={t('set.resetDefaultTitle')}
                     onClick={() => resetAction(a.id)}><RotateCcw size={13} /></button>
                 )}
               </span>
               {isCapturing && !conflict && (
-                <span className="scut-note">Press the new key…
-                  <button type="button" className="btn btn-sm btn-ghost" onClick={() => setCapturing(null)}>Cancel</button>
+                <span className="scut-note">{t('set.pressNewKey')}
+                  <button type="button" className="btn btn-sm btn-ghost" onClick={() => setCapturing(null)}>{t('common.cancel')}</button>
                 </span>
               )}
               {conflict && conflict.actionId === a.id && (
                 <span className="scut-note conflict" role="alert">
-                  {formatChord(conflict.chord)} is already used by “{actionLabel(conflict.otherId)}”.
-                  <button type="button" className="btn btn-sm" onClick={applyConflict}>Use it here instead</button>
-                  <button type="button" className="btn btn-sm btn-ghost" onClick={() => { setConflict(null); setCapturing(null); }}>Cancel</button>
+                  {t('set.conflict', { chord: formatChord(conflict.chord), label: t('keymap.' + conflict.otherId) })}
+                  <button type="button" className="btn btn-sm" onClick={applyConflict}>{t('set.useHere')}</button>
+                  <button type="button" className="btn btn-sm btn-ghost" onClick={() => { setConflict(null); setCapturing(null); }}>{t('common.cancel')}</button>
                 </span>
               )}
             </div>
@@ -368,28 +363,31 @@ function ShortcutsSettings({ saved, onSaved }) {
         })}
       </div>
       <div className="settings-actions">
-        <button className="btn" onClick={resetAll}>Reset all to defaults</button>
+        <button className="btn" onClick={resetAll}>{t('set.resetAll')}</button>
       </div>
       <label className="field row">
-        <span>Show keystrokes on screen</span>
+        <span>{t('set.showKeystrokes')}</span>
         <Toggle checked={!!saved.keystrokes} onChange={(e) => setKeystrokes(e.target.checked)} />
       </label>
-      <p className="muted">For tutorials and recordings: shortcut keys appear at the bottom of the window as you press them, so a screen recording shows them too. Only key combinations and shortcut keys are ever shown — never what you type into text fields, and nothing at all in password fields.</p>
+      <p className="muted">{t('set.keystrokesNote')}</p>
     </section>
   );
 }
 
 // Settings sections for the left rail (redesign: rail + pane, all controls unchanged inside).
 const SECTIONS = [
-  { id: 'ai', label: 'AI assistant', icon: Sparkles },
-  { id: 'mcp', label: 'MCP servers', icon: Server },
-  { id: 'bridge', label: 'Agent bridge', icon: Cable },
-  { id: 'quality', label: 'Playback quality', icon: Gauge },
-  { id: 'keys', label: 'Keyboard', icon: Keyboard },
-  { id: 'stock', label: 'Stock media', icon: Film },
+  { id: 'ai', label: 'set.sec.ai', icon: Sparkles },
+  { id: 'language', label: 'set.sec.language', icon: Languages },
+  { id: 'mcp', label: 'set.sec.mcp', icon: Server },
+  { id: 'bridge', label: 'set.sec.bridge', icon: Cable },
+  { id: 'quality', label: 'set.sec.quality', icon: Gauge },
+  { id: 'keys', label: 'set.sec.keys', icon: Keyboard },
+  { id: 'stock', label: 'set.sec.stock', icon: Film },
 ];
 
 export default function SettingsDialog({ onClose, onProxiesCleared }) {
+  const t = useT();
+  const { lang, setLang } = useLang();
   const [section, setSection] = useState('ai');
   const [saved, setSaved] = useState(null); // public settings from the main process
   const [provider, setProvider] = useState('gemini');
@@ -440,7 +438,7 @@ export default function SettingsDialog({ onClose, onProxiesCleared }) {
     setBusy(null);
     if (!res.ok) return setResult({ ok: false, text: res.error });
     load(res.settings, provider);
-    setResult({ ok: true, text: 'Saved.' });
+    setResult({ ok: true, text: t('set.saved') });
   };
 
   const test = async () => {
@@ -448,7 +446,7 @@ export default function SettingsDialog({ onClose, onProxiesCleared }) {
     setResult(null);
     const r = await window.api.aiTest(draft);
     setBusy(null);
-    setResult(r.ok ? { ok: true, text: `Connected in ${(r.ms / 1000).toFixed(1)}s. The model replied: "${r.reply}"` } : { ok: false, text: r.error, link: r.link, linkLabel: r.linkLabel, suggestModel: r.suggestModel });
+    setResult(r.ok ? { ok: true, text: t('set.connected', { s: (r.ms / 1000).toFixed(1), reply: r.reply }) } : { ok: false, text: r.error, link: r.link, linkLabel: r.linkLabel, suggestModel: r.suggestModel });
   };
 
   const loadModels = async () => {
@@ -458,7 +456,7 @@ export default function SettingsDialog({ onClose, onProxiesCleared }) {
     setBusy(null);
     if (!r.ok) return setResult({ ok: false, text: r.error, link: r.link, linkLabel: r.linkLabel });
     setModels(r.models);
-    setResult({ ok: true, text: `${r.models.length} models available. Pick one from the Model list.` });
+    setResult({ ok: true, text: t('set.modelsAvailable', { count: r.models.length }) });
   };
 
   const removeKey = async () => {
@@ -469,80 +467,92 @@ export default function SettingsDialog({ onClose, onProxiesCleared }) {
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="settings-title" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal settings settings2">
         <div className="settings-head">
-          <h3 id="settings-title">Settings</h3>
-          <button className="icon-btn" onClick={onClose} aria-label="Close settings"><X size={16} /></button>
+          <h3 id="settings-title">{t('settings.title')}</h3>
+          <button className="icon-btn" onClick={onClose} aria-label={t('set.closeSettings')}><X size={16} /></button>
         </div>
         <div className="set2-body">
-          <nav className="set2-rail" aria-label="Settings sections">
+          <nav className="set2-rail" aria-label={t('set.sectionsAria')}>
             {SECTIONS.map((s) => {
               const Icon = s.icon;
               return (
                 <button key={s.id} type="button" className={section === s.id ? 'on' : ''} aria-current={section === s.id || undefined}
                   onClick={() => setSection(s.id)}>
-                  <Icon size={15} /> <span>{s.label}</span>
+                  <Icon size={15} /> <span>{t(s.label)}</span>
                 </button>
               );
             })}
           </nav>
           <div className="set2-pane">
+        {section === 'language' && (
+        <section className="settings-section">
+          <div className="settings-title"><Languages size={16} /> {t('settings.language')}</div>
+          <p className="muted">{t('set.langNote')}</p>
+          <div className="seg-tabs small" role="radiogroup" aria-label={t('settings.language')}>
+            {[['en', 'English'], ['fr', 'Français'], ['ar', 'العربية']].map(([id, name]) => (
+              <button key={id} type="button" role="radio" aria-checked={lang === id} className={lang === id ? 'on' : ''}
+                onClick={() => setLang(id)}>{name}</button>
+            ))}
+          </div>
+        </section>
+        )}
         {section === 'ai' && (
         <section className="settings-section">
-          <div className="settings-title"><Sparkles size={16} /> AI assistant</div>
-          <p className="muted">The assistant (FlowAI) uses this service to understand your requests. Your key is stored encrypted on this PC and is never shown again.</p>
+          <div className="settings-title"><Sparkles size={16} /> {t('set.aiTitle')}</div>
+          <p className="muted">{t('set.aiNote')}</p>
 
           <label className="field">
-            <span>Provider</span>
+            <span>{t('common.provider')}</span>
             <select value={provider} onChange={(e) => switchProvider(e.target.value)}>
               {PROVIDERS.map((p) => <option key={p.id} value={p.id}>{p.name}{saved.keys[p.id] ? '  ✓' : ''}</option>)}
             </select>
           </label>
-          <p className="muted">{info.hint}</p>
+          <p className="muted">{t(info.hint)}</p>
           {info.keyUrl && (
             <button className="btn btn-ghost btn-sm link-btn" type="button" onClick={() => window.api.openHelp(info.keyUrl)}>
-              <ExternalLink size={13} /> {info.keyUrlLabel}
+              <ExternalLink size={13} /> {t(info.keyUrlLabel)}
             </button>
           )}
 
           {info.needsKey && (
             <label className="field">
               <span>
-                API key
-                {hint && <b className="key-ok"><ShieldCheck size={13} /> saved {hint}</b>}
+                {t('set.apiKey')}
+                {hint && <b className="key-ok"><ShieldCheck size={13} /> {t('set.savedTag', { hint })}</b>}
               </span>
               <div className="key-row">
                 <input type={showKey ? 'text' : 'password'} value={apiKey} autoComplete="off" spellCheck={false}
-                  placeholder={hint ? 'Paste a new key to replace the saved one' : 'Paste your key here'}
+                  placeholder={hint ? t('set.replaceKey') : t('set.pasteKey')}
                   onChange={(e) => setApiKey(e.target.value)} />
-                <button className="icon-btn" type="button" onClick={() => setShowKey((v) => !v)} aria-label={showKey ? 'Hide key' : 'Show key'}>
+                <button className="icon-btn" type="button" onClick={() => setShowKey((v) => !v)} aria-label={showKey ? t('set.hideKey') : t('set.showKey')}>
                   {showKey ? <EyeOff size={15} /> : <Eye size={15} />}
                 </button>
-                {hint && <button className="icon-btn" type="button" onClick={removeKey} aria-label="Delete saved key" title="Delete saved key"><Trash2 size={15} /></button>}
+                {hint && <button className="icon-btn" type="button" onClick={removeKey} aria-label={t('set.deleteSavedKey')} title={t('set.deleteSavedKey')}><Trash2 size={15} /></button>}
               </div>
             </label>
           )}
 
           <label className="field">
             <span>
-              Model
+              {t('common.model')}
               <button className="btn btn-ghost btn-sm" type="button" onClick={loadModels}
                 disabled={!!busy || (info.needsKey && !apiKey.trim() && !hint)}>
-                {busy === 'models' ? <Loader2 size={13} className="spin" /> : null} Load models
+                {busy === 'models' ? <Loader2 size={13} className="spin" /> : null} {t('set.loadModels')}
               </button>
             </span>
             <input type="text" list="model-ids" value={model} spellCheck={false} onChange={(e) => setModel(e.target.value)} />
             <datalist id="model-ids">{models.map((m) => <option key={m} value={m} />)}</datalist>
-            <small className="muted">Use the model id (for example gemini-3.8-flash), not the display name. “Load models” lists the real ones.</small>
+            <small className="muted">{t('set.modelNote')}</small>
           </label>
 
           {(provider === 'ollama' || provider === 'openai' || provider === 'custom' || baseUrl) && (
             <label className="field">
-              <span>{provider === 'custom' ? 'Address (required for Custom)' : 'Address (optional for hosted services)'}</span>
-              <input type="text" value={baseUrl} spellCheck={false} placeholder={info.baseUrl || 'Default'} onChange={(e) => setBaseUrl(e.target.value)} />
+              <span>{provider === 'custom' ? t('set.addressCustom') : t('set.addressOptional')}</span>
+              <input type="text" value={baseUrl} spellCheck={false} placeholder={info.baseUrl || t('set.defaultPlaceholder')} onChange={(e) => setBaseUrl(e.target.value)} />
             </label>
           )}
 
           {!saved.encryption && info.needsKey && (
-            <p className="error-text">Secure storage is not available on this PC, so keys cannot be saved.</p>
+            <p className="error-text">{t('set.noEncryption')}</p>
           )}
 
           {result && (
@@ -553,12 +563,12 @@ export default function SettingsDialog({ onClose, onProxiesCleared }) {
                 {result.suggestModel && (
                   <button className="btn btn-sm btn-primary" type="button"
                     onClick={() => { setModel(result.suggestModel); setResult(null); }}>
-                    Use {result.suggestModel}
+                    {t('set.useModel', { model: result.suggestModel })}
                   </button>
                 )}
                 {result.link && (
                   <button className="btn btn-sm" type="button" onClick={() => window.api.openHelp(result.link)}>
-                    <ExternalLink size={13} /> {result.linkLabel || 'Open the Google page'}
+                    <ExternalLink size={13} /> {result.linkLabel || t('set.openGoogle')}
                   </button>
                 )}
               </div>
@@ -567,10 +577,10 @@ export default function SettingsDialog({ onClose, onProxiesCleared }) {
 
           <div className="settings-actions">
             <button className="btn" onClick={test} disabled={!!busy || (info.needsKey && !apiKey.trim() && !hint)}>
-              {busy === 'test' ? <Loader2 size={14} className="spin" /> : null} Test connection
+              {busy === 'test' ? <Loader2 size={14} className="spin" /> : null} {t('set.testConnection')}
             </button>
             <button className="btn btn-primary" onClick={save} disabled={!!busy}>
-              {busy === 'save' ? <Loader2 size={14} className="spin" /> : null} Save
+              {busy === 'save' ? <Loader2 size={14} className="spin" /> : null} {t('common.save')}
             </button>
           </div>
         </section>
@@ -596,6 +606,7 @@ export default function SettingsDialog({ onClose, onProxiesCleared }) {
 // MCP servers: external tool servers (stdio) whose tools FlowAI can call during an edit.
 // Config is name + command + arguments; "Test" starts the server and lists its real tools.
 function McpSettings({ saved, onSaved }) {
+  const t = useT();
   const servers = saved.mcpServers || [];
   const [name, setName] = useState('');
   const [command, setCommand] = useState('');
@@ -641,7 +652,7 @@ function McpSettings({ saved, onSaved }) {
     if (!canSave) return;
     await persist([...servers, draft()]);
     setName(''); setCommand(''); setArgs(''); setUrl(''); setEnvText(''); setHeadersText('');
-    setResult({ ok: true, text: 'Server saved. FlowAI will offer its tools on the next request.' });
+    setResult({ ok: true, text: t('set.serverSaved') });
   };
   const remove = async (i) => { await persist(servers.filter((_, k) => k !== i)); setResult(null); };
   const test = async (server) => {
@@ -649,44 +660,44 @@ function McpSettings({ saved, onSaved }) {
     const r = await window.api.mcpTest(server);
     setBusy('');
     setResult(r.ok
-      ? { ok: true, text: `"${server.name}" answered. Tools: ${r.tools.join(', ') || '(none)'}` }
-      : { ok: false, text: `"${server.name}" failed: ${r.error}` });
+      ? { ok: true, text: t('set.testAnswered', { name: server.name, tools: r.tools.join(', ') || t('set.testNone') }) }
+      : { ok: false, text: t('set.testFailed', { name: server.name, error: r.error }) });
   };
   return (
     <section className="settings-section">
-      <div className="settings-title"><Sparkles size={16} /> MCP tool servers</div>
-      <p className="muted">Connect Model Context Protocol servers: a local process (command), or a remote one (URL, streamable HTTP). Their tools are given to FlowAI as <i>mcp_&lt;server&gt;_&lt;tool&gt;</i> alongside the editing tools.</p>
+      <div className="settings-title"><Sparkles size={16} /> {t('set.mcpTitle')}</div>
+      <p className="muted">{t('set.mcpNote')}</p>
       {servers.map((s, i) => (
         <div key={`${s.name}-${i}`} className="key-row" style={{ marginBottom: 6 }}>
           <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            <b>{s.name}</b> <span className="muted">{s.url ? s.url : `${s.command} ${(s.args || []).join(' ')}`}{s.env ? ` · env: ${Object.keys(s.env).join(', ')}` : ''}</span>
+            <b>{s.name}</b> <span className="muted">{s.url ? s.url : `${s.command} ${(s.args || []).join(' ')}`}{s.env ? ` · ${t('set.envPrefix', { keys: Object.keys(s.env).join(', ') })}` : ''}</span>
           </span>
-          <button className="btn btn-sm" type="button" disabled={busy === s.name} onClick={() => test(s)}>{busy === s.name ? 'Testing…' : 'Test'}</button>
-          <button className="icon-btn" type="button" aria-label={`Remove ${s.name}`} title="Remove server" onClick={() => remove(i)}><Trash2 size={15} /></button>
+          <button className="btn btn-sm" type="button" disabled={busy === s.name} onClick={() => test(s)}>{busy === s.name ? t('set.testing') : t('set.test')}</button>
+          <button className="icon-btn" type="button" aria-label={t('set.removeServerAria', { name: s.name })} title={t('set.removeServerTitle')} onClick={() => remove(i)}><Trash2 size={15} /></button>
         </div>
       ))}
-      <label className="field"><span>Name</span>
-        <input type="text" value={name} placeholder="e.g. filesystem" onChange={(e) => setName(e.target.value)} />
+      <label className="field"><span>{t('set.nameLabel')}</span>
+        <input type="text" value={name} placeholder={t('set.namePlaceholder')} onChange={(e) => setName(e.target.value)} />
       </label>
-      <label className="field"><span>Command (local server)</span>
-        <input type="text" value={command} spellCheck={false} placeholder="e.g. npx" onChange={(e) => setCommand(e.target.value)} />
+      <label className="field"><span>{t('set.commandLabel')}</span>
+        <input type="text" value={command} spellCheck={false} placeholder={t('set.commandPlaceholder')} onChange={(e) => setCommand(e.target.value)} />
       </label>
-      <label className="field"><span>Arguments (space-separated)</span>
-        <input type="text" value={args} spellCheck={false} placeholder="e.g. -y @modelcontextprotocol/server-filesystem /home/me/files" onChange={(e) => setArgs(e.target.value)} />
+      <label className="field"><span>{t('set.argsLabel')}</span>
+        <input type="text" value={args} spellCheck={false} placeholder={t('set.argsPlaceholder')} onChange={(e) => setArgs(e.target.value)} />
       </label>
-      <label className="field"><span>URL (remote server — fill this instead of a command)</span>
-        <input type="text" value={url} spellCheck={false} placeholder="e.g. https://example.com/mcp" onChange={(e) => setUrl(e.target.value)} />
+      <label className="field"><span>{t('set.urlLabel')}</span>
+        <input type="text" value={url} spellCheck={false} placeholder={t('set.urlPlaceholder')} onChange={(e) => setUrl(e.target.value)} />
       </label>
-      <label className="field"><span>Environment variables (one KEY=VALUE per line)</span>
+      <label className="field"><span>{t('set.envLabel')}</span>
         <textarea value={envText} spellCheck={false} rows={2} placeholder={'e.g.\nAPI_KEY=${MY_API_KEY}'} onChange={(e) => setEnvText(e.target.value)} />
       </label>
-      <label className="field"><span>HTTP headers (one KEY=VALUE per line, remote servers)</span>
+      <label className="field"><span>{t('set.headersLabel')}</span>
         <textarea value={headersText} spellCheck={false} rows={2} placeholder={'e.g.\nAuthorization=Bearer ${MY_TOKEN}'} onChange={(e) => setHeadersText(e.target.value)} />
       </label>
       <div className="settings-actions">
-        <button className="btn" type="button" disabled={!canSave} onClick={add}>Add server</button>
+        <button className="btn" type="button" disabled={!canSave} onClick={add}>{t('set.addServer')}</button>
         <button className="btn" type="button" disabled={!canSave || busy === name}
-          onClick={() => test(draft())}>{busy === name ? 'Testing…' : 'Test draft'}</button>
+          onClick={() => test(draft())}>{busy === name ? t('set.testing') : t('set.testDraft')}</button>
       </div>
       {result && (
         <div className={`result ${result.ok ? 'ok' : 'bad'}`} role="status">

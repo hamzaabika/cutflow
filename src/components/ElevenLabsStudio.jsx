@@ -4,6 +4,7 @@ import { toFileUrl } from '../store.js';
 import Dropdown from './Dropdown.jsx';
 import Toggle from '../ui/Toggle.jsx';
 import { STAGE_LABELS, clampOpts, createJobRunner, defaultOpts, genKind, modelDef, modelOptions } from '../genStudio.js';
+import { useT, tr, getLanguage } from '../i18n/index.jsx';
 
 // ElevenLabs studio — the gen.cjs backend's surface, living inside the Forge panel
 // (one generation home, two engines). What it adds over Forge: talking avatars from a
@@ -16,6 +17,8 @@ import { STAGE_LABELS, clampOpts, createJobRunner, defaultOpts, genKind, modelDe
 // AbortController per job, progress arrives as gen:progress stages, results land in
 // the generated folder and are listed by gen:list.
 export default function ElevenLabsStudio(props) {
+  const t = useT();
+  const NUM_LOCALES = { en: 'en-US', fr: 'fr-FR', ar: 'ar' };
   const [status, setStatus] = useState(null); // { hasKey, tier, pro, left, limit, proUrl }
   const [catalog, setCatalog] = useState(null);
   const [mode, setMode] = useState('photo'); // photo | video | avatar
@@ -68,8 +71,8 @@ export default function ElevenLabsStudio(props) {
 
   const imageChoices = useMemo(() => {
     const fromMedia = (props.media || []).filter((m) => m.type === 'image').map((m) => ({ path: m.path, name: m.name }));
-    const fromShelf = shelf.filter((e) => e.kind === 'image').map((e) => ({ path: e.path, name: e.prompt?.slice(0, 34) || 'Generated photo' }));
-    const fromForge = (props.forgeShelf || []).filter((e) => e.kind === 'photo').map((e) => ({ path: e.path, name: e.prompt?.slice(0, 34) || 'Forged photo' }));
+    const fromShelf = shelf.filter((e) => e.kind === 'image').map((e) => ({ path: e.path, name: e.prompt?.slice(0, 34) || tr('el.generatedPhoto') }));
+    const fromForge = (props.forgeShelf || []).filter((e) => e.kind === 'photo').map((e) => ({ path: e.path, name: e.prompt?.slice(0, 34) || tr('el.forgedPhoto') }));
     return [...fromMedia, ...fromShelf, ...fromForge];
   }, [props.media, shelf, props.forgeShelf]);
   const videoChoices = useMemo(() => (props.media || []).filter((m) => m.type === 'video').map((m) => ({ path: m.path, name: m.name })), [props.media]);
@@ -98,46 +101,46 @@ export default function ElevenLabsStudio(props) {
   return (
     <div className="el-studio">
       <div className="tpl-sec-head store">
-        <span className="tab-title"><Sparkles size={15} /> ElevenLabs studio</span>
+        <span className="tab-title"><Sparkles size={15} /> {t('el.title')}</span>
       </div>
-      <p className="muted small">Avatars, Seedance videos and more photo models — powered by the ElevenLabs generation backend. It runs on <b>your own ElevenLabs key</b> and ElevenLabs bills it (photo and video need a Pro plan or higher). This part is not free; everything else in Cutflow is.</p>
+      <p className="muted small">{t('el.note1')}<b>{t('el.noteKey')}</b>{t('el.note2')}</p>
 
       {status && !status.hasKey ? (
         <div className="forge-nokey">
-          <p><strong><KeyRound size={13} /> ElevenLabs key needed.</strong> Add your key once and it also powers ElevenLabs voice-over. The key is stored encrypted on this PC and never shown again.</p>
-          <button className="btn btn-primary btn-sm" onClick={() => props.onOpenSettings?.()}>Open Settings → ElevenLabs</button>
-          <button className="btn btn-ghost btn-sm" onClick={() => window.api.openHelp('https://elevenlabs.io')}><ExternalLink size={13} /> Get a key at elevenlabs.io</button>
+          <p><strong><KeyRound size={13} />{t('el.keyNeededTitle')}</strong>{t('el.keyNeededNote')}</p>
+          <button className="btn btn-primary btn-sm" onClick={() => props.onOpenSettings?.()}>{t('el.openSettings')}</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => window.api.openHelp('https://elevenlabs.io')}><ExternalLink size={13} /> {t('el.getKey')}</button>
         </div>
       ) : !catalog ? (
-        <p className="muted small"><Loader2 size={13} className="spin" /> Loading the model catalog…</p>
+        <p className="muted small"><Loader2 size={13} className="spin" />{t('el.loadingCatalog')}</p>
       ) : (
         <>
           {status?.pro === false && (
-            <p className="error-text">Your ElevenLabs plan{status.tier ? ` (${status.tier})` : ''} cannot use photo and video generation — it needs Pro or higher. <button className="btn btn-ghost btn-sm" onClick={() => window.api.openHelp(status.proUrl)}>See plans</button></p>
+            <p className="error-text">{t('el.planCant', { tier: status.tier ? ` (${status.tier})` : '' })} <button className="btn btn-ghost btn-sm" onClick={() => window.api.openHelp(status.proUrl)}>{t('el.seePlans')}</button></p>
           )}
           {status?.left != null && status?.limit > 0 && (
-            <p className="muted small">ElevenLabs credits: <b>{status.left.toLocaleString('en-US')}</b> of {status.limit.toLocaleString('en-US')} left this month.</p>
+            <p className="muted small">{t('el.credits', { left: status.left.toLocaleString(NUM_LOCALES[getLanguage()] || 'en-US'), limit: status.limit.toLocaleString(NUM_LOCALES[getLanguage()] || 'en-US') })}</p>
           )}
-          <div className="seg-tabs" role="tablist" aria-label="ElevenLabs mode">
-            <button className={mode === 'photo' ? 'on' : ''} role="tab" aria-selected={mode === 'photo'} onClick={() => setMode('photo')}><ImageIcon size={13} /> Photo</button>
-            <button className={mode === 'video' ? 'on' : ''} role="tab" aria-selected={mode === 'video'} onClick={() => setMode('video')}><Film size={13} /> Video</button>
-            <button className={mode === 'avatar' ? 'on' : ''} role="tab" aria-selected={mode === 'avatar'} onClick={() => setMode('avatar')}><UserRound size={13} /> Avatar</button>
+          <div className="seg-tabs" role="tablist" aria-label={t('el.mode')}>
+            <button className={mode === 'photo' ? 'on' : ''} role="tab" aria-selected={mode === 'photo'} onClick={() => setMode('photo')}><ImageIcon size={13} /> {t('forge.photo')}</button>
+            <button className={mode === 'video' ? 'on' : ''} role="tab" aria-selected={mode === 'video'} onClick={() => setMode('video')}><Film size={13} /> {t('forge.video')}</button>
+            <button className={mode === 'avatar' ? 'on' : ''} role="tab" aria-selected={mode === 'avatar'} onClick={() => setMode('avatar')}><UserRound size={13} /> {t('el.avatar')}</button>
           </div>
 
           {mode === 'avatar' ? (
             <AvatarForm props={props} runnerRef={runnerRef} shelf={shelf} imageChoices={imageChoices} />
           ) : def ? (
             <>
-              <label className="forge-label" htmlFor="el-prompt">Prompt</label>
+              <label className="forge-label" htmlFor="el-prompt">{t('forge.prompt')}</label>
               <textarea id="el-prompt" className="forge-prompt" rows={3} value={prompt} onChange={(e) => setPrompt(e.target.value)}
-                placeholder={mode === 'photo' ? 'A product photo of a brass lamp on a linen cloth…' : 'A tracking shot through a spice market at golden hour…'} />
-              <label className="forge-label" htmlFor="el-model">Model</label>
-              <Dropdown ariaLabel="ElevenLabs model" value={modelId} onChange={(v) => setModels((m) => ({ ...m, [mode]: v }))}
+                placeholder={t(mode === 'photo' ? 'el.promptPhoto' : 'el.promptVideo')} />
+              <label className="forge-label" htmlFor="el-model">{t('common.model')}</label>
+              <Dropdown ariaLabel={t('el.modelAria')} value={modelId} onChange={(v) => setModels((m) => ({ ...m, [mode]: v }))}
                 options={modelOptions(catalog, kind).map((o) => ({ value: o.value, label: o.label }))} />
               {def.note && <p className="muted small">{def.note}</p>}
 
-              <label className="forge-label">Ratio</label>
-              <div className="chips" role="group" aria-label="Ratio">
+              <label className="forge-label">{t('forge.ratio')}</label>
+              <div className="chips" role="group" aria-label={t('forge.ratio')}>
                 {(def.ratios || []).map((r) => (
                   <button key={r} className={`chip ${form.ratio === r ? 'on' : ''}`} aria-pressed={form.ratio === r} onClick={() => setForm((f) => ({ ...f, ratio: r }))}>{r}</button>
                 ))}
@@ -145,32 +148,32 @@ export default function ElevenLabsStudio(props) {
 
               {def.resolutions && (
                 <>
-                  <label className="forge-label" htmlFor="el-res">Resolution</label>
-                  <Dropdown ariaLabel="Resolution" value={form.resolution} onChange={(v) => setForm((f) => ({ ...f, resolution: v }))}
+                  <label className="forge-label" htmlFor="el-res">{t('el.resolution')}</label>
+                  <Dropdown ariaLabel={t('el.resolution')} value={form.resolution} onChange={(v) => setForm((f) => ({ ...f, resolution: v }))}
                     options={def.resolutions.map((r) => ({ value: r, label: r }))} />
                 </>
               )}
 
               {mode === 'photo' && def.quality && (
                 <>
-                  <label className="forge-label" htmlFor="el-quality">Quality</label>
-                  <Dropdown ariaLabel="Quality" value={form.quality} onChange={(v) => setForm((f) => ({ ...f, quality: v }))}
+                  <label className="forge-label" htmlFor="el-quality">{t('el.quality')}</label>
+                  <Dropdown ariaLabel={t('el.quality')} value={form.quality} onChange={(v) => setForm((f) => ({ ...f, quality: v }))}
                     options={def.quality.map((qv) => ({ value: qv, label: qv }))} />
                 </>
               )}
               {mode === 'photo' && def.background && (
                 <>
-                  <label className="forge-label" htmlFor="el-bg">Background</label>
-                  <Dropdown ariaLabel="Background" value={form.background} onChange={(v) => setForm((f) => ({ ...f, background: v }))}
+                  <label className="forge-label" htmlFor="el-bg">{t('el.background')}</label>
+                  <Dropdown ariaLabel={t('el.background')} value={form.background} onChange={(v) => setForm((f) => ({ ...f, background: v }))}
                     options={['auto', 'transparent', 'opaque'].map((b) => ({ value: b, label: b }))} />
                 </>
               )}
 
               {mode === 'video' && (
                 <>
-                  <label className="forge-label">Duration</label>
+                  <label className="forge-label">{t('insp.duration')}</label>
                   {def.durations ? (
-                    <div className="chips" role="group" aria-label="Duration">
+                    <div className="chips" role="group" aria-label={t('insp.duration')}>
                       {def.durations.map((d) => (
                         <button key={d} className={`chip ${form.duration === d ? 'on' : ''}`} aria-pressed={form.duration === d} onClick={() => setForm((f) => ({ ...f, duration: d }))}>{d}s</button>
                       ))}
@@ -178,39 +181,39 @@ export default function ElevenLabsStudio(props) {
                   ) : (
                     <label className="field">
                       <span><b>{form.duration || def.range?.[0]}s</b> <span className="muted">({def.range?.[0]}–{def.range?.[1]}s)</span></span>
-                      <input type="range" min={def.range?.[0]} max={def.range?.[1]} step={1} value={form.duration || def.range?.[0]} aria-label="Duration in seconds"
+                      <input type="range" min={def.range?.[0]} max={def.range?.[1]} step={1} value={form.duration || def.range?.[0]} aria-label={t('el.durationSecs')}
                         onChange={(e) => setForm((f) => ({ ...f, duration: Number(e.target.value) }))} />
                     </label>
                   )}
                   <label className="field row-field">
-                    <span>Generate sound</span>
-                    <Toggle checked={form.audio !== false} onChange={(e) => setForm((f) => ({ ...f, audio: e.target.checked }))} aria-label="Generate sound" />
+                    <span>{t('el.generateSound')}</span>
+                    <Toggle checked={form.audio !== false} onChange={(e) => setForm((f) => ({ ...f, audio: e.target.checked }))} aria-label={t('el.generateSound')} />
                   </label>
                   {def.family === 'veo' && (
                     <>
-                      <label className="forge-label" htmlFor="el-negative">Negative prompt <span className="muted">(optional)</span></label>
+                      <label className="forge-label" htmlFor="el-negative">{t('el.negative')} <span className="muted">{t('ci.optional')}</span></label>
                       <textarea id="el-negative" className="forge-prompt" rows={2} value={form.negative || ''} onChange={(e) => setForm((f) => ({ ...f, negative: e.target.value }))}
-                        placeholder="What to keep out: text, watermark, extra people…" />
+                        placeholder={t('el.negativePh')} />
                     </>
                   )}
-                  <FramePick label="Start frame" value={frames.start} choices={imageChoices} onChange={(v) => setFrames((s) => ({ ...s, start: v }))} />
-                  <FramePick label="End frame" value={frames.end} choices={imageChoices} onChange={(v) => setFrames((s) => ({ ...s, end: v }))} />
+                  <FramePick label={t('el.frameStart')} value={frames.start} choices={imageChoices} onChange={(v) => setFrames((s) => ({ ...s, start: v }))} />
+                  <FramePick label={t('el.frameEnd')} value={frames.end} choices={imageChoices} onChange={(v) => setFrames((s) => ({ ...s, end: v }))} />
                 </>
               )}
 
               {!(mode === 'video' && (frames.start || frames.end)) && (
-                <RefPicker label={mode === 'photo' ? 'Reference photos' : 'Reference photos'}
+                <RefPicker label={t('el.refPhotos')}
                   max={def.refs || 0} refs={refs} setRefs={setRefs} choices={imageChoices} roles={mode === 'video' && !!def.refRoles} />
               )}
               {mode === 'video' && !!def.videoRefs && (
-                <RefPicker label="Reference videos" max={def.videoRefs} refs={videoRefs.map((p) => ({ path: p }))}
+                <RefPicker label={t('el.refVideos')} max={def.videoRefs} refs={videoRefs.map((p) => ({ path: p }))}
                   setRefs={(next) => setVideoRefs(next.map((r) => r.path))} choices={videoChoices} />
               )}
 
               <button className="btn btn-primary forge-go" disabled={!canGenerate} onClick={generate}>
-                <Sparkles size={14} /> Generate {mode} with {def.name}
+                <Sparkles size={14} /> {t('el.generateWith', { mode: t(mode === 'photo' ? 'forge.photo' : 'forge.video').toLowerCase(), name: def.name })}
               </button>
-              <p className="muted small">Billed by ElevenLabs on your account. Failed generations are not charged.</p>
+              <p className="muted small">{t('el.billed')}</p>
             </>
           ) : null}
         </>
@@ -221,16 +224,16 @@ export default function ElevenLabsStudio(props) {
           {running.map((j) => (
             <div key={j.id} className="forge-job">
               <Loader2 size={13} className="spin" />
-              <span className="forge-job-prompt">{j.kind === 'avatar' ? '🧑' : j.kind === 'video' ? '🎞' : '🖼'} {j.label || 'Generation'}</span>
-              <span className="muted small">{STAGE_LABELS[j.stage] || j.stage}</span>
-              <button className="btn btn-ghost btn-sm" onClick={() => runnerRef.current?.stop(j.id)}>Stop</button>
+              <span className="forge-job-prompt">{j.kind === 'avatar' ? '🧑' : j.kind === 'video' ? '🎞' : '🖼'} {j.label || t('el.generation')}</span>
+              <span className="muted small">{tr('el.stage.' + j.stage) !== 'el.stage.' + j.stage ? tr('el.stage.' + j.stage) : (STAGE_LABELS[j.stage] || j.stage)}</span>
+              <button className="btn btn-ghost btn-sm" onClick={() => runnerRef.current?.stop(j.id)}>{t('tl.stop')}</button>
             </div>
           ))}
           {recent.map((j) => (
             <div key={j.id} className={`forge-job ${j.status}`}>
               <span className="forge-job-prompt">{j.kind === 'avatar' ? '🧑' : j.kind === 'video' ? '🎞' : '🖼'} {j.label || 'Generation'}</span>
-              {j.status === 'done' && <span className="forge-job-state ok">Done</span>}
-              {j.status === 'stopped' && <span className="forge-job-state">Stopped — a generation that already started may still use credits</span>}
+              {j.status === 'done' && <span className="forge-job-state ok">{t('exp.done')}</span>}
+              {j.status === 'stopped' && <span className="forge-job-state">{t('el.stopped')}</span>}
               {j.status === 'error' && <span className="forge-job-state err">{j.error}</span>}
             </div>
           ))}
@@ -238,11 +241,11 @@ export default function ElevenLabsStudio(props) {
       )}
 
       <div className="tpl-sec-head">
-        <span className="tab-title">ElevenLabs shelf</span>
-        <span className="muted small">kept on this PC</span>
+        <span className="tab-title">{t('el.shelf')}</span>
+        <span className="muted small">{t('forge.keptHere')}</span>
       </div>
       {shelf.length === 0 ? (
-        <p className="empty-note">Nothing generated with ElevenLabs yet.</p>
+        <p className="empty-note">{t('el.shelfEmpty')}</p>
       ) : (
         <div className="forge-grid">
           {shelf.map((e) => (
@@ -252,13 +255,13 @@ export default function ElevenLabsStudio(props) {
                   ? <img src={toFileUrl(e.path)} alt="" draggable={false} />
                   : <video src={toFileUrl(e.path)} muted loop playsInline onMouseEnter={(ev) => ev.currentTarget.play()} onMouseLeave={(ev) => ev.currentTarget.pause()} />}
               </span>
-              <span className="forge-card-prompt" title={e.prompt}>{e.prompt || (e.kind === 'avatar' ? 'Talking avatar' : '')}</span>
+              <span className="forge-card-prompt" title={e.prompt}>{e.prompt || (e.kind === 'avatar' ? t('el.talkingAvatar') : '')}</span>
               <span className="forge-card-actions">
-                <button title="Add to media library" aria-label="Add to media library" onClick={() => addToMedia(e)}><Download size={13} /></button>
-                <button title="Add to timeline" aria-label="Add to timeline" onClick={() => props.onAddFile?.(e.path, 'main')}><Plus size={13} /></button>
-                <button title="Add as overlay" aria-label="Add as overlay" onClick={() => props.onAddFile?.(e.path, 'overlay')}><Layers size={13} /></button>
-                <button title="Reveal in folder" aria-label="Reveal in folder" onClick={() => window.api.genReveal(e.path)}><FolderOpen size={13} /></button>
-                <button title="Delete" aria-label="Delete" onClick={() => window.api.genRemove(e.path).then((s) => Array.isArray(s) && setShelf(s))}><Trash2 size={13} /></button>
+                <button title={t('forge.addToMedia')} aria-label={t('forge.addToMedia')} onClick={() => addToMedia(e)}><Download size={13} /></button>
+                <button title={t('forge.addToTimeline')} aria-label={t('forge.addToTimeline')} onClick={() => props.onAddFile?.(e.path, 'main')}><Plus size={13} /></button>
+                <button title={t('stock.addOverlay')} aria-label={t('stock.addOverlay')} onClick={() => props.onAddFile?.(e.path, 'overlay')}><Layers size={13} /></button>
+                <button title={t('forge.reveal')} aria-label={t('forge.reveal')} onClick={() => window.api.genReveal(e.path)}><FolderOpen size={13} /></button>
+                <button title={t('tl.delete')} aria-label={t('tl.delete')} onClick={() => window.api.genRemove(e.path).then((s) => Array.isArray(s) && setShelf(s))}><Trash2 size={13} /></button>
               </span>
             </div>
           ))}
@@ -269,11 +272,12 @@ export default function ElevenLabsStudio(props) {
 }
 
 function FramePick({ label, value, choices, onChange }) {
+  const t = useT();
   return (
     <>
-      <label className="forge-label">{label} <span className="muted">(optional — frames and references cannot be combined)</span></label>
+      <label className="forge-label">{label} <span className="muted">{t('el.frameNote')}</span></label>
       <Dropdown ariaLabel={label} value={value || ''} onChange={onChange}
-        options={[{ value: '', label: 'None' }, ...choices.map((c) => ({ value: c.path, label: c.name }))]} />
+        options={[{ value: '', label: t('el.none') }, ...choices.map((c) => ({ value: c.path, label: c.name }))]} />
     </>
   );
 }
@@ -281,6 +285,7 @@ function FramePick({ label, value, choices, onChange }) {
 // A capped list of reference files picked from what is already on this PC (project
 // media and generated results — generation references must be real local files).
 function RefPicker({ label, max, refs, setRefs, choices, roles = false }) {
+  const t = useT();
   if (!max) return null;
   const add = (path) => {
     if (!path || refs.some((r) => r.path === path) || refs.length >= max) return;
@@ -294,16 +299,16 @@ function RefPicker({ label, max, refs, setRefs, choices, roles = false }) {
           <img src={toFileUrl(r.path)} alt="" onError={(e) => { e.currentTarget.style.visibility = 'hidden'; }} />
           <span title={r.path}>{r.path.split(/[\\/]/).pop()}</span>
           {roles && (
-            <Dropdown ariaLabel="Reference role" value={r.role || 'subject'}
+            <Dropdown ariaLabel={t('el.role')} value={r.role || 'subject'}
               onChange={(v) => setRefs(refs.map((x) => (x.path === r.path ? { ...x, role: v } : x)))}
-              options={[{ value: 'subject', label: 'Subject' }, { value: 'style', label: 'Style' }]} />
+              options={[{ value: 'subject', label: t('el.roleSubject') }, { value: 'style', label: t('el.roleStyle') }]} />
           )}
-          <button className="icon-btn" aria-label="Remove reference" onClick={() => setRefs(refs.filter((x) => x.path !== r.path))}><X size={13} /></button>
+          <button className="icon-btn" aria-label={t('el.removeRef')} onClick={() => setRefs(refs.filter((x) => x.path !== r.path))}><X size={13} /></button>
         </div>
       ))}
       {refs.length < max && (
-        <Dropdown ariaLabel={`Add ${label}`} value="" onChange={add}
-          options={[{ value: '', label: choices.length ? 'Add from this PC…' : 'No files available yet' },
+        <Dropdown ariaLabel={t('el.addLabel', { label })} value="" onChange={add}
+          options={[{ value: '', label: choices.length ? t('el.addFromPc') : t('el.noFiles') },
             ...choices.filter((c) => !refs.some((r) => r.path === c.path)).map((c) => ({ value: c.path, label: c.name }))]} />
       )}
     </>
@@ -315,6 +320,7 @@ function RefPicker({ label, max, refs, setRefs, choices, roles = false }) {
 // (other formats are converted there). Photos kept in "My avatars" are reusable
 // across projects.
 function AvatarForm({ props, runnerRef, imageChoices }) {
+  const t = useT();
   const [avatars, setAvatars] = useState([]);
   const [photo, setPhoto] = useState('');
   const [speech, setSpeech] = useState('text'); // text | audio
@@ -356,12 +362,12 @@ function AvatarForm({ props, runnerRef, imageChoices }) {
 
   const generate = () => {
     const opts = { photo, resolution, ...(speech === 'text' ? { text, voiceId } : { audio }) };
-    runnerRef.current?.start('avatar', opts, 'Talking avatar');
+    runnerRef.current?.start('avatar', opts, tr('el.talkingAvatar'));
   };
 
   return (
     <>
-      <label className="forge-label">Person</label>
+      <label className="forge-label">{t('el.person')}</label>
       {avatars.length > 0 && (
         <div className="el-avatars">
           {avatars.map((a) => (
@@ -369,54 +375,54 @@ function AvatarForm({ props, runnerRef, imageChoices }) {
               <button type="button" onClick={() => setPhoto(a.path)} title={a.name}>
                 <img src={toFileUrl(a.path)} alt="" draggable={false} />
               </button>
-              <button type="button" className="el-avatar-x" aria-label={`Remove ${a.name}`} onClick={() => removeAvatar(a.path)}><X size={11} /></button>
+              <button type="button" className="el-avatar-x" aria-label={t('el.removeAvatar', { name: a.name })} onClick={() => removeAvatar(a.path)}><X size={11} /></button>
             </span>
           ))}
         </div>
       )}
       <div className="row-btns">
-        <button className="btn btn-sm" onClick={addAvatar}><Plus size={13} /> Add a photo to My avatars</button>
+        <button className="btn btn-sm" onClick={addAvatar}><Plus size={13} /> {t('el.addAvatarPhoto')}</button>
       </div>
-      <label className="forge-label" htmlFor="el-avatar-photo">…or use a photo from this project</label>
-      <Dropdown ariaLabel="Avatar photo" value={avatars.some((a) => a.path === photo) ? '' : photo} onChange={setPhoto}
-        options={[{ value: '', label: avatars.length ? 'Pick from My avatars above' : 'Choose a photo…' },
+      <label className="forge-label" htmlFor="el-avatar-photo">{t('el.orUsePhoto')}</label>
+      <Dropdown ariaLabel={t('el.avatarPhoto')} value={avatars.some((a) => a.path === photo) ? '' : photo} onChange={setPhoto}
+        options={[{ value: '', label: avatars.length ? t('el.pickFromAvatars') : t('el.choosePhoto') },
           ...imageChoices.map((c) => ({ value: c.path, label: c.name }))]} />
 
-      <label className="forge-label">What they say</label>
-      <div className="seg-tabs" role="tablist" aria-label="Speech source">
-        <button className={speech === 'text' ? 'on' : ''} role="tab" aria-selected={speech === 'text'} onClick={() => setSpeech('text')}>Type the words</button>
-        <button className={speech === 'audio' ? 'on' : ''} role="tab" aria-selected={speech === 'audio'} onClick={() => setSpeech('audio')}>Use an audio file</button>
+      <label className="forge-label">{t('el.whatTheySay')}</label>
+      <div className="seg-tabs" role="tablist" aria-label={t('el.speechSource')}>
+        <button className={speech === 'text' ? 'on' : ''} role="tab" aria-selected={speech === 'text'} onClick={() => setSpeech('text')}>{t('el.typeWords')}</button>
+        <button className={speech === 'audio' ? 'on' : ''} role="tab" aria-selected={speech === 'audio'} onClick={() => setSpeech('audio')}>{t('el.useAudioFile')}</button>
       </div>
       {speech === 'text' ? (
         <>
           <textarea className="forge-prompt" rows={3} value={text} onChange={(e) => setText(e.target.value)}
-            placeholder="Write what the person says…" aria-label="Words for the avatar" />
-          <label className="forge-label" htmlFor="el-voice">Voice</label>
-          <Dropdown ariaLabel="ElevenLabs voice" value={voiceId} onChange={setVoiceId}
+            placeholder={t('el.wordsPh')} aria-label={t('el.wordsAria')} />
+          <label className="forge-label" htmlFor="el-voice">{t('tts.voice')}</label>
+          <Dropdown ariaLabel={t('tts.elevenVoice')} value={voiceId} onChange={setVoiceId}
             options={voices.map((v) => ({ value: v.id, label: `${v.name}${v.gender ? ` (${v.gender}${v.accent ? `, ${v.accent}` : ''})` : ''}` }))} />
           {voiceError && <p className="error-text">{voiceError}</p>}
         </>
       ) : (
         <>
-          <label className="forge-label" htmlFor="el-audio">Audio from this project</label>
-          <Dropdown ariaLabel="Speech audio" value={audio} onChange={setAudio}
-            options={[{ value: '', label: audioChoices.length ? 'Choose audio…' : 'No audio in this project yet' },
+          <label className="forge-label" htmlFor="el-audio">{t('el.audioFromProject')}</label>
+          <Dropdown ariaLabel={t('el.speechAudio')} value={audio} onChange={setAudio}
+            options={[{ value: '', label: audioChoices.length ? t('el.chooseAudio') : t('el.noAudio') },
               ...audioChoices.map((m) => ({ value: m.path, label: m.name }))]} />
-          <p className="muted small">MP3 and WAV are used as-is; anything else is converted once.</p>
+          <p className="muted small">{t('el.audioNote')}</p>
         </>
       )}
 
-      <label className="forge-label">Resolution</label>
-      <div className="chips" role="group" aria-label="Avatar resolution">
+      <label className="forge-label">{t('el.resolution')}</label>
+      <div className="chips" role="group" aria-label={t('el.avatarRes')}>
         {['480p', '720p'].map((r) => (
           <button key={r} className={`chip ${resolution === r ? 'on' : ''}`} aria-pressed={resolution === r} onClick={() => setResolution(r)}>{r}</button>
         ))}
       </div>
       {note && <p className="error-text">{note}</p>}
       <button className="btn btn-primary forge-go" disabled={!ready} onClick={generate}>
-        <Sparkles size={14} /> Generate talking avatar
+        <Sparkles size={14} /> {t('el.generateAvatar')}
       </button>
-      <p className="muted small">Billed by ElevenLabs on your account. Only use photos and voices you have the right to use.</p>
+      <p className="muted small">{t('el.billedRights')}</p>
     </>
   );
 }

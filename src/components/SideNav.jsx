@@ -1,11 +1,14 @@
 import React, { useState } from 'react';
 import { ChevronDown } from '../icons.jsx';
+import { useT } from '../i18n/index.jsx';
 
 // Category column on the left of a library tab: plain items, actions (e.g. Import) and groups that
 // fold open (Music > Vlog, Funny…). items: [{ id, label, icon, action, count, children: [{ id, label, count }] }].
 // `count` (10/10 step 5) renders as a quiet right-aligned figure — the library taxonomy carries
 // per-category counts so a big library reads as navigable, not just long.
-export default function SideNav({ items, value, onChange, label = 'Categories' }) {
+export default function SideNav({ items, value, onChange, label }) {
+  const t = useT();
+  label = label ?? t('common.categories');
   const groupOf = (v) => items.find((it) => it.children && it.children.some((c) => c.id === v))?.id;
   // One group open at a time, so the column stays short.
   const [openId, setOpenId] = useState(() => groupOf(value) || null);

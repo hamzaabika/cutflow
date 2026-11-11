@@ -11,12 +11,14 @@
 // warning region (from -3 dB); green runs to -12, amber to -3. Scale: 0 / -6 / -12 / -24 /
 // -36 / -48 / -60 dBFS, floor -60.
 import React, { useEffect, useRef } from 'react';
+import { useT } from '../i18n/index.jsx';
 import { meterAnalysers } from '../audioTap.js';
 import { METER_FLOOR as FLOOR, clearClip, createMeterState, dbOf, stepMeter } from '../meterMath.js';
 
 const TICKS = [0, -6, -12, -24, -36, -48, -60];
 
 export default function AudioMeter({ active }) {
+  const t = useT();
   const canvasRef = useRef(null);
   const st = useRef({
     ...createMeterState(),
@@ -119,9 +121,9 @@ export default function AudioMeter({ active }) {
   useEffect(() => { draw(); kick(); window.__meter = st.current; return () => { cancelAnimationFrame(st.current.raf); st.current.running = false; }; }, []);
 
   return (
-    <div className="meter-strip" title="Preview audio level — click to clear the clip indicators"
+    <div className="meter-strip" title={t('meter.title')}
       onClick={() => { clearClip(st.current); draw(); }}>
-      <canvas ref={canvasRef} className="meter-canvas" aria-label="Stereo audio level meter" />
+      <canvas ref={canvasRef} className="meter-canvas" aria-label={t('meter.aria')} />
     </div>
   );
 }

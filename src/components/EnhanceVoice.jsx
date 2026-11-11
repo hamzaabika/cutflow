@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useT } from '../i18n/index.jsx';
 import Toggle from '../ui/Toggle.jsx';
 
 // Voice Enhancer controls (the section body; hosts frame it). The render itself runs in the
@@ -9,9 +10,10 @@ import Toggle from '../ui/Toggle.jsx';
 export const ENHANCE_STRENGTHS = [['light', 'Light'], ['standard', 'Standard'], ['strong', 'Strong']];
 
 export default function EnhanceVoice({ clip, media, set, onEnhance }) {
+  const t = useT();
   const e = clip.enhance || null;
   const [strength, setStrength] = useState(e?.strength || 'standard');
-  if (!media?.hasAudio) return <p className="dim small">This clip has no sound to enhance.</p>;
+  if (!media?.hasAudio) return <p className="dim small">{t('enh.noSound')}</p>;
   const stale = !!(e?.path && (Math.abs((e.from ?? -1) - (clip.in || 0)) > 0.02 || Math.abs((e.to ?? -1) - (clip.out ?? -1)) > 0.02));
   const ready = !!(e?.path && !stale);
   const on = !!(e?.on && ready);
@@ -28,20 +30,20 @@ export default function EnhanceVoice({ clip, media, set, onEnhance }) {
   return (
     <>
       <label className="field row">
-        <span>Enhance voice</span>
-        <Toggle aria-label="Enhance voice" checked={on} disabled={!onEnhance && !ready}
+        <span>{t('enh.title')}</span>
+        <Toggle aria-label={t('enh.title')} checked={on} disabled={!onEnhance && !ready}
           onChange={(ev) => toggle(ev.target.checked)} />
       </label>
-      <div className="seg-tabs small" role="radiogroup" aria-label="Enhance strength">
+      <div className="seg-tabs small" role="radiogroup" aria-label={t('enh.strength')}>
         {ENHANCE_STRENGTHS.map(([id, name]) => (
           <button key={id} role="radio" aria-checked={strength === id} className={strength === id ? 'on' : ''}
             onClick={() => pick(id)}>{name}</button>
         ))}
       </div>
-      <p className="dim small">Reduces noise and clarifies voice; processed locally on this PC. The preview and the export use the enhanced sound.</p>
+      <p className="dim small">{t('enh.note')}</p>
       {stale && (
         <p className="dim small">The clip was trimmed after it was enhanced.
-          <button type="button" className="btn btn-sm" onClick={() => onEnhance && onEnhance(strength)}>Enhance again</button>
+          <button type="button" className="btn btn-sm" onClick={() => onEnhance && onEnhance(strength)}>{t('enh.again')}</button>
         </p>
       )}
     </>

@@ -9,20 +9,22 @@
 import React from 'react';
 import { Check, CircleAlert, CircleCheck, Clock, FolderOpen, Loader2, Play, X } from '../icons.jsx';
 import { phaseStates } from '../exportJobs.js';
+import { useT } from '../i18n/index.jsx';
 
 const fmtDur = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}.${String(Math.floor((s % 1) * 10))}`;
 const fmtMB = (bytes) => (bytes / 1e6 >= 100 ? (bytes / 1e6).toFixed(0) : (bytes / 1e6).toFixed(1));
 const baseName = (file) => String(file || '').split(/[\\/]/).pop();
 
 function Phases({ job }) {
+  const t = useT();
   const states = phaseStates(job.phases || [], job.phase, job.status);
   if (!states.length) return null;
   return (
-    <div className="xjob-phases" aria-label="Export phases">
+    <div className="xjob-phases" aria-label={t('tray.phases')}>
       {states.map((p) => (
         <span key={p.id} className={`xjob-phase ${p.state}`}>
           {p.state === 'done' ? <Check size={11} /> : p.state === 'active' ? <Loader2 size={11} className="spin" /> : null}
-          {p.label}
+          {t('exp.phase.' + p.id)}
         </span>
       ))}
     </div>
@@ -30,6 +32,7 @@ function Phases({ job }) {
 }
 
 function JobCard({ job, onCancelJob, onDismissJob, onShow, onOpen }) {
+  const t = useT();
   const pct = Math.round((job.progress || 0) * 100);
   const active = (job.phases || []).find((p) => p.id === job.phase);
   return (
@@ -42,23 +45,23 @@ function JobCard({ job, onCancelJob, onDismissJob, onShow, onOpen }) {
         <b className="xjob-title" title={job.file || job.title}>{baseName(job.file) || job.title}</b>
         <span className="xjob-fmt">{job.formatLabel}</span>
         {(job.status === 'done' || job.status === 'error') && (
-          <button type="button" className="icon-btn sm" aria-label="Dismiss" onClick={() => onDismissJob(job.id)}><X size={13} /></button>
+          <button type="button" className="icon-btn sm" aria-label={t('tray.dismiss')} onClick={() => onDismissJob(job.id)}><X size={13} /></button>
         )}
       </div>
 
       {job.status === 'queued' && (
         <div className="xjob-line">
-          <span>Queued — starts when the current export finishes.{job.kind === 'audio' ? ' The save dialog opens when it starts.' : ''}</span>
-          <button type="button" className="btn btn-sm btn-ghost" onClick={() => onCancelJob(job.id)}>Cancel</button>
+          <span>{t('tray.queued')}{job.kind === 'audio' ? t('tray.queuedAudio') : ''}</span>
+          <button type="button" className="btn btn-sm btn-ghost" onClick={() => onCancelJob(job.id)}>{t('common.cancel')}</button>
         </div>
       )}
 
       {job.status === 'running' && (
         <>
           <div className="xjob-line">
-            <span aria-live="polite">{active ? active.stage : job.stage || 'Exporting'}…</span>
+            <span aria-live="polite">{active ? t('exp.stage.' + active.id) : job.stage || t('tray.exporting')}…</span>
             <span className="xjob-pct">{pct}%</span>
-            <button type="button" className="btn btn-sm btn-ghost" onClick={() => onCancelJob(job.id)}>Cancel</button>
+            <button type="button" className="btn btn-sm btn-ghost" onClick={() => onCancelJob(job.id)}>{t('common.cancel')}</button>
           </div>
           <div className="progress xjob-bar"><div style={{ width: `${pct}%` }} /></div>
           <Phases job={job} />
@@ -67,24 +70,24 @@ function JobCard({ job, onCancelJob, onDismissJob, onShow, onOpen }) {
 
       {job.status === 'done' && (
         <>
-          <div className="xjob-state">Export complete</div>
+          <div className="xjob-state">{t('tray.complete')}</div>
           <div className="xjob-meta">
             {[job.formatLabel, job.duration != null ? fmtDur(job.duration) : null, job.size ? `${fmtMB(job.size)} MB` : null]
               .filter(Boolean).join(' · ')}
           </div>
           <div className="xjob-path" title={job.file}>{job.file}</div>
-          {job.cover === 'embedded' && <div className="xjob-note">Cover picture embedded.</div>}
+          {job.cover === 'embedded' && <div className="xjob-note">{t('tray.coverEmbedded')}</div>}
           {job.coverNote && <div className="xjob-note">{job.coverNote}</div>}
           <div className="xjob-actions">
-            <button type="button" className="btn btn-sm" onClick={() => onShow(job.file)}><FolderOpen size={13} /> Show in folder</button>
-            <button type="button" className="btn btn-sm" onClick={() => onOpen(job.file)}><Play size={13} /> Open file</button>
+            <button type="button" className="btn btn-sm" onClick={() => onShow(job.file)}><FolderOpen size={13} /> {t('tray.showInFolder')}</button>
+            <button type="button" className="btn btn-sm" onClick={() => onOpen(job.file)}><Play size={13} /> {t('tray.openFile')}</button>
           </div>
         </>
       )}
 
       {job.status === 'error' && (
         <>
-          <div className="xjob-err-title">Export failed</div>
+          <div className="xjob-err-title">{t('tray.failed')}</div>
           <pre className="xjob-error">{job.error}</pre>
         </>
       )}
@@ -93,9 +96,10 @@ function JobCard({ job, onCancelJob, onDismissJob, onShow, onOpen }) {
 }
 
 export default function ExportJobsTray({ jobs, onCancelJob, onDismissJob, onShow, onOpen }) {
+  const t = useT();
   if (!jobs.length) return null;
   return (
-    <div className="xjobs" aria-label="Export jobs">
+    <div className="xjobs" aria-label={t('tray.jobs')}>
       {jobs.map((job) => (
         <JobCard key={job.id} job={job} onCancelJob={onCancelJob} onDismissJob={onDismissJob} onShow={onShow} onOpen={onOpen} />
       ))}

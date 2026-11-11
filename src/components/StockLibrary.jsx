@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { ExternalLink, Image as ImageIcon, KeyRound, Layers, Loader2, Plus, Search, Video, WifiOff, X } from '../icons.jsx';
 import { formatTime, toFileUrl } from '../store.js';
 import { FavStar, favStock } from '../favorites.jsx';
+import { useT, tr, getLanguage } from '../i18n/index.jsx';
 
 // Chip label -> { q, category } for Pixabay. Green screen, intros and the like are searches, not categories.
 export const CHIPS = {
@@ -38,6 +39,7 @@ export function Thumb({ url, alt }) {
 
 // Stock photos and videos from Pixabay.
 export default function StockLibrary({ onStockAdd, onOpenSettings, hasKey, kind = 'video', chip = 'Trending', onKindChange }) {
+  const t = useT();
   const [q, setQ] = useState('');
   const [orientation, setOrientation] = useState('');
   const [res, setRes] = useState({ results: [], page: 0, pages: 0, loading: false, error: '' });
@@ -71,13 +73,13 @@ export default function StockLibrary({ onStockAdd, onOpenSettings, hasKey, kind 
         <div className="card-row">
           <span className="card-icon"><KeyRound size={18} /></span>
           <div>
-            <b>Free stock videos and photos</b>
-            <p>Search millions of Pixabay videos and photos and use them in your edits. Pixabay needs a free API key: create an account, copy the key, then paste it in Settings.</p>
+            <b>{t('stock.title')}</b>
+            <p>{t('stock.note')}</p>
           </div>
         </div>
         <div className="stock-key-actions">
-          <button className="btn btn-sm" onClick={() => window.api.openHelp('https://pixabay.com/api/docs/')}><ExternalLink size={13} /> Get a free key</button>
-          <button className="btn btn-primary btn-sm" onClick={onOpenSettings}>Open Settings</button>
+          <button className="btn btn-sm" onClick={() => window.api.openHelp('https://pixabay.com/api/docs/')}><ExternalLink size={13} /> {t('lib.getFreeKey')}</button>
+          <button className="btn btn-primary btn-sm" onClick={onOpenSettings}>{t('topbar.openSettings')}</button>
         </div>
       </div>
     );
@@ -86,53 +88,53 @@ export default function StockLibrary({ onStockAdd, onOpenSettings, hasKey, kind 
   return (
     <>
       <div className="stock-top">
-        <b className="tab-title">{kind === 'video' ? 'Stock videos' : 'Stock photos'} · {chip}</b>
+        <b className="tab-title">{t(kind === 'video' ? 'stock.videosTitle' : 'stock.photosTitle')} · {chip}</b>
         {kind === 'photo' && (
-          <select className="stock-orient" value={orientation} aria-label="Orientation" onChange={(e) => setOrientation(e.target.value)}>
-            <option value="">Any shape</option>
-            <option value="horizontal">Landscape</option>
-            <option value="vertical">Portrait</option>
+          <select className="stock-orient" value={orientation} aria-label={t('stock.orientation')} onChange={(e) => setOrientation(e.target.value)}>
+            <option value="">{t('stock.anyShape')}</option>
+            <option value="horizontal">{t('stock.landscape')}</option>
+            <option value="vertical">{t('stock.portrait')}</option>
           </select>
         )}
       </div>
       <form className="lib-search" onSubmit={(e) => { e.preventDefault(); load(1); }}>
         {onKindChange && (
-          <select className="stock-kind-select" value={kind} aria-label="Stock kind" onChange={(e) => onKindChange(e.target.value)}>
-            <option value="video">Videos</option>
-            <option value="photo">Photos</option>
+          <select className="stock-kind-select" value={kind} aria-label={t('stock.kind')} onChange={(e) => onKindChange(e.target.value)}>
+            <option value="video">{t('stock.videosOpt')}</option>
+            <option value="photo">{t('stock.photosOpt')}</option>
           </select>
         )}
         <Search size={14} aria-hidden="true" />
-        <input type="search" value={q} placeholder={kind === 'video' ? 'Search all stock videos' : 'Search all stock photos'} aria-label="Search stock media"
+        <input type="search" value={q} placeholder={t(kind === 'video' ? 'stock.searchVideos' : 'stock.searchPhotos')} aria-label={t('stock.searchMedia')}
           onChange={(e) => setQ(e.target.value)} />
-        {q && <button type="button" className="lib-search-clear" aria-label="Clear search" onClick={() => setQ('')}><X size={13} /></button>}
+        {q && <button type="button" className="lib-search-clear" aria-label={t('lib.clearSearch')} onClick={() => setQ('')}><X size={13} /></button>}
       </form>
-      {res.error && <div className="lib-error"><WifiOff size={15} /> <span>{res.error}</span> <button className="btn btn-sm" onClick={() => load(1)}>Retry</button></div>}
+      {res.error && <div className="lib-error"><WifiOff size={15} /> <span>{res.error}</span> <button className="btn btn-sm" onClick={() => load(1)}>{t('common.retry')}</button></div>}
       {addError && <p className="error-text">{addError}</p>}
       <div className="stock-grid">
         {res.results.map((it) => (
-          <div key={it.id} className="stock-tile" title={`${it.tags}\nby ${it.user} · Pixabay\nDouble-click to add to the main track`}
+          <div key={it.id} className="stock-tile" title={t('stock.tileTitle', { tags: it.tags, user: it.user })}
             onDoubleClick={() => add(it, 'main')}>
             <Thumb url={it.thumb} alt={it.tags} />
             {it.kind === 'video' && <span className="asset-dur">{formatTime(it.duration).slice(0, 5)}</span>}
             <FavStar entry={favStock(it)} className="tile-star" />
             {busy[it.id] ? (
-              <span className="stock-busy"><Loader2 size={18} className="spin" /> Downloading…</span>
+              <span className="stock-busy"><Loader2 size={18} className="spin" /> {t('stock.downloading')}</span>
             ) : (
               <span className="stock-actions">
-                <button onClick={() => add(it, 'overlay')} aria-label="Add as overlay" title="Add as overlay (picture in picture)"><Layers size={13} /></button>
-                <button onClick={() => add(it, 'main')} aria-label="Add to the main track" title="Add to the main track"><Plus size={14} /></button>
+                <button onClick={() => add(it, 'overlay')} aria-label={t('stock.addOverlay')} title={t('stock.addOverlayTitle')}><Layers size={13} /></button>
+                <button onClick={() => add(it, 'main')} aria-label={t('stock.addMain')} title={t('stock.addMainTitle')}><Plus size={14} /></button>
               </span>
             )}
           </div>
         ))}
       </div>
-      {res.loading && <div className="lib-loading"><Loader2 size={16} className="spin" /> Loading…</div>}
-      {!res.loading && !res.error && !res.results.length && <p className="empty-note">Nothing found.</p>}
+      {res.loading && <div className="lib-loading"><Loader2 size={16} className="spin" /> {t('lib.loading')}</div>}
+      {!res.loading && !res.error && !res.results.length && <p className="empty-note">{t('stock.nothing')}</p>}
       {!res.loading && res.page < res.pages && res.results.length > 0 && (
-        <button className="btn btn-ghost btn-sm lib-more" onClick={() => load(res.page + 1)}>Load more</button>
+        <button className="btn btn-ghost btn-sm lib-more" onClick={() => load(res.page + 1)}>{t('lib.loadMore')}</button>
       )}
-      <p className="lib-note">Videos and photos from <b>Pixabay</b>, free to use under the Pixabay Content License. Do not resell them unchanged.</p>
+      <p className="lib-note">{t('stock.noteFooter1')}<b>Pixabay</b>{t('stock.noteFooter2')}</p>
     </>
   );
 }

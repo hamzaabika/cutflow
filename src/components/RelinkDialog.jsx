@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { FolderOpen, Link2, Unlink } from '../icons.jsx';
 import Button from '../ui/Button.jsx';
+import { useT } from '../i18n/index.jsx';
 
 // Media relink: the project opened, but some source files are not where the project
 // remembers them (moved, renamed, another drive). Each missing file can be located by
@@ -12,6 +13,7 @@ import Button from '../ui/Button.jsx';
 // `context="export"` is the export guard (Part 3 addendum, 2026-11-10): the
 // same surface, but closing it cancels the export it was blocking.
 export default function RelinkDialog({ items, onApply, onClose, context, closeLabel }) {
+  const t = useT();
   const [found, setFound] = useState({}); // id -> { path, verified, ...patch }
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState(null);
@@ -31,10 +33,10 @@ export default function RelinkDialog({ items, onApply, onClose, context, closeLa
       }
       setFound(next);
       const parts = [];
-      if (res.matches?.length) parts.push(`${res.matches.length} file${res.matches.length === 1 ? '' : 's'} matched and verified.`);
-      if (res.ambiguous?.length) parts.push(`${res.ambiguous.length} had more than one matching file — locate ${res.ambiguous.length === 1 ? 'it' : 'them'} by hand below.`);
-      if (res.unmatched?.length) parts.push(`${res.unmatched.length} not found in that folder.`);
-      setNote(parts.join(' ') || 'No matching files in that folder.');
+      if (res.matches?.length) parts.push(t(res.matches.length === 1 ? 'rl.filesMatchedOne' : 'rl.filesMatched', { count: res.matches.length }));
+      if (res.ambiguous?.length) parts.push(t(res.ambiguous.length === 1 ? 'rl.verifyAmbiguous' : 'rl.verifyAmbiguousMany', { count: res.ambiguous.length }));
+      if (res.unmatched?.length) parts.push(t('rl.notFound', { count: res.unmatched.length }));
+      setNote(parts.join(' ') || t('rl.noMatch'));
     } finally {
       setBusy(false);
     }
@@ -60,13 +62,10 @@ export default function RelinkDialog({ items, onApply, onClose, context, closeLa
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal relink-modal">
         <div className="modal-icon"><Unlink size={24} /></div>
-        <h3 id="relink-title">Some media files are missing</h3>
-        <p className="muted">
-          These files moved or were renamed since the project was saved. Point Cutflow at their new
-          location and the project uses them again — nothing is copied or changed on disk.
-        </p>
+        <h3 id="relink-title">{t('rl.title')}</h3>
+        <p className="muted">{t('rl.note')}</p>
         {context === 'export' && (
-          <p className="muted">An export can't start while files are missing — it would render without them. Relink them to continue, or close to cancel the export.</p>
+          <p className="muted">{t('rl.exportNote')}</p>
         )}
         <div className="relink-list">
           {(items || []).map((m) => {
@@ -76,26 +75,26 @@ export default function RelinkDialog({ items, onApply, onClose, context, closeLa
                 <div className="relink-info">
                   <span className="relink-name" title={m.path}>{m.name}</span>
                   <span className="relink-path muted" title={f ? f.path : m.path}>
-                    {f ? `Now: ${f.path}` : `Was: ${m.path}`}
+                    {f ? t('rl.nowPath', { path: f.path }) : t('rl.wasPath', { path: m.path })}
                   </span>
                   {f && f.verified === false && (
-                    <span className="relink-warn">The picked file's duration/size differ from what the project remembers — check it is the right file.</span>
+                    <span className="relink-warn">{t('rl.warn')}</span>
                   )}
                 </div>
                 {f
-                  ? <span className="relink-done"><Link2 size={13} /> Linked</span>
-                  : <Button variant="ghost" disabled={busy} onClick={() => locate(m)}>Locate…</Button>}
+                  ? <span className="relink-done"><Link2 size={13} /> {t('rl.linked')}</span>
+                  : <Button variant="ghost" disabled={busy} onClick={() => locate(m)}>{t('rl.locate')}</Button>}
               </div>
             );
           })}
         </div>
         {note && <p className="muted" role="status">{note}</p>}
         <div className="modal-actions">
-          <Button variant="ghost" onClick={onClose}>{closeLabel || 'Skip for now'}</Button>
-          <Button disabled={busy || !missing.length} onClick={scanFolder}><FolderOpen size={14} /> Choose a folder…</Button>
+          <Button variant="ghost" onClick={onClose}>{closeLabel || t('rl.skip')}</Button>
+          <Button disabled={busy || !missing.length} onClick={scanFolder}><FolderOpen size={14} /> {t('rl.chooseFolder')}</Button>
           <Button variant="primary" disabled={!foundCount}
             onClick={() => onApply(Object.entries(found).map(([id, patch]) => ({ id, ...patch })))}>
-            Relink {foundCount || ''} file{foundCount === 1 ? '' : 's'}
+            {foundCount ? t(foundCount === 1 ? 'rl.relinkFilesOne' : 'rl.relinkFiles', { count: foundCount }) : t('rl.relinkFiles', { count: 0 })}
           </Button>
         </div>
       </div>

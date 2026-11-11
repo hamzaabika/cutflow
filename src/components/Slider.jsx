@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useT } from '../i18n/index.jsx';
 
 // Range input whose whole drag becomes a single undo step.
 // The readout is typeable: click the number, type, and Enter (or blur) commits through the
@@ -28,6 +29,7 @@ export function coarseRangeKeyDown(e, { value, min, max, step, onChange, dispatc
   dispatch?.({ type: 'endGesture' });
 }
 export default function Slider({ label, value, onChange, dispatch, min = 0, max = 1, step = 0.01, fmt, extra, numScale }) {
+  const t = useT();
   const [edit, setEdit] = useState(null); // string while typing, null when showing the value
   const settled = useRef(false); // Enter/Escape settle the edit; the blur that follows must not re-commit
   const inputRef = useRef(null);
@@ -76,11 +78,11 @@ export default function Slider({ label, value, onChange, dispatch, min = 0, max 
   return (
     <label className="field">
       <span>{label} {extra} {edit !== null ? (
-        <input ref={inputRef} className="slider-value" type="text" inputMode="decimal" aria-label={`${label} value`}
+        <input ref={inputRef} className="slider-value" type="text" inputMode="decimal" aria-label={t('numbox.valueOf', { label })}
           value={edit} onChange={(e) => setEdit(e.target.value)} onKeyDown={onEditKey}
           onBlur={() => { if (settled.current) { settled.current = false; return; } commit(edit); setEdit(null); }} />
       ) : (
-        <b className="slider-value" title="Click to type a value"
+        <b className="slider-value" title={t('slider.typeValue')}
           onClick={(e) => { e.preventDefault(); e.stopPropagation(); setEdit(editText(value)); }}>{show}</b>
       )}</span>
       <input type="range" min={min} max={max} step={step} value={value}

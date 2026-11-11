@@ -1,4 +1,5 @@
 import React, { useRef, useState } from 'react';
+import { useT } from '../i18n/index.jsx';
 import { Trash2 } from '../icons.jsx';
 import { formatTime } from '../store.js';
 import { sourceOffsetAt } from '../speedCurve.js';
@@ -29,6 +30,7 @@ const Y = (v) => PY1 - (Math.min(2, Math.max(0, v)) / 2) * (PY1 - PY0);
 const round2 = (v) => Math.round(v * 100) / 100;
 
 export default function VolKeyEditor({ clip, len, set, dispatch, playheadLt = null }) {
+  const t = useT();
   const svgRef = useRef(null);
   const [sel, setSel] = useState(null); // index into the local points
   const keyed = hasVolKeys(clip);
@@ -111,9 +113,9 @@ export default function VolKeyEditor({ clip, len, set, dispatch, playheadLt = nu
       <div className="sc-editor">
         <p className="dim small">Flat at {Math.round(base * 100)}%. Add volume keyframes to ride the level inside the clip — a dip under speech, a swell into a chorus.</p>
         <div className="chips">
-          <button className="chip" onClick={seed}>Add keyframes</button>
+          <button className="chip" onClick={seed}>{t('volkey.addKf')}</button>
           {playheadLt != null && playheadLt >= 0 && playheadLt <= len && (
-            <button className="chip" onClick={addAtPlayhead}>Add at playhead</button>
+            <button className="chip" onClick={addAtPlayhead}>{t('volkey.addAt')}</button>
           )}
         </div>
       </div>
@@ -128,7 +130,7 @@ export default function VolKeyEditor({ clip, len, set, dispatch, playheadLt = nu
 
   return (
     <div className="sc-editor">
-      <svg ref={svgRef} className="sc-graph" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Volume keyframes"
+      <svg ref={svgRef} className="sc-graph" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={t('volkey.aria')}
         onDoubleClick={addPoint}>
         <line x1={PX0} x2={PX1} y1={Y(1)} y2={Y(1)} className="sc-grid" />
         <text x={PX1} y={Y(1) - 3} className="sc-axis" textAnchor="end">100%</text>
@@ -144,23 +146,23 @@ export default function VolKeyEditor({ clip, len, set, dispatch, playheadLt = nu
       {selPt ? (
         <div className="sc-readout">
           <span className="dim small">At {selPt.lt.toFixed(2)} s into the clip</span>
-          <NumBox label="Gain" suffix="%" step={5} min={0} max={200} precision={0}
+          <NumBox label={t('editor.gain')} suffix="%" step={5} min={0} max={200} precision={0}
             value={Math.round(selPt.v * 100)} ariaLabel="Point gain percent"
             onDragStart={() => dispatch({ type: 'beginGesture' })}
             onDragEnd={() => dispatch({ type: 'endGesture' })}
             onChange={(v) => commitLocal(points.map((p, i) => (i === sel ? { ...p, v: v / 100 } : p)))} />
-          <button className="icon-btn sm" aria-label="Delete point" title="Delete point" onClick={deleteSel}><Trash2 size={13} /></button>
+          <button className="icon-btn sm" aria-label={t('volkey.deletePoint')} title={t('volkey.deletePoint')} onClick={deleteSel}><Trash2 size={13} /></button>
         </div>
       ) : (
-        <p className="dim small">Drag the points to shape the ride. Double-click the graph to add a point.</p>
+        <p className="dim small">{t('volkey.note')}</p>
       )}
       <div className="row">
         {playheadLt != null && playheadLt >= 0 && playheadLt <= len && (
-          <button className="btn btn-sm btn-ghost" onClick={addAtPlayhead}>Add at playhead</button>
+          <button className="btn btn-sm btn-ghost" onClick={addAtPlayhead}>{t('volkey.addAt')}</button>
         )}
-        <button className="btn btn-sm btn-ghost" onClick={removeAll}>Remove all keyframes</button>
+        <button className="btn btn-sm btn-ghost" onClick={removeAll}>{t('volkey.removeAll')}</button>
       </div>
-      <p className="dim small">Preview and export read this same curve; the fades below multiply after it.</p>
+      <p className="dim small">{t('volkey.note2')}</p>
     </div>
   );
 }

@@ -1,12 +1,15 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { CheckCircle2, ExternalLink, KeyRound, Loader2, Pause, Play, Plus, Type } from '../icons.jsx';
 import { toFileUrl } from '../store.js';
+import { useT, getLanguage } from '../i18n/index.jsx';
 
 // Sign-up page for new ElevenLabs accounts.
 export const ELEVENLABS_SIGNUP_URL = 'https://elevenlabs.io';
 
 // Audio > Text to speech: a free voice that runs on this PC (Piper) or an ElevenLabs voice (the user's key).
 export default function TextToSpeech({ onAdd, selectedText, onOpenSettings }) {
+  const t = useT();
+  const NUM_LOCALES = { en: 'en-US', fr: 'fr-FR', ar: 'ar' };
   const [engine, setEngine] = useState('piper');
   const [status, setStatus] = useState(null); // { voices, installed, elevenKey }
   const [eleven, setEleven] = useState({ voices: [], loading: false, error: '' });
@@ -65,35 +68,35 @@ export default function TextToSpeech({ onAdd, selectedText, onOpenSettings }) {
   const selected = status?.voices.find((v) => v.id === voice.piper);
   return (
     <div className="tts">
-      <div className="tab-title">Text to speech</div>
-      <div className="seg-tabs small" role="tablist" aria-label="Voice engine">
-        {[['piper', 'Free · on this PC'], ['eleven', 'ElevenLabs']].map(([id, name]) => (
+      <div className="tab-title">{t('tts.title')}</div>
+      <div className="seg-tabs small" role="tablist" aria-label={t('tts.engine')}>
+        {[['piper', t('tts.freeLocal')], ['eleven', 'ElevenLabs']].map(([id, name]) => (
           <button key={id} role="tab" aria-selected={engine === id} className={engine === id ? 'on' : ''} onClick={() => setEngine(id)}>{name}</button>
         ))}
       </div>
 
       <label className="field">
-        <span>Text
+        <span>{t('tts.text')}
           {selectedText && (
-            <button className="btn btn-ghost btn-sm" type="button" onClick={() => setText(selectedText.text)}><Type size={13} /> Use selected text</button>
+            <button className="btn btn-ghost btn-sm" type="button" onClick={() => setText(selectedText.text)}><Type size={13} /> {t('tts.useSelected')}</button>
           )}
         </span>
-        <textarea rows={5} dir="auto" value={text} maxLength={5000} placeholder="Type what the voice should say…" onChange={(e) => setText(e.target.value)} />
+        <textarea rows={5} dir="auto" value={text} maxLength={5000} placeholder={t('tts.placeholder')} onChange={(e) => setText(e.target.value)} />
         <small className="muted">{text.length} / 5000</small>
       </label>
 
       {engine === 'piper' ? (
         <label className="field">
-          <span>Voice</span>
-          <select value={voice.piper} aria-label="Voice" onChange={(e) => setVoice((v) => ({ ...v, piper: e.target.value }))}>
+          <span>{t('tts.voice')}</span>
+          <select value={voice.piper} aria-label={t('tts.voice')} onChange={(e) => setVoice((v) => ({ ...v, piper: e.target.value }))}>
             {(status?.voices || []).map((v) => (
               <option key={v.id} value={v.id}>{v.lang} · {v.name} ({v.gender}){v.downloaded ? ' ✓' : ''}</option>
             ))}
           </select>
           {selected && (
             <small className="muted">
-              Licence: {selected.license}. {selected.downloaded ? 'Downloaded.' : 'First use downloads the voice (about 60 MB)'}
-              {!status.installed && !selected.downloaded ? ' and the free Piper engine (about 22 MB).' : selected.downloaded ? '' : '.'}
+              {t('tts.licence', { license: selected.license })} {selected.downloaded ? t('tts.downloaded') : t('tts.firstDownload')}
+              {!status.installed && !selected.downloaded ? t('tts.andEngine') : selected.downloaded ? '' : '.'}
             </small>
           )}
         </label>
@@ -101,55 +104,54 @@ export default function TextToSpeech({ onAdd, selectedText, onOpenSettings }) {
         <div className="card stock-key">
           <div className="card-row">
             <span className="card-icon"><KeyRound size={18} /></span>
-            <div><b>ElevenLabs key needed</b><p>An ElevenLabs API key is needed to use its voices (Arabic included).</p></div>
+            <div><b>{t('tts.keyNeeded')}</b><p>{t('tts.keyNeededNote')}</p></div>
           </div>
           <div className="stock-key-actions">
-            <button className="btn btn-sm" onClick={() => window.api.openHelp(ELEVENLABS_SIGNUP_URL)}><ExternalLink size={13} /> Create a free account</button>
+            <button className="btn btn-sm" onClick={() => window.api.openHelp(ELEVENLABS_SIGNUP_URL)}><ExternalLink size={13} /> {t('tts.createAccount')}</button>
           </div>
         </div>
       ) : (
         <label className="field">
-          <span>Voice {eleven.loading && <Loader2 size={13} className="spin" />}</span>
-          <select value={voice.eleven} aria-label="ElevenLabs voice" onChange={(e) => setVoice((v) => ({ ...v, eleven: e.target.value }))}>
+          <span>{t('tts.voice')} {eleven.loading && <Loader2 size={13} className="spin" />}</span>
+          <select value={voice.eleven} aria-label={t('tts.elevenVoice')} onChange={(e) => setVoice((v) => ({ ...v, eleven: e.target.value }))}>
             {eleven.voices.map((v) => <option key={v.id} value={v.id}>{v.name}{v.gender ? ` (${v.gender}${v.accent ? `, ${v.accent}` : ''})` : ''}</option>)}
           </select>
           {eleven.error && <span className="error-text">{eleven.error}</span>}
           {usage && usage.limit > 0 && (
             <small className={usage.left < text.length || usage.left / usage.limit < 0.1 ? 'error-text' : 'muted'}>
-              Credits: <b>{usage.left.toLocaleString('en-US')}</b> of {usage.limit.toLocaleString('en-US')} left
-              {usage.resetsAt ? ` · renews ${new Date(usage.resetsAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}
-              {usage.left < text.length ? ' · not enough for this text' : ''}
+              {t('tts.credits', { left: usage.left.toLocaleString(NUM_LOCALES[getLanguage()] || 'en-US'), limit: usage.limit.toLocaleString(NUM_LOCALES[getLanguage()] || 'en-US') })}
+              {usage.resetsAt ? t('tts.renews', { date: new Date(usage.resetsAt).toLocaleDateString(NUM_LOCALES[getLanguage()] || 'en-US', { month: 'short', day: 'numeric' }) }) : ''}
+              {usage.left < text.length ? t('tts.notEnough') : ''}
             </small>
           )}
-          <small className="muted">Model: Eleven Multilingual v2 (29 languages, Arabic included). The free plan requires a credit and is for non-commercial use.</small>
+          <small className="muted">{t('tts.modelNote')}</small>
         </label>
       )}
 
       <label className="field">
-        <span>Speed <b>{speed.toFixed(2)}×</b></span>
-        <input type="range" min={engine === 'eleven' ? 0.7 : 0.5} max={engine === 'eleven' ? 1.2 : 2} step="0.05" value={speed} aria-label="Speed"
+        <span>{t('ci.speed')} <b>{speed.toFixed(2)}×</b></span>
+        <input type="range" min={engine === 'eleven' ? 0.7 : 0.5} max={engine === 'eleven' ? 1.2 : 2} step="0.05" value={speed} aria-label={t('ci.speed')}
           onChange={(e) => setSpeed(Number(e.target.value))} />
       </label>
 
       {progress && busy && (
         <div className="lib-loading"><Loader2 size={15} className="spin" />
-          {progress.stage === 'engine' ? `Downloading the voice engine… ${Math.round(progress.fraction * 100)}%`
-            : progress.fraction < 1 ? `Downloading the voice… ${Math.round(progress.fraction * 100)}%` : 'Speaking…'}
+          {progress.stage === 'engine' ? t('tts.dlEngine', { pct: Math.round(progress.fraction * 100) })
+            : progress.fraction < 1 ? t('tts.dlVoice', { pct: Math.round(progress.fraction * 100) }) : t('tts.speaking')}
         </div>
       )}
       {error && <p className="error-text">{error}</p>}
 
       <div className="row-btns">
         <button className="btn" disabled={!ready && !playing} onClick={() => (playing ? (audio.current.pause(), setPlaying(false)) : speak('preview'))}>
-          {busy === 'preview' ? <Loader2 size={14} className="spin" /> : playing ? <Pause size={14} /> : <Play size={14} />} {playing ? 'Stop' : 'Preview'}
+          {busy === 'preview' ? <Loader2 size={14} className="spin" /> : playing ? <Pause size={14} /> : <Play size={14} />} {playing ? t('tl.stop') : t('tts.preview')}
         </button>
         <button className="btn btn-primary" disabled={!ready} onClick={() => speak('add')}>
-          {busy === 'add' ? <Loader2 size={14} className="spin" /> : <Plus size={14} />} Add to timeline
+          {busy === 'add' ? <Loader2 size={14} className="spin" /> : <Plus size={14} />} {t('tts.addToTimeline')}
         </button>
       </div>
       <p className="lib-note">
-        <CheckCircle2 size={12} /> The voice goes on the Audio track at the playhead{selectedText ? ', or where the selected text starts when you read it' : ''}.
-        Same text and settings are reused from the cache, so trying again costs nothing.
+        <CheckCircle2 size={12} /> {t('tts.noteStart')}{selectedText ? t('tts.noteSelected') : ''}{t('tts.noteEnd')}
       </p>
     </div>
   );

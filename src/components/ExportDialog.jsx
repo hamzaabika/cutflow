@@ -25,6 +25,8 @@ import Dropdown from './Dropdown.jsx';
 import Slider from './Slider.jsx';
 import NumBox from './NumBox.jsx';
 import Toggle from '../ui/Toggle.jsx';
+import { useT } from '../i18n/index.jsx';
+import { libName } from '../i18n/libNames.js';
 
 const fmtDur = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}.${String(Math.floor((s % 1) * 10))}`;
 const fmtMB = (mb) => (mb >= 100 ? mb.toFixed(0) : mb.toFixed(1));
@@ -38,6 +40,7 @@ const fmtMB = (mb) => (mb >= 100 ? mb.toFixed(0) : mb.toFixed(1));
 // chosen cover time (posterFracAt), not always frame 0; and if the full-res grab fails even
 // after one retry, a note says the stand-in is only a preview — never a silent blur.
 function Cover({ project, coverT, setCoverT, choosing, setChoosing, onPosterAt }) {
+  const t = useT();
   const dur = exportDuration(project);
   const target = coverTargetFor(project, coverT);
   const tKey = target && target.kind === 'video' ? `${target.media.path}|${target.at.toFixed(2)}` : null;
@@ -76,17 +79,17 @@ function Cover({ project, coverT, setCoverT, choosing, setChoosing, onPosterAt }
         {target && target.kind === 'video' && !frame && !spriteStyle && <Clapperboard size={30} className="x-cover-icon" />}
       </div>
       <button type="button" className="btn btn-sm x-cover-btn" onClick={() => setChoosing(!choosing)}>
-        <ImagePlus size={14} /> {choosing ? 'Done' : 'Choose cover'}
+        <ImagePlus size={14} /> {choosing ? t('exp.done') : t('exp.chooseCover')}
       </button>
       {grabFailed && target && target.kind === 'video' && (
-        <span className="x-cover-warn">Full-quality frame unavailable — showing a preview stand-in. The exported cover still grabs from the original file.</span>
+        <span className="x-cover-warn">{t('exp.coverWarn')}</span>
       )}
       {choosing && (
         <div className="x-cover-pick">
           <input type="range" min="0" max={Math.max(0.1, dur)} step={1 / (project.fps || 30)} value={coverT}
-            aria-label="Cover frame time"
+            aria-label={t('exp.coverFrameTime')}
             onChange={(e) => { const t = Number(e.target.value); setCoverT(t); onPosterAt(t); }} />
-          <span className="x-cover-time">Cover at {fmtDur(coverT)} — also becomes the project card picture.</span>
+          <span className="x-cover-time">{t('exp.coverAt', { time: fmtDur(coverT) })}</span>
         </div>
       )}
     </div>
@@ -107,6 +110,7 @@ function Group({ title, children }) {
 }
 
 export default function ExportDialog({ state, onClose, onStart, onPickTarget, onRename, onSettings, onResolution, onPosterAt }) {
+  const t = useT();
   const [choosing, setChoosing] = useState(false);
   const [details, setDetails] = useState(false);
   const [coverT, setCoverT] = useState(() => (typeof state.project?.posterAt === 'number' ? state.project.posterAt : 0));
@@ -126,76 +130,76 @@ export default function ExportDialog({ state, onClose, onStart, onPickTarget, on
   // scope note, and the subtitle-track scope note when the toggle is on.
   const gifOver = eff.format === 'gif' && dur > GIF_MAX_SECONDS;
   const formatNotes = eff.notes.filter((n) => (
-    n.startsWith('WebM') || n.startsWith('The subtitle track') || (n.startsWith('GIF export') && !gifOver)
+    n.k.startsWith('exp.note.webm') || n.k.startsWith('exp.note.subtitle') || (n.k === 'exp.note.gif' && !gifOver)
   ));
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="export-title">
       <div className="modal export-modal">
         <div className="x-head">
-          <h3 id="export-title">Export video</h3>
-          <button type="button" className="icon-btn" onClick={onClose} aria-label="Close"><X size={16} /></button>
+          <h3 id="export-title">{t('exp.title')}</h3>
+          <button type="button" className="icon-btn" onClick={onClose} aria-label={t('common.close')}><X size={16} /></button>
         </div>
         <div className="x-body">
           <Cover project={project} coverT={coverT} setCoverT={setCoverT} choosing={choosing} setChoosing={setChoosing} onPosterAt={onPosterAt} />
           <div className="x-form">
-            <Group title="Output">
-              <Row label="Name">
-                <input type="text" value={state.name || ''} onChange={(e) => onRename(e.target.value)} aria-label="Output file name" />
+            <Group title={t('exp.output')}>
+              <Row label={t('exp.name')}>
+                <input type="text" value={state.name || ''} onChange={(e) => onRename(e.target.value)} aria-label={t('exp.outputName')} />
               </Row>
-              <Row label="Export to">
-                <span className="x-path" title={state.target?.file || ''}>{state.target ? state.target.file : 'Not chosen yet'}</span>
-                <button type="button" className="btn btn-sm" onClick={() => onPickTarget(state.name)}>Browse…</button>
+              <Row label={t('exp.exportTo')}>
+                <span className="x-path" title={state.target?.file || ''}>{state.target ? state.target.file : t('exp.notChosen')}</span>
+                <button type="button" className="btn btn-sm" onClick={() => onPickTarget(state.name)}>{t('exp.browse')}</button>
               </Row>
-              <Row label="Format">
-                <Dropdown value={eff.format} ariaLabel="Format"
+              <Row label={t('exp.format')}>
+                <Dropdown value={eff.format} ariaLabel={t('exp.format')}
                   onChange={(v) => setFormatField({ format: v })}
                   options={[
                     { value: 'mp4', label: 'MP4' },
                     { value: 'mov', label: 'MOV' },
-                    { value: 'webm', label: `WebM${state.caps && state.caps.vp9 === false ? ' (not in this build)' : ''}`, disabled: state.caps && state.caps.vp9 === false },
+                    { value: 'webm', label: `WebM${state.caps && state.caps.vp9 === false ? ` ${t('exp.notInBuild')}` : ''}`, disabled: state.caps && state.caps.vp9 === false },
                     { value: 'gif', label: 'GIF' },
                   ]} />
               </Row>
-              {formatNotes.map((n) => <p key={n} className="x-note">{n}</p>)}
-              {gifOver && <p className="x-note error" role="alert">{gifLimitMessage(dur)}</p>}
+              {formatNotes.map((n) => <p key={n.k} className="x-note">{t(n.k, n.p)}</p>)}
+              {gifOver && <p className="x-note error" role="alert">{t('exp.gifLimit', { max: GIF_MAX_SECONDS, dur: dur.toFixed(1) })}</p>}
               {(eff.format === 'mp4' || eff.format === 'mov') && captionCount > 0 && (
-                <Row label="Subtitle track">
-                  <Toggle checked={!!eff.subtitleTrack} aria-label="Include subtitle track"
+                <Row label={t('exp.subtitleTrack')}>
+                  <Toggle checked={!!eff.subtitleTrack} aria-label={t('exp.subtitleTrackAria')}
                     onChange={(e) => setFormatField({ subtitleTrack: e.target.checked })} />
                   <span className="x-num">mov_text</span>
                 </Row>
               )}
             </Group>
             {eff.format === 'gif' && (
-              <Group title="GIF">
-                <Row label="Size">
-                  <Dropdown value={eff.gifSize} ariaLabel="GIF size" onChange={(v) => setFormatField({ gifSize: v })}
+              <Group title={t('exp.gif')}>
+                <Row label={t('exp.size')}>
+                  <Dropdown value={eff.gifSize} ariaLabel={t('exp.gifSize')} onChange={(v) => setFormatField({ gifSize: v })}
                     options={GIF_SIZES.map((s) => ({ value: s, label: `${s}p` }))} />
                 </Row>
-                <Row label="Frame rate">
-                  <Dropdown value={eff.gifFps} ariaLabel="GIF frame rate" onChange={(v) => setFormatField({ gifFps: v })}
+                <Row label={t('exp.frameRate')}>
+                  <Dropdown value={eff.gifFps} ariaLabel={t('exp.frameRate')} onChange={(v) => setFormatField({ gifFps: v })}
                     options={GIF_FPS_CHOICES.map((f) => ({ value: f, label: `${f} fps` }))} />
                 </Row>
               </Group>
             )}
             {eff.format !== 'gif' && (
-              <Group title="Quality">
-                <Row label="Resolution">
-                  <Dropdown value={eff.resCap} ariaLabel="Resolution" onChange={(v) => onResolution(v)}
+              <Group title={t('exp.quality')}>
+                <Row label={t('exp.resolution')}>
+                  <Dropdown value={eff.resCap} ariaLabel={t('exp.resolution')} onChange={(v) => onResolution(v)}
                     options={[
-                      { value: 0, label: `Native · ${project.width}×${project.height}` },
-                      ...capsList.map((c) => ({ value: c, label: `${c}p${c >= longest ? ' (above project size)' : ''}`, disabled: c >= longest })),
+                      { value: 0, label: t('exp.native', { size: `${project.width}×${project.height}` }) },
+                      ...capsList.map((c) => ({ value: c, label: `${c}p${c >= longest ? ` ${t('exp.aboveSize')}` : ''}`, disabled: c >= longest })),
                     ]} />
                 </Row>
-                <Row label="Quality">
-                  <Dropdown value={eff.preset} ariaLabel="Quality"
+                <Row label={t('exp.quality')}>
+                  <Dropdown value={eff.preset} ariaLabel={t('exp.quality')}
                     onChange={(v) => onSettings(settingsPatch(project, { preset: v, custom }))}
-                    options={EXPORT_PRESET_ORDER.map((id) => ({ value: id, label: id === 'custom' ? 'Custom' : EXPORT_PRESETS[id].name }))} />
+                    options={EXPORT_PRESET_ORDER.map((id) => ({ value: id, label: id === 'custom' ? t('exp.custom') : libName('exppreset', id, EXPORT_PRESETS[id].name) }))} />
                 </Row>
                 {eff.preset === 'custom' && (
                   <div className="x-custom">
-                    <Row label="Mode">
-                      <div className="seg-tabs x-seg" role="tablist" aria-label="Quality mode">
+                    <Row label={t('exp.mode')}>
+                      <div className="seg-tabs x-seg" role="tablist" aria-label={t('exp.qualityMode')}>
                         <button type="button" role="tab" aria-selected={custom.mode === 'crf'} className={custom.mode === 'crf' ? 'on' : ''} onClick={() => setCustom({ mode: 'crf' })}>CRF</button>
                         <button type="button" role="tab" aria-selected={custom.mode === 'bitrate'} className={custom.mode === 'bitrate' ? 'on' : ''} onClick={() => setCustom({ mode: 'bitrate' })}>Bitrate</button>
                       </div>
@@ -204,64 +208,64 @@ export default function ExportDialog({ state, onClose, onStart, onPickTarget, on
                       <Slider label="CRF" value={custom.crf} min={0} max={51} step={1}
                         onChange={(crf) => setCustom({ crf })} />
                     ) : (
-                      <Row label="Bitrate">
-                        <NumBox label="" value={custom.bitrateMbps} step={0.5} min={0.5} max={100} suffix="Mbps" ariaLabel="Bitrate in megabits per second"
+                      <Row label={t('exp.bitrate')}>
+                        <NumBox label="" value={custom.bitrateMbps} step={0.5} min={0.5} max={100} suffix="Mbps" ariaLabel={t('exp.bitrateAria')}
                           onChange={(v) => setCustom({ bitrateMbps: v })} />
                       </Row>
                     )}
-                    <Row label="Codec">
+                    <Row label={t('exp.codec')}>
                       {eff.format === 'webm' ? (
                         <span className="x-static">VP9 · libvpx-vp9</span>
                       ) : (
-                        <Dropdown value={custom.codec} onChange={(v) => setCustom({ codec: v })} ariaLabel="Codec"
+                        <Dropdown value={custom.codec} onChange={(v) => setCustom({ codec: v })} ariaLabel={t('exp.codec')}
                           options={[
                             { value: 'h264', label: 'H.264' },
-                            { value: 'h265', label: `H.265${state.caps && state.caps.libx265 === false ? ' (not in this build)' : ''}`, disabled: state.caps && state.caps.libx265 === false },
+                            { value: 'h265', label: `H.265${state.caps && state.caps.libx265 === false ? ` ${t('exp.notInBuild')}` : ''}`, disabled: state.caps && state.caps.libx265 === false },
                           ]} />
                       )}
                     </Row>
-                    <Row label="Frame rate">
-                      <Dropdown value={custom.fps} onChange={(v) => setCustom({ fps: v })} ariaLabel="Frame rate"
-                        options={FPS_CHOICES.map((f) => ({ value: f, label: f === 0 ? `Project (${project.fps} fps)` : `${f} fps` }))} />
+                    <Row label={t('exp.frameRate')}>
+                      <Dropdown value={custom.fps} onChange={(v) => setCustom({ fps: v })} ariaLabel={t('exp.frameRate')}
+                        options={FPS_CHOICES.map((f) => ({ value: f, label: f === 0 ? t('exp.projectFps', { fps: project.fps }) : `${f} ${t('player.fpsUnit')}` }))} />
                     </Row>
-                    <Row label="Encoder">
-                      <Dropdown value={custom.encoderPreset} onChange={(v) => setCustom({ encoderPreset: v })} ariaLabel="Encoder preset"
+                    <Row label={t('exp.encoder')}>
+                      <Dropdown value={custom.encoderPreset} onChange={(v) => setCustom({ encoderPreset: v })} ariaLabel={t('exp.encoderPreset')}
                         options={ENCODER_PRESETS.map((p) => ({ value: p, label: p }))} />
                     </Row>
-                    <Row label="Audio">
-                      <Dropdown value={custom.audioKbps} onChange={(v) => setCustom({ audioKbps: v })} ariaLabel="Audio bitrate"
+                    <Row label={t('exp.audio')}>
+                      <Dropdown value={custom.audioKbps} onChange={(v) => setCustom({ audioKbps: v })} ariaLabel={t('exp.audioBitrate')}
                         options={AUDIO_RATES.map((a) => ({ value: a, label: `${a} kbps` }))} />
                     </Row>
                   </div>
                 )}
-                <Row label="Est. bitrate"><span className="x-static">{est.exact ? `${est.videoMbps} Mbps` : `≈ ${est.videoMbps.toFixed(1)} Mbps`}</span></Row>
+                <Row label={t('exp.estBitrate')}><span className="x-static">{est.exact ? `${est.videoMbps} Mbps` : `≈ ${est.videoMbps.toFixed(1)} Mbps`}</span></Row>
               </Group>
             )}
             <button type="button" className="x-details-toggle" onClick={() => setDetails(!details)} aria-expanded={details}>
-              <ChevronDown size={14} style={{ transform: details ? 'rotate(180deg)' : 'none' }} /> Export summary
+              <ChevronDown size={14} style={{ transform: details ? 'rotate(180deg)' : 'none' }} /> {t('exp.summary')}
             </button>
             {details && (
               <div className="export-summary">
                 {summaryRows(eff, project).map(([k, v]) => (
-                  <div key={k} className="export-summary-row"><span>{k}</span><b>{v}</b></div>
+                  <div key={k} className="export-summary-row"><span>{t(k)}</span><b>{typeof v === 'string' ? v : t(v.k, v.p)}</b></div>
                 ))}
-                {eff.notes.map((n) => <p key={n} className="export-dialog-note">{n}</p>)}
+                {eff.notes.map((n) => <p key={n.k} className="export-dialog-note">{t(n.k, n.p)}</p>)}
               </div>
             )}
           </div>
         </div>
         <div className="x-foot">
           <div className="x-foot-left">
-            <span className="x-foot-meta" title={est.exact ? 'Size computed from your bitrate settings.' : 'Estimated from resolution, frame rate and quality — the real size depends on the footage.'}>
-              Duration {fmtDur(dur)} · Size: {est.exact ? '' : '≈ '}{fmtMB(est.mb)} MB
+            <span className="x-foot-meta" title={est.exact ? t('exp.estExactTitle') : t('exp.estTitle')}>
+              {t('exp.durationMeta', { dur: fmtDur(dur), size: `${est.exact ? '' : '≈ '}${fmtMB(est.mb)}` })}
             </span>
             {state.queueAhead > 0 && (
-              <span className="x-queue-hint">{state.queueAhead === 1 ? 'Another export is running' : `${state.queueAhead} exports are in the queue`} — this one runs when its turn comes.</span>
+              <span className="x-queue-hint">{state.queueAhead === 1 ? t('exp.queueHintOne') : t('exp.queueHintMany', { count: state.queueAhead })}</span>
             )}
           </div>
           <div className="modal-actions">
-            <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
-            <button className="btn btn-primary" onClick={onStart} disabled={gifOver}>Export</button>
+            <button className="btn btn-ghost" onClick={onClose}>{t('common.cancel')}</button>
+            <button className="btn btn-primary" onClick={onStart} disabled={gifOver}>{t('exp.export')}</button>
           </div>
         </div>
       </div>

@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { tr } from '../i18n/index.jsx';
 import { Music, Pause, Play, Plus, Unlink, X } from '../icons.jsx';
 import { formatTime, previewPath, toFileUrl } from '../store.js';
 
@@ -83,7 +84,7 @@ export default function MediaPeek({ m, fps = 30, onClose, onAdd }) {
             <div className="stage-lost">
               <div className="stage-lost-box">
                 <Unlink size={30} aria-hidden="true" />
-                <b>Media Not Found</b>
+                <b>{tr('peek.notFound')}</b>
                 <span className="stage-lost-name">{m.name}</span>
               </div>
             </div>
@@ -99,7 +100,7 @@ export default function MediaPeek({ m, fps = 30, onClose, onAdd }) {
         </div>
       </div>
       {!still && !m.missing && (
-        <input ref={scrubRef} className="peek-scrub" type="range" min={0} max={dur} step={1 / fps} value={t} aria-label="Position"
+        <input ref={scrubRef} className="peek-scrub" type="range" min={0} max={dur} step={1 / fps} value={t} aria-label={tr('peek.position')}
           style={{ '--p': `${dur ? (t / dur) * 100 : 0}%` }}
           onChange={(e) => seek(Number(e.target.value))} />
       )}
@@ -109,14 +110,14 @@ export default function MediaPeek({ m, fps = 30, onClose, onAdd }) {
         </span>
         <div className="transport-btns">
           {!still && (
-            <button className="play-btn" onClick={() => setPlaying((p) => !p)} aria-label={playing ? 'Pause (Space)' : 'Play (Space)'} title="Space">
+            <button className="play-btn" onClick={() => setPlaying((p) => !p)} aria-label={tr(playing ? 'peek.pauseSpace' : 'peek.playSpace')} title={tr('peek.space')}>
               {playing ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}
             </button>
           )}
         </div>
         <span className="tc-spacer peek-actions">
-          <button className="btn btn-primary btn-sm" onClick={() => onAdd(m)} title="Add to the timeline at the playhead"><Plus size={14} /> Add</button>
-          <button className="icon-btn" onClick={onClose} aria-label="Back to the project (Esc)" title="Back to the project (Esc)"><X size={16} /></button>
+          <button className="btn btn-primary btn-sm" onClick={() => onAdd(m)} title={tr('peek.addTitle')}><Plus size={14} /> {tr('peek.add')}</button>
+          <button className="icon-btn" onClick={onClose} aria-label={tr('peek.back')} title={tr('peek.back')}><X size={16} /></button>
         </span>
       </div>
     </div>

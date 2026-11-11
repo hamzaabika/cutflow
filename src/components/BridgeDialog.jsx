@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Bot, Check, Trash2 } from '../icons.jsx';
 import Button from '../ui/Button.jsx';
+import { getLanguage, tr, useT } from '../i18n/index.jsx';
 
 // Agent drafts: the shadow drafts external agent tools proposed through the
 // local bridge (Settings > Agent bridge). Nothing here is in the project yet —
@@ -10,12 +11,13 @@ import Button from '../ui/Button.jsx';
 // A draft made before the user's latest edits is stale: accepting it is
 // refused rather than overwriting newer work, and the row says so.
 const LIST_LABELS = {
-  videoClips: 'video', overlayClips: 'overlay', textClips: 'text/caption', audioClips: 'audio', effectClips: 'effect',
+  videoClips: 'dlg.list.video', overlayClips: 'dlg.list.overlay', textClips: 'dlg.list.text', audioClips: 'dlg.list.audio', effectClips: 'dlg.list.effect',
 };
+const WHEN_LOCALES = { en: 'en-GB', fr: 'fr-FR', ar: 'ar' };
 
 const fmtWhen = (ts) => {
   try {
-    return new Date(ts).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
+    return new Date(ts).toLocaleString(WHEN_LOCALES[getLanguage()] || 'en-GB', { dateStyle: 'medium', timeStyle: 'short' });
   } catch {
     return '';
   }
@@ -29,19 +31,20 @@ function diffLines(diff) {
     const c = diff.lists?.[key];
     if (!c) continue;
     const parts = [];
-    if (c.added) parts.push(`${c.added} added`);
-    if (c.removed) parts.push(`${c.removed} removed`);
-    if (c.changed) parts.push(`${c.changed} changed`);
-    if (parts.length) lines.push(`${label}: ${parts.join(', ')}`);
+    if (c.added) parts.push(tr('dlg.added', { count: c.added }));
+    if (c.removed) parts.push(tr('dlg.removed', { count: c.removed }));
+    if (c.changed) parts.push(tr('dlg.changed', { count: c.changed }));
+    if (parts.length) lines.push(`${tr(label)}: ${parts.join(', ')}`);
   }
   if (Math.abs((diff.durationAfter || 0) - (diff.durationBefore || 0)) > 0.05) {
-    lines.push(`duration: ${diff.durationBefore.toFixed(1)}s → ${diff.durationAfter.toFixed(1)}s`);
+    lines.push(tr('dlg.durationLine', { from: diff.durationBefore.toFixed(1), to: diff.durationAfter.toFixed(1) }));
   }
-  if (diff.nameChanged) lines.push(`project name: “${clip(diff.nameChanged.from, 40)}” → “${clip(diff.nameChanged.to, 40)}”`);
+  if (diff.nameChanged) lines.push(tr('dlg.nameLine', { from: clip(diff.nameChanged.from, 40), to: clip(diff.nameChanged.to, 40) }));
   return lines;
 }
 
 export default function BridgeDialog({ projectId, projectName, onAccept, onDiscard, onClose }) {
+  const t = useT();
   const [entries, setEntries] = useState(null); // null = loading
   const [notes, setNotes] = useState({}); // shadowId -> message after an action
 
@@ -59,12 +62,12 @@ export default function BridgeDialog({ projectId, projectName, onAccept, onDisca
 
   const accept = async (shadow) => {
     const r = await onAccept(shadow);
-    if (r?.ok) { setNotes((n) => ({ ...n, [shadow.id]: 'Applied.' })); load(); return; }
+    if (r?.ok) { setNotes((n) => ({ ...n, [shadow.id]: t('dlg.applied') })); load(); return; }
     setNotes((n) => ({
       ...n,
       [shadow.id]: r?.conflict
-        ? 'Not applied: the project changed after this draft was made, so applying it would overwrite newer work. Discard it and let the agent make a fresh draft.'
-        : `Not applied: ${r?.error || 'something went wrong.'}`,
+        ? t('dlg.conflictNote')
+        : t('dlg.notApplied', { error: r?.error || t('dlg.wentWrong') }),
     }));
     load();
   };
@@ -78,15 +81,11 @@ export default function BridgeDialog({ projectId, projectName, onAccept, onDisca
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal bridge-modal">
         <div className="modal-icon"><Bot size={24} /></div>
-        <h3 id="bridge-title">Agent drafts — {String(projectName || 'Untitled').slice(0, 60)}</h3>
-        <p className="muted">
-          Edits proposed by agent tools through the local bridge. They are not in your project yet:
-          Accept applies a draft, Discard drops it. Your current state is kept in the version
-          history whenever a draft is applied.
-        </p>
-        {entries === null && <p className="muted">Loading…</p>}
+        <h3 id="bridge-title">{t('dlg.draftsTitle', { name: String(projectName || t('common.untitled')).slice(0, 60) })}</h3>
+        <p className="muted">{t('dlg.draftsNote')}</p>
+        {entries === null && <p className="muted">{t('dlg.loading')}</p>}
         {entries !== null && entries.length === 0 && (
-          <p className="muted">No drafts are waiting. When an agent tool proposes an edit, it appears here for review.</p>
+          <p className="muted">{t('dlg.noDrafts')}</p>
         )}
         {entries !== null && entries.length > 0 && (
           <div className="history-list">
@@ -96,25 +95,25 @@ export default function BridgeDialog({ projectId, projectName, onAccept, onDisca
               return (
                 <div key={s.id} className="history-row bridge-row">
                   <div className="history-info">
-                    <span className="history-when">{fmtWhen(s.createdAt)} · from {s.client || 'an agent tool'}</span>
+                    <span className="history-when">{fmtWhen(s.createdAt)} · {t('dlg.fromAgent', { client: s.client || t('dlg.anAgentTool') })}</span>
                     <span className="history-meta muted">
-                      based on revision {s.baseRevision}{s.liveRevision != null && s.liveRevision !== s.baseRevision ? ` · the project is now at revision ${s.liveRevision}` : ''}
-                      {s.ops?.length ? ` · ${s.ops.length} edit${s.ops.length === 1 ? '' : 's'}` : ''}
+                      {t('dlg.basedOn', { rev: s.baseRevision })}{s.liveRevision != null && s.liveRevision !== s.baseRevision ? t('dlg.nowAtRevision', { rev: s.liveRevision }) : ''}
+                      {s.ops?.length ? t(s.ops.length === 1 ? 'dlg.editsCountOne' : 'dlg.editsCount', { count: s.ops.length }) : ''}
                     </span>
                     {lines.map((l, i) => <span key={i} className="bridge-diff-line">{l}</span>)}
                     {(s.diff?.captionText || []).slice(0, 4).map((c, i) => (
-                      <span key={`ct${i}`} className="bridge-diff-line">caption: “{clip(c.from)}” → “{clip(c.to)}”</span>
+                      <span key={`ct${i}`} className="bridge-diff-line">{t('dlg.captionLine', { from: clip(c.from), to: clip(c.to) })}</span>
                     ))}
-                    {noChanges && <span className="bridge-diff-line">No changes yet — the draft matches your project.</span>}
-                    {s.stale && <span className="bridge-stale">Stale: the project changed after this draft was made.</span>}
+                    {noChanges && <span className="bridge-diff-line">{t('dlg.noChanges')}</span>}
+                    {s.stale && <span className="bridge-stale">{t('dlg.stale')}</span>}
                     {notes[s.id] && <span className="bridge-stale">{notes[s.id]}</span>}
                   </div>
                   <div className="bridge-actions">
-                    <Button variant="ghost" onClick={() => accept(s)} title="Apply this draft to the project">
-                      <Check size={13} /> Accept
+                    <Button variant="ghost" onClick={() => accept(s)} title={t('dlg.acceptTitle')}>
+                      <Check size={13} /> {t('dlg.accept')}
                     </Button>
-                    <Button variant="ghost" onClick={() => discard(s)} title="Drop this draft; the project stays as it is">
-                      <Trash2 size={13} /> Discard
+                    <Button variant="ghost" onClick={() => discard(s)} title={t('dlg.discardTitle')}>
+                      <Trash2 size={13} /> {t('dlg.discard')}
                     </Button>
                   </div>
                 </div>
@@ -123,7 +122,7 @@ export default function BridgeDialog({ projectId, projectName, onAccept, onDisca
           </div>
         )}
         <div className="modal-actions">
-          <Button variant="primary" onClick={onClose}>Done</Button>
+          <Button variant="primary" onClick={onClose}>{t('dlg.done')}</Button>
         </div>
       </div>
     </div>
