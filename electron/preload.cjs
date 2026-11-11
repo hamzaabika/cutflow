@@ -15,7 +15,7 @@ contextBridge.exposeInMainWorld('api', {
   screenChoose: (id, audio) => ipcRenderer.invoke('screen:choose', id, audio),
   screenBegin: (kind) => ipcRenderer.invoke('screen:begin', kind),
   screenChunk: (id, bytes) => ipcRenderer.invoke('screen:chunk', id, bytes),
-  screenFinish: (id) => ipcRenderer.invoke('screen:finish', id),
+  screenFinish: (id, expectAudio) => ipcRenderer.invoke('screen:finish', id, expectAudio),
   screenDiscard: (id) => ipcRenderer.invoke('screen:discard', id),
   screenBar: (show, sourceId) => ipcRenderer.invoke('screen:bar', show, sourceId),
   screenBarState: (state) => ipcRenderer.invoke('screen:barState', state),
@@ -175,6 +175,9 @@ contextBridge.exposeInMainWorld('api', {
   agentStep: (req) => ipcRenderer.invoke('agent:step', req),
   agentSilences: (project, opts) => ipcRenderer.invoke('agent:silences', project, opts),
   settingsGet: () => ipcRenderer.invoke('settings:get'),
+  settingsSetLanguage: (lang) => ipcRenderer.invoke('settings:setLanguage', lang),
+  settingsSetRecorderPrefs: (patch) => ipcRenderer.invoke('settings:setRecorderPrefs', patch),
+  appLocale: () => ipcRenderer.invoke('app:locale'),
   settingsSetKeymap: (map) => ipcRenderer.invoke('settings:setKeymap', map),
   settingsSetKeystrokes: (on) => ipcRenderer.invoke('settings:setKeystrokes', on),
   settingsSetMcpServers: (list) => ipcRenderer.invoke('settings:setMcpServers', list),
@@ -262,6 +265,14 @@ contextBridge.exposeInMainWorld('api', {
   // Silence detection: detectSilence(path, opts) -> { ranges: [{ start, end }] } in source seconds | { canceled } | { error }.
   detectSilence: (file, opts) => ipcRenderer.invoke('silence:detect', file, opts),
   silenceCancel: () => ipcRenderer.invoke('silence:cancel'),
+  // AI video enhance: esrganStart({ src, model, scale, outFile }) -> { ok, path, media } | { canceled } | { error }; progress: { phase, fraction }.
+  esrganStart: (req) => ipcRenderer.invoke('esrgan:start', req),
+  esrganCancel: () => ipcRenderer.invoke('esrgan:cancel'),
+  onEsrganProgress: (cb) => {
+    const handler = (_e, p) => cb(p);
+    ipcRenderer.on('esrgan:progress', handler);
+    return () => ipcRenderer.removeListener('esrgan:progress', handler);
+  },
   onBeatsProgress: (cb) => {
     const handler = (_e, p) => cb(p);
     ipcRenderer.on('beats:progress', handler);

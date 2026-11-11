@@ -8,6 +8,39 @@ const { BrowserWindow, desktopCapturer, ipcMain, screen, session } = require('el
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
+const { checkRecordingSound } = require('./recsound.cjs');
+
+// Listing the capturable screens and windows opens the OS capture stack —
+// under the Wayland portal that call can hang forever (the permission
+// prompt never resolves, the compositor never answers). Every capture
+// lookup therefore runs under a hard budget: a hang settles as a timeout
+// error the interface can show and retry, never as an endless spinner.
+const SOURCES_TIMEOUT_MS = 8000;
+function withTimeout(promise, ms, label) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`Timed out${label ? ` — ${label}` : ''} after ${ms}ms`)), ms);
+    Promise.resolve(promise).then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); },
+    );
+  });
+}
+// Under Wayland the thumbnail/icon fetch IS the capture-opening work that
+// hangs behind the portal, so listings there ask for no images at all.
+const isWayland = () => process.env.XDG_SESSION_TYPE === 'wayland';
+
+// After a recording converts: when sound was expected (the microphone or
+// the computer sound was on) but the file measures silent, flag it on the
+// returned media item (soundMissing) so the interface can tell the user
+// plainly. A check that itself fails never brands a recording silent.
+async function flagIfSilent(item, file, expectAudio) {
+  if (!item || item.error || !expectAudio) return item;
+  try {
+    const s = await checkRecordingSound(file);
+    if (s.silent) return { ...item, soundMissing: true };
+  } catch { /* the recording stands; the check stays silent about itself */ }
+  return item;
+}
 
 // Windows can hide a window from screen capture (setContentProtection) but not a transparent one, so the Stop bar
 // and the camera bubble are opaque windows cut to their shape with setShape (a stack of 1-pixel rows).
@@ -47,7 +80,11 @@ function install({ app, getWin, ffmpegPath, probeAll }) {
     pending = null;
     if (!choice) return callback({});
     try {
-      const sources = await desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 0, height: 0 } });
+      // A hanging lookup denies the request (the interface's
+      // getDisplayMedia then fails visibly) instead of hanging with it.
+      const sources = await withTimeout(
+        desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 0, height: 0 } }),
+        SOURCES_TIMEOUT_MS, 'looking up the chosen screen');
       const src = sources.find((s) => s.id === choice.id);
       if (!src) return callback({});
       callback(choice.audio ? { video: src, audio: 'loopback' } : { video: src });
@@ -57,7 +94,12 @@ function install({ app, getWin, ffmpegPath, probeAll }) {
   });
 
   ipcMain.handle('screen:sources', async () => {
-    const sources = await desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 320, height: 180 }, fetchWindowIcons: true });
+    const wayland = isWayland();
+    const sources = await withTimeout(
+      desktopCapturer.getSources(wayland
+        ? { types: ['screen', 'window'], thumbnailSize: { width: 0, height: 0 }, fetchWindowIcons: false }
+        : { types: ['screen', 'window'], thumbnailSize: { width: 320, height: 180 }, fetchWindowIcons: true }),
+      SOURCES_TIMEOUT_MS, 'listing screens and windows');
     return sources
       .filter((s) => ![bar, bubble].some((w) => w && !w.isDestroyed() && s.id === w.getMediaSourceId()))
       .map((s) => ({
@@ -99,7 +141,10 @@ function install({ app, getWin, ffmpegPath, probeAll }) {
     fs.rmSync(f.webm, { force: true });
   });
   // Converts to MP4 (H.264 + AAC, constant 30 fps so it edits and seeks well) and returns the media item.
-  ipcMain.handle('screen:finish', async (_e, id) => {
+  // expectAudio: the interface says whether sound was meant to be captured
+  // (microphone or computer sound on) — the finished file is then checked
+  // for silence (see flagIfSilent).
+  ipcMain.handle('screen:finish', async (_e, id, expectAudio) => {
     const f = files.get(id);
     if (!f) return { error: 'Unknown recording' };
     files.delete(id);
@@ -132,7 +177,7 @@ function install({ app, getWin, ffmpegPath, probeAll }) {
         if (copied) fs.rmSync(f.webm, { force: true });
         else fs.renameSync(f.webm, keep);
         const [kept] = await probeAll([keep]);
-        if (kept && kept.duration > 0) return kept;
+        if (kept && kept.duration > 0) return flagIfSilent(kept, keep, expectAudio);
       } catch { /* fall through to the message */ }
       const memory = /malloc|cannot allocate memory|out of memory/i.test(e.message);
       return {
@@ -143,7 +188,7 @@ function install({ app, getWin, ffmpegPath, probeAll }) {
     }
     fs.rmSync(f.webm, { force: true });
     const [item] = await probeAll([out]);
-    return item;
+    return flagIfSilent(item, out, expectAudio);
   });
 
   // The floating bar: timer + Stop, top center of the screen being recorded (or the main one).
@@ -279,4 +324,4 @@ function install({ app, getWin, ffmpegPath, probeAll }) {
   });
 }
 
-module.exports = { install };
+module.exports = { install, withTimeout, SOURCES_TIMEOUT_MS };

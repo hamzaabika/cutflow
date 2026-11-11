@@ -1326,6 +1326,11 @@ ipcMain.handle('app:openHelp', (_e, url) => {
 });
 
 ipcMain.handle('settings:get', () => settings.getPublic());
+ipcMain.handle('settings:setLanguage', (_e, lang) => settings.setLanguage(lang));
+ipcMain.handle('settings:setRecorderPrefs', (_e, patch) => settings.setRecorderPrefs(patch));
+// The OS language, for the interface language's first-start default
+// (Settings › Language; a saved choice always wins over this).
+ipcMain.handle('app:locale', () => app.getLocale());
 ipcMain.handle('settings:setKeymap', (_e, map) => settings.setKeymap(map));
 ipcMain.handle('settings:setKeystrokes', (_e, on) => settings.setKeystrokes(on));
 // ---- MCP servers: external tool servers (stdio) whose tools FlowAI may call. ----
@@ -1782,6 +1787,41 @@ ipcMain.handle('silence:detect', async (_e, file, opts) => {
   }
 });
 ipcMain.handle('silence:cancel', () => { if (silenceJob) silenceJob.canceled = true; });
+
+// AI video enhance (electron/esrgan.cjs): one job at a time, like the
+// silence pass — the renderer queues it in the export-jobs tray and drives
+// progress/cancel from there. Cancel sets the flag AND kills the running
+// child (frame extraction, the engine, or the encode) immediately.
+const esrganMod = require('./esrgan.cjs');
+let esrganJob = null; // { canceled, child }
+ipcMain.handle('esrgan:start', async (e, req) => {
+  if (esrganJob) return { error: 'Another enhance job is already running.' };
+  if (!req || !req.src || !fs.existsSync(req.src)) return { error: 'The media file was not found.' };
+  const job = { canceled: false, child: null };
+  esrganJob = job;
+  try {
+    const res = await esrganMod.runEnhance({
+      src: req.src, model: req.model, scale: req.scale, outFile: req.outFile,
+      onProgress: (p) => { if (!e.sender.isDestroyed()) e.sender.send('esrgan:progress', p); },
+      isCanceled: () => job.canceled,
+      onChild: (child) => { job.child = child; },
+    });
+    if (job.canceled) return { canceled: true };
+    return res;
+  } catch (err) {
+    if (err && err.canceled) return { canceled: true };
+    return { error: err.message };
+  } finally {
+    esrganJob = null;
+  }
+});
+ipcMain.handle('esrgan:cancel', () => {
+  if (esrganJob) {
+    esrganJob.canceled = true;
+    if (esrganJob.child) { try { esrganJob.child.kill('SIGKILL'); } catch { /* gone */ } }
+  }
+  return true;
+});
 
 // Save a text file the renderer produced (subtitle export, v1.1.11): the
 // dialog and the write live here; the renderer supplies only text + a name.

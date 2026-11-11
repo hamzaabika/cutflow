@@ -50,6 +50,8 @@ function getPublic() {
     encryption: safeStorage.isEncryptionAvailable(),
     serviceKeys: Object.fromEntries(SERVICES.filter((n) => read().services?.[n]).map((n) => [n, read().services[n].hint])),
     mcpServers: getMcpServers(),
+    recorder: getRecorderPrefs(),
+    language: getLanguage(),
     bridgeEnabled: getBridgeEnabled(),
     keymap: getKeymap(),
     keystrokes: getKeystrokes(),
@@ -295,6 +297,41 @@ function setFxCacheCapMB(mb) {
   return data.fxCacheCapMB;
 }
 
+// ---- Interface language (i18n): 'en' | 'fr' | 'ar'. null = never chosen —
+// on first start the renderer falls back to the OS language (app.getLocale()
+// via the app:locale channel), so no value is written until the user picks
+// one in Settings › Language. A stored choice always wins over the OS. ----
+const LANGUAGES = ['en', 'fr', 'ar'];
+const getLanguage = () => { const l = read().language; return LANGUAGES.includes(l) ? l : null; };
+function setLanguage(l) {
+  const data = read();
+  if (LANGUAGES.includes(l)) data.language = l;
+  write(data);
+  return getPublic();
+}
+
+// ---- Screen recorder preferences: the microphone choice (on/off + which
+// device) is remembered between recordings and restarts, the same way the
+// camera choice is kept by the main process in electron/screenrec.cjs.
+// Only plain values persist; the device id is an opaque string handed out
+// by enumerateDevices. A patch merges field by field, and a field of the
+// wrong type is refused — the saved choice stands. ----
+function getRecorderPrefs() {
+  const r = read().recorder || {};
+  return { mic: r.mic === true, micId: typeof r.micId === 'string' ? r.micId : '' };
+}
+function setRecorderPrefs(patch) {
+  const data = read();
+  const next = getRecorderPrefs();
+  if (patch && typeof patch === 'object') {
+    if (typeof patch.mic === 'boolean') next.mic = patch.mic;
+    if (typeof patch.micId === 'string') next.micId = patch.micId;
+  }
+  data.recorder = next;
+  write(data);
+  return getPublic();
+}
+
 // ---- First-run experience: the welcome card shows exactly once. Its seen-flag
 // lives here, alongside the other settings. ----
 const FIRST_RUN_KEYS = ['tourSeen'];
@@ -311,4 +348,4 @@ function setFirstRun(patch) {
   return getFirstRun();
 }
 
-module.exports = { getProxy, setProxy, getQuality, setQuality, ensureQualityDefault, getPerfMode, setPerfMode, PERF_MODES, getPublic, getActive, save, clearKey, getServiceKey, saveServiceKey, clearServiceKey, getMcpServers, setMcpServers, sanitizeMcpServer, getFirstRun, setFirstRun, getBridgeEnabled, setBridgeEnabled, getKeymap, setKeymap, getKeystrokes, setKeystrokes, getFxCacheCapMB, setFxCacheCapMB, PROVIDERS, DEFAULT_MODELS };
+module.exports = { getProxy, setProxy, getQuality, setQuality, ensureQualityDefault, getPerfMode, setPerfMode, PERF_MODES, getPublic, getActive, save, clearKey, getServiceKey, saveServiceKey, clearServiceKey, getMcpServers, setMcpServers, sanitizeMcpServer, getFirstRun, setFirstRun, getBridgeEnabled, setBridgeEnabled, getKeymap, setKeymap, getKeystrokes, setKeystrokes, getFxCacheCapMB, setFxCacheCapMB, getLanguage, setLanguage, LANGUAGES, getRecorderPrefs, setRecorderPrefs, PROVIDERS, DEFAULT_MODELS };
