@@ -147,6 +147,25 @@ try {
   ok(!!failErr && /engine failed/i.test(failErr.message), `no Vulkan device -> clear error, not a hang ("${failErr && failErr.message.slice(0, 80)}")`);
   ok(leftovers().length === 0, 'temp dir cleaned after failure');
 
+  section('platform engine selection');
+  ok(typeof esrgan.engineRelPath === 'function', 'engineRelPath helper is exported');
+  ok(esrgan.engineRelPath('linux') === 'realesrgan-ncnn-vulkan', 'linux -> realesrgan-ncnn-vulkan (original path, unchanged)');
+  ok(esrgan.engineRelPath('win32') === 'realesrgan-ncnn-vulkan.exe', 'win32 -> realesrgan-ncnn-vulkan.exe');
+  ok(esrgan.engineRelPath('darwin') === path.join('macos', 'realesrgan-ncnn-vulkan'), 'darwin -> macos/realesrgan-ncnn-vulkan');
+  ok(esrgan.engineRelPath() === esrgan.engineRelPath(process.platform), 'engineRelPath defaults to the host platform');
+  for (const p of ['linux', 'win32', 'darwin']) {
+    const bp = esrgan.enginePaths(p);
+    ok(bp.bin === path.join(bp.dir, esrgan.engineRelPath(p)), `enginePaths(${p}).bin is dir + engineRelPath(${p})`);
+    ok(fs.existsSync(bp.bin), `vendor: engine binary for ${p} exists on disk (${path.relative(ROOT, bp.bin)})`);
+    ok(bp.models === path.join(bp.dir, 'models'), `enginePaths(${p}).models is the shared models dir`);
+  }
+  const winBin = esrgan.enginePaths('win32').bin;
+  for (const dll of ['vcomp140.dll', 'vcomp140d.dll']) {
+    ok(fs.existsSync(path.join(path.dirname(winBin), dll)), `vendor: ${dll} sits beside the Windows exe`);
+  }
+  const macBin = esrgan.enginePaths('darwin').bin;
+  ok((fs.statSync(macBin).mode & 0o111) !== 0, 'vendor: macOS engine binary is executable');
+
   section('wiring');
   const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8');
   const main = read('electron/main.cjs'); const preload = read('electron/preload.cjs');
