@@ -68,13 +68,12 @@ jobs:
           path: ${{ steps.build.outputs.snap }}
           retention-days: 7
 
-      # First publish goes to beta, never straight to stable — promote the
-      # same revision from the store dashboard after the test checklist.
+      # Publish straight to stable, per Hamza's order on 2026-11-12.
       - name: Publish to Snap Store (beta)
         if: inputs.publish
         uses: snapcore/action-publish@v1
         with:
           snap: ${{ steps.build.outputs.snap }}
-          release: beta
+          release: stable
         env:
           SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
