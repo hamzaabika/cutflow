@@ -16,7 +16,7 @@
 //   from this same resolved object (electron/ffmpeg.cjs: effectiveExport re-clamps it).
 
 export const EXPORT_PRESETS = {
-  low: { name: 'Low', mode: 'crf', crf: 28, bitrateMbps: 0, encoderPreset: 'fast', audioKbps: 96, resCap: 720, fps: 0, codec: 'h264', blurb: 'Smallest file' },
+  low: { name: 'Low', mode: 'crf', crf: 24, bitrateMbps: 0, encoderPreset: 'fast', audioKbps: 96, resCap: 720, fps: 0, codec: 'h264', blurb: 'Smallest file' },
   medium: { name: 'Medium', mode: 'crf', crf: 23, bitrateMbps: 0, encoderPreset: 'medium', audioKbps: 128, resCap: 1080, fps: 0, codec: 'h264', blurb: 'Balanced' },
   high: { name: 'High', mode: 'crf', crf: 18, bitrateMbps: 0, encoderPreset: 'slow', audioKbps: 192, resCap: 0, fps: 0, codec: 'h264', blurb: 'Full quality' },
   ultra: { name: 'Ultra', mode: 'crf', crf: 14, bitrateMbps: 0, encoderPreset: 'veryslow', audioKbps: 320, resCap: 0, fps: 0, codec: 'h264', blurb: 'Near-lossless' },

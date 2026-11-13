@@ -746,6 +746,7 @@ export default {
   "exp.note.ultra": "Exporte à la pleine taille du projet {w}×{h} — Ultra n'agrandit jamais.",
   "exp.note.webmCpu": "WebM encode en VP9 + Opus — plus petit sur le web, plus lent que H.264 sur le processeur.",
   "exp.note.webmMissing": "WebM (VP9) n'est pas disponible dans cette version — export en MP4 à la place.",
+  "exp.note.lowQuality": "Réglage de faible qualité — attendez-vous à des artefacts visibles sur les séquences détaillées. Utilisez Moyenne ou Haute pour une livraison finale.",
   "exp.output": "Sortie",
   "exp.outputName": "Nom du fichier de sortie",
   "exp.phase.cover": "Couverture",

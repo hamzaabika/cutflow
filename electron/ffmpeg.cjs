@@ -1093,14 +1093,18 @@ function videoCodec2(encoder, eff) {
       : ['-c:v', 'h264_amf', '-quality', quality, '-rc', 'cqp', '-qp_i', String(eff.crf + 2), '-qp_p', String(eff.crf + 2)];
   }
   if (encoder === 'h264_vaapi') {
-    // VAAPI rate control: -qp is its constant-quality knob (the CRF intent, a
-    // few steps above the number like QSV's global_quality); bitrate intent is
+    // VAAPI rate control: -qp is its constant-quality knob (the CRF intent); bitrate intent is
     // a plain target. The x264 preset names have no VAAPI equivalent — the
     // driver picks its own speed/quality balance. The matching device option
     // and surface upload are added by buildExportArgs, not here.
+    // VAAPI takes the CRF number DIRECTLY, with no +3 bump: the bump was measured for QSV
+    // only, and VAAPI's CQP at crf+3 produced visible macroblocking on real footage
+    // (final zakaria v1.mp4, 1080x1920, est. 4.5 Mbps, 2026-11-13) where libx264 at the
+    // same CRF measured clean (PSNR 40.4 dB on a stress source). Lower QP only ever
+    // costs file size, never quality.
     return eff.mode === 'bitrate'
       ? ['-c:v', 'h264_vaapi', '-b:v', `${eff.bitrateMbps}M`]
-      : ['-c:v', 'h264_vaapi', '-qp', String(eff.crf + 3)];
+      : ['-c:v', 'h264_vaapi', '-qp', String(eff.crf)];
   }
   return ['-c:v', 'libx264', '-preset', eff.encoderPreset, ...(eff.mode === 'bitrate' ? rate.sw : ['-crf', String(eff.crf)])];
 }

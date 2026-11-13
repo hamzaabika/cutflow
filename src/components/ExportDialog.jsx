@@ -191,11 +191,17 @@ export default function ExportDialog({ state, onClose, onStart, onPickTarget, on
                       ...capsList.map((c) => ({ value: c, label: `${c}p${c >= longest ? ` ${t('exp.aboveSize')}` : ''}`, disabled: c >= longest })),
                     ]} />
                 </Row>
+                {(eff.outW !== project.width || eff.outH !== project.height) && (
+                  <p className="x-note">{t('exp.summary.scaledFrom', { size: `${eff.outW}×${eff.outH}`, from: `${project.width}×${project.height}` })}</p>
+                )}
                 <Row label={t('exp.quality')}>
                   <Dropdown value={eff.preset} ariaLabel={t('exp.quality')}
                     onChange={(v) => onSettings(settingsPatch(project, { preset: v, custom }))}
                     options={EXPORT_PRESET_ORDER.map((id) => ({ value: id, label: id === 'custom' ? t('exp.custom') : libName('exppreset', id, EXPORT_PRESETS[id].name) }))} />
                 </Row>
+                {eff.mode === 'crf' && eff.crf >= 26 && (
+                  <p className="x-note error" role="alert">{t('exp.note.lowQuality')}</p>
+                )}
                 {eff.preset === 'custom' && (
                   <div className="x-custom">
                     <Row label={t('exp.mode')}>
