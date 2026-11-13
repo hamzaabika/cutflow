@@ -1,4 +1,5 @@
 import React, { useMemo, useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import exportCompleteSound from '../shared/sfx/success.mp3';
 import { useT, tr, getLanguage } from './i18n/index.jsx';
 import { recentEntryFor } from './recents.js';
 import { isTrashExpired, mergeHomeEntries, trashEntryForRecent, trashEntryForSlot } from './homeList.js';
@@ -107,6 +108,17 @@ export default function App() {
     setSelection(kept.length ? makeSelection(kept) : null);
   }, []);
   const [exporting, setExporting] = useState(null); // the export FORM state only (R4) — progress/done live in exportJobs
+  const exportDoneAudioRef = useRef(null);
+  useEffect(() => {
+    const audio = new Audio(exportCompleteSound);
+    audio.preload = 'auto';
+    audio.volume = 0.65;
+    exportDoneAudioRef.current = audio;
+    return () => {
+      audio.pause();
+      exportDoneAudioRef.current = null;
+    };
+  }, []);
   const [enhanceDlg, setEnhanceDlg] = useState(null); // { sel, media } while the AI Enhance form is open
   const [jobToast, setJobToast] = useState(null); // one-line completion notice (AI Enhance), auto-dismissed
   const jobToastTimer = useRef(null);
@@ -2236,6 +2248,13 @@ export default function App() {
     exportActiveId.current = null;
     if (patch) updateExportJob(job, patch);
     else { exportJobMap.current.delete(job.id); syncExportJobs(); }
+    if (patch?.status === 'done' && result?.ok) {
+      const audio = exportDoneAudioRef.current;
+      if (audio) {
+        audio.currentTime = 0;
+        audio.play().catch(() => {});
+      }
+    }
     job.settle?.(result);
     pumpExportJobs();
   };
