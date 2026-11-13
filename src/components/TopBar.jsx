@@ -27,7 +27,7 @@ const saveStates = () => {
 // over the timeline is the panel's only entrance). The
 // aspect-ratio picker no longer lives here — it was duplicated three times;
 // it stays on the player badge and in Project Settings.
-export default function TopBar({ project, dispatch, onOpen, onSave, saveState = 'new', onHistory, onBridge, bridgePending = 0, onExport, onExportAudio, onReframe, onSettings, onAbout, onHome, updateReady = false }) {
+export default function TopBar({ project, dispatch, onOpen, onSave, saveState = 'new', onHistory, onBridge, bridgePending = 0, onExport, onExportAudio, onExportProjectZip, onReframe, onSettings, onAbout, onHome, updateReady = false }) {
   const t = useT();
   const SAVE_STATES = saveStates();
   const [menu, setMenu] = useState(null);
@@ -95,6 +95,8 @@ export default function TopBar({ project, dispatch, onOpen, onSave, saveState = 
           { label: t('topbar.exportAudioMp3'), icon: AudioLines, onClick: () => onExportAudio('mp3') },
           { label: t('topbar.exportAudioWav'), icon: AudioLines, onClick: () => onExportAudio('wav') },
           { label: t('topbar.exportAudioM4a'), icon: AudioLines, onClick: () => onExportAudio('m4a') },
+          'sep',
+          { label: t('topbar.exportZip'), icon: Download, onClick: onExportProjectZip },
         ]} />
       )}
       {shortcutsOpen && <ShortcutsDialog onClose={() => setShortcutsOpen(false)} />}

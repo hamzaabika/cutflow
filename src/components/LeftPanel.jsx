@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Anvil, ArrowLeftRight, Blend, Captions as CaptionsIcon, Contrast, Download, Film, Flag, FolderOpen, ImagePlus, Mic, Music, Plus, Scissors, SlidersHorizontal,
-  Loader2, Sparkles, Square, Trash2, Type, Upload, WandSparkles, X,
+  Loader2, Sparkles, Square, Trash2, Type, Upload, WandSparkles, X, Copy, Palette, Pencil,
   Layers, Check, ChevronDown, ChevronRight, Sparkles as SparklesIcon, FolderPlus, MonitorUp, History, UserRound, Users,
   Languages, Sticker, SwatchBook, Unlink } from '../icons.jsx';
 import Card from '../ui/Card.jsx';
@@ -33,6 +33,7 @@ import SearchBox from './SearchBox.jsx';
 import AudioLibrary, { MUSIC_TAGS, SFX_TAGS, SOUNDZA_TAGS, TROLL_TAGS } from './AudioLibrary.jsx';
 import StockLibrary, { CHIPS as STOCK_CHIPS } from './StockLibrary.jsx';
 import SideNav, { TabFrame } from './SideNav.jsx';
+import ContextMenu from './ContextMenu.jsx';
 import { FxThumb, samplePictureUrl } from '../fx/previews.jsx';
 import MediaFavorites from './MediaFavorites.jsx';
 import { FavStar, favFile } from '../favorites.jsx';
@@ -173,21 +174,28 @@ function Head({ title, hint, children }) {
 }
 
 // A media item. Click selects it and plays it in the player (then Delete removes it), double-click adds it to the
-// timeline.
-function MediaCard({ m, onAdd, onRemove, onOverlay, onPeek, peeking, onRelink }) {
+// timeline. Right-click opens the item menu (Rename / Duplicate / Delete).
+function MediaCard({ m, onAdd, onRemove, onOverlay, onPeek, peeking, onRelink, selected, onSelectCard, onCardMenu, onDeleteCard, renaming, onRename, onRenameEnd }) {
   const t = useT();
   const lost = !!m.missing;
+  // Rename input: Escape must win over the blur commit below (unmounting a
+  // focused input can still fire blur), so a cancelled rename never saves.
+  const renameCancelled = useRef(false);
+  useEffect(() => { if (renaming) renameCancelled.current = false; }, [renaming]);
   const onKeyDown = (e) => {
-    if (!onRemove || (e.key !== 'Delete' && e.key !== 'Backspace')) return;
+    if (e.key !== 'Delete' && e.key !== 'Backspace') return;
     // Handled here so the timeline's Delete shortcut does not also remove the selected clip.
+    // A selected card deletes the whole multi-selection; otherwise just itself.
     e.preventDefault();
     e.stopPropagation();
-    onRemove(m.id);
+    if (onDeleteCard) onDeleteCard(m);
+    else if (onRemove) onRemove(m.id);
   };
   return (
-    <div className={`asset ${peeking ? 'peeking' : ''} ${lost ? 'lost' : ''}`} tabIndex={0} {...dragProps({ kind: 'media', id: m.id, mediaType: m.type })} onKeyDown={onKeyDown}
-      onClick={(e) => { if (e.target.closest('button')) return; if (lost && onRelink) { onRelink(m); return; } if (onPeek) onPeek(m.id); }}
+    <div className={`asset ${peeking ? 'peeking' : ''} ${lost ? 'lost' : ''} ${selected ? 'selected' : ''}`} tabIndex={0} data-sel-id={m.id} {...dragProps({ kind: 'media', id: m.id, mediaType: m.type })} onKeyDown={onKeyDown}
+      onClick={(e) => { if (e.target.closest('button') || e.target.closest('input')) return; if (lost && onRelink) { onRelink(m); return; } if (onSelectCard) onSelectCard(m, e); else if (onPeek) onPeek(m.id); }}
       onDoubleClick={() => (lost && onRelink ? onRelink(m) : onAdd(m.id))}
+      onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); if (onCardMenu) onCardMenu(m, e); }}
       title={lost ? t('panel.media.cardLost', { name: m.name }) : `${m.name}\n${onPeek ? t('panel.media.cardPeek') : ''}${t('panel.media.cardDrag')}${onRemove ? t('panel.media.cardDelete') : ''}`}>
       <div className="asset-thumb">
         {lost ? (
@@ -246,12 +254,26 @@ function MediaCard({ m, onAdd, onRemove, onOverlay, onPeek, peeking, onRelink })
           <button className="asset-remove" onClick={() => onRemove(m.id)} aria-label={t('panel.media.remove', { name: m.name })} title={t('panel.media.removeTitle')}><Trash2 size={12} /></button>
         )}
       </div>
-      <div className="asset-name">{m.name}</div>
+      {renaming ? (
+        <input className="asset-rename" defaultValue={m.name} autoFocus
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+          onDoubleClick={(e) => e.stopPropagation()}
+          onContextMenu={(e) => e.stopPropagation()}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === 'Enter') { if (onRename) onRename(m.id, e.target.value); if (onRenameEnd) onRenameEnd(); }
+            else if (e.key === 'Escape') { renameCancelled.current = true; if (onRenameEnd) onRenameEnd(); }
+          }}
+          onBlur={(e) => { if (!renameCancelled.current && onRename) onRename(m.id, e.target.value); if (onRenameEnd) onRenameEnd(); }} />
+      ) : (
+        <div className="asset-name">{m.name}</div>
+      )}
     </div>
   );
 }
 
-function MediaTab({ media, onImport, onAdd, onRemoveMedia, onAddAsOverlay, onStockAdd, onAddFile, onOpenSettings, stockKey, sub, setSub, onRecordScreen, onPeek, peekId, onRelink }) {
+function MediaTab({ media, onImport, onAdd, onRemoveMedia, onRenameMedia, onDuplicateMedia, onRemoveMediaMany, onAddAsOverlay, onStockAdd, onAddFile, onOpenSettings, stockKey, sub, setSub, onRecordScreen, onPeek, peekId, onRelink, onNewBlackVideo, onNewMatte }) {
   const t = useT();
   const visual = media; // videos, photos and audio
   // One source switcher replaces the old second rail: Yours / Favorites / Stock live in a
@@ -268,6 +290,104 @@ function MediaTab({ media, onImport, onAdd, onRemoveMedia, onAddAsOverlay, onSto
   const [treeSel, setTreeSel] = useState('all');
   const counts = mediaTreeCounts(visual);
   const shownMedia = mediaTreeFilter(visual, treeSel);
+  // Multi-select (checklist #14) + context menus (#9, #10): the selection
+  // lives here, next to the grid it describes. Click still peeks (as before);
+  // Ctrl/Cmd-click toggles one item, Shift-click ranges from the anchor,
+  // Ctrl+A selects all shown, and dragging on empty grid space marquees.
+  const [selIds, setSelIds] = useState(() => new Set());
+  const anchorRef = useRef(null);
+  const [menu, setMenu] = useState(null);
+  const [renamingId, setRenamingId] = useState(null);
+  const gridRef = useRef(null);
+  const marqueeRef = useRef(null);
+  const [marquee, setMarquee] = useState(null);
+  const selList = [...selIds];
+  const selectCard = (m, e) => {
+    if (e.ctrlKey || e.metaKey) {
+      setSelIds((prev) => { const next = new Set(prev); if (next.has(m.id)) next.delete(m.id); else next.add(m.id); return next; });
+      anchorRef.current = m.id;
+      return; // toggle only — the peeked card stays put
+    }
+    if (e.shiftKey && anchorRef.current) {
+      const ids = shownMedia.map((x) => x.id);
+      const a = ids.indexOf(anchorRef.current);
+      const b = ids.indexOf(m.id);
+      if (a >= 0 && b >= 0) {
+        const [lo, hi] = a < b ? [a, b] : [b, a];
+        setSelIds(new Set(ids.slice(lo, hi + 1)));
+        if (onPeek) onPeek(m.id);
+        return;
+      }
+    }
+    anchorRef.current = m.id;
+    setSelIds(new Set([m.id]));
+    if (onPeek) onPeek(m.id);
+  };
+  const selectAllShown = () => { setSelIds(new Set(shownMedia.map((m) => m.id))); if (shownMedia.length) anchorRef.current = shownMedia[0].id; };
+  const deleteCard = (m) => {
+    if (selIds.has(m.id) && selIds.size > 1 && onRemoveMediaMany) onRemoveMediaMany(selList);
+    else if (onRemoveMedia) onRemoveMedia(m.id);
+  };
+  const openCardMenu = (m, e) => {
+    if (!selIds.has(m.id)) { anchorRef.current = m.id; setSelIds(new Set([m.id])); }
+    const multi = selIds.has(m.id) && selIds.size > 1;
+    setMenu({ x: e.clientX, y: e.clientY, items: [
+      { label: t('menu.mediaAdd'), icon: Plus, onClick: () => onAdd(m.id) },
+      ...(onAddAsOverlay && m.type !== 'audio' ? [{ label: t('menu.mediaAddOverlay'), icon: Layers, onClick: () => onAddAsOverlay(m.id) }] : []),
+      ...(m.missing && onRelink ? [{ label: t('menu.relink'), icon: Unlink, onClick: () => onRelink(m) }] : []),
+      'sep',
+      { label: t('menu.mediaRename'), icon: Pencil, onClick: () => setRenamingId(m.id) },
+      { label: t('menu.duplicate'), icon: Copy, onClick: () => { if (onDuplicateMedia) onDuplicateMedia(m.id); } },
+      { label: t('menu.deleteClip'), icon: Trash2, onClick: () => { if (multi && onRemoveMediaMany) onRemoveMediaMany(selList); else if (onRemoveMedia) onRemoveMedia(m.id); } },
+    ] });
+  };
+  const openGridMenu = (e) => {
+    setMenu({ x: e.clientX, y: e.clientY, items: [
+      { label: t('menu.mediaImport'), icon: Upload, onClick: () => onImport() },
+      ...((onNewBlackVideo || onNewMatte) ? ['sep',
+        ...(onNewBlackVideo ? [{ label: t('menu.newBlackVideo'), icon: Square, onClick: () => onNewBlackVideo() }] : []),
+        ...(onNewMatte ? [{ label: t('menu.newMatte'), icon: Palette, onClick: () => onNewMatte() }] : []),
+      ] : []),
+      ...(shownMedia.length ? [{ label: t('menu.mediaSelectAll'), shortcut: 'Ctrl+A', onClick: () => selectAllShown() }] : []),
+    ] });
+  };
+  const onGridKeyDown = (e) => {
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A')) { e.preventDefault(); selectAllShown(); return; }
+    if ((e.key === 'Delete' || e.key === 'Backspace') && selIds.size > 1 && onRemoveMediaMany) { e.preventDefault(); onRemoveMediaMany(selList); }
+  };
+  const onGridPointerDown = (e) => {
+    if (e.button !== 0 || e.target.closest('.asset')) return;
+    const grid = gridRef.current;
+    if (!grid) return;
+    const start = { x: e.clientX, y: e.clientY };
+    marqueeRef.current = { ...start, active: false };
+    const rect = grid.getBoundingClientRect();
+    const move = (ev) => {
+      const st = marqueeRef.current;
+      if (!st) return;
+      const dx = ev.clientX - st.x;
+      const dy = ev.clientY - st.y;
+      if (!st.active && Math.hypot(dx, dy) < 4) return;
+      st.active = true;
+      setMarquee({ left: Math.min(st.x, ev.clientX) - rect.left, top: Math.min(st.y, ev.clientY) - rect.top, width: Math.abs(dx), height: Math.abs(dy) });
+      const box = { left: Math.min(st.x, ev.clientX), top: Math.min(st.y, ev.clientY), right: Math.max(st.x, ev.clientX), bottom: Math.max(st.y, ev.clientY) };
+      const hits = [...grid.querySelectorAll('[data-sel-id]')].filter((el) => {
+        const r = el.getBoundingClientRect();
+        return r.left < box.right && r.right > box.left && r.top < box.bottom && r.bottom > box.top;
+      }).map((el) => el.dataset.selId);
+      setSelIds((prev) => { const next = new Set(ev.ctrlKey || ev.metaKey ? prev : []); for (const id of hits) next.add(id); return next; });
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      const st = marqueeRef.current;
+      marqueeRef.current = null;
+      setMarquee(null);
+      if (st && !st.active) setSelIds(new Set()); // plain click on empty space clears
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
   const filterChips = [
     ['all', t('panel.media.filterAll'), counts.all], ['video', t('panel.media.filterVideo'), counts.video], ['audio', t('panel.media.filterAudio'), counts.audio],
     ['image', t('panel.media.filterImage'), counts.image], ['generated', t('panel.media.filterGenerated'), counts.generated],
@@ -313,11 +433,15 @@ function MediaTab({ media, onImport, onAdd, onRemoveMedia, onAddAsOverlay, onSto
               ))}
             </div>
             {shownMedia.length ? (
-              <div className="asset-grid">
-                {shownMedia.map((m) => <MediaCard key={m.id} m={m} onAdd={onAdd} onRemove={onRemoveMedia} onOverlay={onAddAsOverlay} onPeek={onPeek} peeking={peekId === m.id} onRelink={onRelink} />)}
+              <div className="asset-grid" ref={gridRef} onPointerDown={onGridPointerDown} onKeyDown={onGridKeyDown} tabIndex={0}
+                onContextMenu={(e) => { if (e.target.closest('.asset')) return; e.preventDefault(); openGridMenu(e); }}>
+                {shownMedia.map((m) => <MediaCard key={m.id} m={m} onAdd={onAdd} onRemove={onRemoveMedia} onOverlay={onAddAsOverlay} onPeek={onPeek} peeking={peekId === m.id} onRelink={onRelink}
+                  selected={selIds.has(m.id)} onSelectCard={selectCard} onCardMenu={openCardMenu} onDeleteCard={deleteCard}
+                  renaming={renamingId === m.id} onRename={onRenameMedia} onRenameEnd={() => setRenamingId(null)} />)}
+                {marquee && <div className="marquee" style={marquee} />}
               </div>
             ) : (
-              <p className="empty-note">{treeSel === 'speech'
+              <p className="empty-note" onContextMenu={(e) => { e.preventDefault(); openGridMenu(e); }}>{treeSel === 'speech'
                 ? t('panel.media.emptySpeech')
                 : treeSel === 'processed'
                   ? t('panel.media.emptyProcessed')
@@ -335,6 +459,7 @@ function MediaTab({ media, onImport, onAdd, onRemoveMedia, onAddAsOverlay, onSto
             onKindChange={(k) => goStock(`${k}:Trending`)} />
         </div>
       )}
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
     </TabFrame>
   );
 }
@@ -350,7 +475,7 @@ function AudioTab(props) {
     ['music', t('panel.audio.music')], ['sfx', t('panel.audio.sfx')], ['soundza', 'Soundza'], ['trolls', 'Trolls'], ['yours', t('panel.audio.yours')],
     ['favorites', t('panel.media.favorites')], ['tts', t('panel.audio.tts')], ['credits', t('panel.audio.credits')],
   ];
-  const firstOf = { music: 'music:Vlog', sfx: 'sfx:bundled', soundza: 'soundza:Whoosh', trolls: 'trolls:Trending', yours: 'yours', favorites: 'yours:favorites', tts: 'tts', credits: 'credits' };
+  const firstOf = { music: 'music:Vlog', sfx: 'sfx:Transition', soundza: 'soundza:Whoosh', trolls: 'trolls:Trending', yours: 'yours', favorites: 'yours:favorites', tts: 'tts', credits: 'credits' };
   // The asset pack's music collections lead the Music chips when the pack is installed
   // (sub ids 'music:pack:<collection>', routed by AudioLibrary to PackMusic).
   const lib = useAssets();
@@ -361,7 +486,7 @@ function AudioTab(props) {
   // music, not in Assets (Hamza, 2026-11-01).
   const packSfxSubs = lib ? [...new Set(lib.items.filter((i) => i.group === 'Sound FX' && i.sub).map((i) => i.sub))] : [];
   const catChips = view === 'music' ? [...packSubs.map((s) => [`music:pack:${s}`, `${s}`]), ...MUSIC_TAGS.map(([c]) => [`music:${c}`, libName('mood', slugifyPhrase(c), c)])]
-    : view === 'sfx' ? [['sfx:bundled', t('panel.audio.bundled')], ...packSfxSubs.map((s) => [`sfx:pack:${s}`, `${s}`]), ...SFX_TAGS.map(([c]) => [`sfx:${c}`, libName('sfxtag', slugifyPhrase(c), c)])]
+    : view === 'sfx' ? [...packSfxSubs.map((s) => [`sfx:pack:${s}`, `${s}`]), ...SFX_TAGS.map(([c]) => [`sfx:${c}`, libName('sfxtag', slugifyPhrase(c), c)])]
     : view === 'soundza' ? SOUNDZA_TAGS.map(([c]) => [`soundza:${c}`, libName('sztag', slugifyPhrase(c), c)])
     : view === 'trolls' ? TROLL_TAGS.map(([c]) => [`trolls:${c}`, c])
     : null;

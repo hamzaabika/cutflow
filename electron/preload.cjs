@@ -107,6 +107,13 @@ contextBridge.exposeInMainWorld('api', {
     return () => ipcRenderer.removeListener('media:visuals', handler);
   },
   saveProject: (json, file, opts) => ipcRenderer.invoke('project:save', json, file, opts),
+  exportProjectZip: (json, opts) => ipcRenderer.invoke('project:exportZip', json, opts),
+  onZipProgress: (cb) => {
+    const handler = (_e, v) => cb(v);
+    ipcRenderer.on('zip:progress', handler);
+    return () => ipcRenderer.removeListener('zip:progress', handler);
+  },
+  zipCancel: () => ipcRenderer.invoke('zip:cancel'),
   autosaveProject: (file, json) => ipcRenderer.invoke('project:autosave', file, json),
   closeNow: () => ipcRenderer.invoke('app:closeNow'),
   closeCancel: () => ipcRenderer.invoke('app:closeCancel'),

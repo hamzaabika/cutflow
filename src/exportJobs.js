@@ -44,6 +44,12 @@ export function audioPhases() {
     { id: 'master', label: 'Master & encode', stage: 'Mastering & encoding audio' },
   ];
 }
+
+// The project-ZIP job's phases (checklist #7): one step — the archive
+// streams file by file, so the single phase carries the whole bar.
+export function zipPhases() {
+  return [{ id: 'pack', label: 'Packing', stage: 'Packing project' }];
+}
 export const audioPhaseId = (progress) => (progress < AUDIO_PHASE_SPLIT ? 'mix' : 'master');
 
 // The AI-enhance job's phases (electron/esrgan.cjs): frames are extracted,

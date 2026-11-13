@@ -58,15 +58,20 @@ export default function ContextMenu({ x, y, items, onClose, label = tr('menu.cli
         btns[(i + (e.key === 'ArrowDown' ? 1 : -1) + btns.length) % btns.length]?.focus();
       }
     };
+    // Checklist #13: the wheel used to close the menu wherever it happened —
+    // including over the menu itself, so a long menu could never be scrolled
+    // with the wheel (it just vanished). Only a wheel outside the menu
+    // dismisses it now; a wheel over the menu scrolls the menu.
+    const wheel = (e) => { if (!ref.current?.contains(e.target)) onClose(); };
     window.addEventListener('pointerdown', down, true);
     window.addEventListener('keydown', key, true);
     window.addEventListener('resize', onClose);
-    window.addEventListener('wheel', onClose, { passive: true });
+    window.addEventListener('wheel', wheel, { passive: true });
     return () => {
       window.removeEventListener('pointerdown', down, true);
       window.removeEventListener('keydown', key, true);
       window.removeEventListener('resize', onClose);
-      window.removeEventListener('wheel', onClose);
+      window.removeEventListener('wheel', wheel);
     };
   }, [onClose]);
 

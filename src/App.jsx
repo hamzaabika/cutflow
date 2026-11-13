@@ -2,7 +2,7 @@ import React, { useMemo, useCallback, useEffect, useReducer, useRef, useState } 
 import { useT, tr, getLanguage } from './i18n/index.jsx';
 import { recentEntryFor } from './recents.js';
 import { isTrashExpired, mergeHomeEntries, trashEntryForRecent, trashEntryForSlot } from './homeList.js';
-import { IMAGE_DEFAULT, LAYERED, canvasFor, clipLayer, clipLen, emptyProject, exportDuration, findClipIn, findLinkPartner, freeLen, historyReducer, isLayerLocked, layerCount, layerFree, layerName, layerOf, levelCopyState, lockedMediaUse, markerNear, needsPreviewCopy, newVideoClip, parseEffectKey, pickAttributes, projectDuration, renderable, setPlaybackQuality, toFileUrl, trimActions, uid, videoClipAt, videoLayout } from './store.js';
+import { IMAGE_DEFAULT, LAYERED, canvasFor, clipLayer, clipLen, emptyProject, exportDuration, findClipIn, findLinkPartner, freeLen, historyReducer, isLayerLocked, layerCount, layerFree, layerName, layerOf, levelCopyState, lockedMediaUse, markerNear, needsPreviewCopy, newVideoClip, parseEffectKey, pickAttributes, projectDuration, renderable, replaceClipPatch, setPlaybackQuality, toFileUrl, trimActions, uid, videoClipAt, videoLayout } from './store.js';
 
 // Layer display name for menus/alerts: user rename wins, else the localised
 // lane default. store.layerName stays the English data form.
@@ -10,13 +10,14 @@ const layerDispName = (p, track, layer) => (p.layerNames && p.layerNames[track] 
 import { sliceCurve, sourceOffsetAt, timelineOffsetAt } from './speedCurve.js';
 import HomeScreen from './components/HomeScreen.jsx';
 import SequenceDialog from './components/SequenceDialog.jsx';
+import ColorMatteDialog from './components/ColorMatteDialog.jsx';
 import { mismatchFor, sequencePatchFor } from './sequence.js';
 import { buildVerticalCopy } from './reframe.js';
 import { beatSplitTarget } from './beats.js';
 import { sizeFor } from './effects.js';
 import ContextMenu from './components/ContextMenu.jsx';
 import {
-  AudioLines, ChevronLeft, ChevronRight, CircleAlert, ClipboardPaste, Copy, CopyPlus, Crop, Crosshair, Eraser, Eye, EyeOff, FileAudio, FlipHorizontal2, Gauge, Info, Layers, Link2, ListChecks, Loader2, Paintbrush, PanelBottom, Pin, PinOff, Pipette, Rewind, RotateCcw, RotateCw, Scissors, ScissorsLineDashed, Snowflake, Sparkles, Split, Trash2, Unlink,
+  AudioLines, ChevronLeft, ChevronRight, CircleAlert, ClipboardPaste, Copy, CopyPlus, Crop, Crosshair, Eraser, Eye, EyeOff, FileAudio, FlipHorizontal2, Gauge, Info, Layers, Link2, ListChecks, Loader2, Paintbrush, PanelBottom, Pin, PinOff, Pipette, RefreshCw, Rewind, RotateCcw, RotateCw, Scissors, ScissorsLineDashed, Snowflake, Sparkles, Split, Trash2, Unlink,
 } from './icons.jsx';
 import { brandTextPatch, loadBrand } from './brand.js';
 import ConfirmDialog from './components/ConfirmDialog.jsx';
@@ -26,7 +27,7 @@ import { customMaskImages, decoImages, maskImages } from './visual.js';
 import { motionData } from './anim.js';
 import { clipStartTl, motionDataPinned, trackedClips } from './track.js';
 import { CROP_ASPECTS, aspectRatioOf, cropForAspect } from './cropMath.js';
-import { chromaOf, cropOf, transformOf } from './visual.js';
+import { chromaOf, cropOf, resetTransformPatch, transformOf } from './visual.js';
 import { isLookPatch, lookAction, selectedPictures } from './look.js';
 import { regroupSegments, toSRT } from './subtitles.js';
 import { loadProjectLuts, onLutLoaded } from './fx/lut.js';
@@ -206,6 +207,7 @@ export default function App() {
     try { return JSON.parse(localStorage.getItem('clipcraft.recents') || '[]'); } catch { return []; }
   });
   const [seqAsk, setSeqAsk] = useState(null); // { media, mismatch, proceed }: sequence mismatch waiting for the user
+  const [matteDlg, setMatteDlg] = useState(null); // { color }: the new-colour-matte dialog (checklist #11), null when closed
   const storeRecents = (list) => {
     setRecents(list);
     try { localStorage.setItem('clipcraft.recents', JSON.stringify(list)); } catch { /* storage full: recents just don't persist */ }
@@ -365,6 +367,22 @@ export default function App() {
     setRelinkAsk({ items: miss, after });
     return true;
   };
+  // Mid-session missing-media refresh (checklist #1, 2026-11-13): a file can
+  // be deleted from disk while the app is open, and the load-time check never
+  // sees it — the timeline would keep playing the cached proxy as if nothing
+  // happened. Re-verify against the disk before playback starts and whenever
+  // the window regains focus. Silent: only the lost flags refresh (red cards
+  // and clips, dark slots, muted audio); the relink dialog stays a
+  // load/export-time thing. Without `merge` the id list is the complete
+  // truth, so a file that came back clears again.
+  const refreshMissingMedia = useCallback(async () => {
+    const p = projectRef.current;
+    if (!p?.media?.length) return [];
+    let miss = [];
+    try { miss = (await window.api.checkMissingMedia?.(p)) || []; } catch { miss = []; }
+    dispatch({ type: 'setMediaMissing', ids: miss.map((m) => m.id) });
+    return miss;
+  }, []);
   // Restore an earlier version: the CURRENT state is recorded as a restore point
   // first (and flushed to file + slot), so the restore itself can be undone from the
   // same history list. The project keeps its identity and its current file binding.
@@ -543,6 +561,15 @@ export default function App() {
     window.api.captionsStatus().then((st) => setCaptions((c) => ({ ...c, installed: st.installed, models: st.models || {}, available: st.available })));
   }, []);
 
+  // Checklist #1: re-verify media against the disk when the window regains
+  // focus (e.g. after deleting a file in the file manager) — the lost flags
+  // refresh silently; red cards/clips show what is gone.
+  useEffect(() => {
+    const onFocus = () => { refreshMissingMedia(); };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [refreshMissingMedia]);
+
   const runCaptions = async (opts) => {
     setPlaying(false);
     setCaptions((c) => ({ ...c, busy: true, error: null, stage: 'Preparing', progress: 0 }));
@@ -585,12 +612,17 @@ export default function App() {
     setSeekVer((v) => v + 1);
   }, []);
 
-  const togglePlay = useCallback(() => {
+  const togglePlay = useCallback(async () => {
     setPeekId(null);
     if (playing) return setPlaying(false);
     if (time >= duration - 0.05) setTime(0);
-    if (duration > 0) setPlaying(true);
-  }, [playing, time, duration]);
+    if (duration <= 0) return;
+    // Checklist #1: refresh the lost flags before playback starts, so a file
+    // deleted mid-session turns its clips red and stays silent instead of
+    // playing its cached proxy.
+    await refreshMissingMedia();
+    setPlaying(true);
+  }, [playing, time, duration, refreshMissingMedia]);
 
   const addItems = (items) => {
     const ok = items.filter((i) => !i.error).map((i) => ({ ...i, id: uid() }));
@@ -856,6 +888,21 @@ export default function App() {
     ask.proceed();
   };
 
+  // Checklist #3, after the fact: a 9:16 clip kept in a 16:9 project shows
+  // black bars, and the add-time dialog is long gone. Re-open it for the
+  // main clip at the playhead (proceed is a no-op — the clip is already
+  // placed), so the project can still be matched to the clip in one click.
+  const matchSequenceToClip = () => {
+    const p = projectRef.current;
+    const at = videoLayout(p.videoClips).find((l) => !l.clip.gap && !l.clip.disabled && time >= l.start && time < l.end);
+    if (!at) return;
+    const m = p.media.find((x) => x.id === at.clip.mediaId);
+    if (!m) return;
+    const mm = mismatchFor(p, m);
+    if (!mm) return;
+    setSeqAsk({ media: m, mismatch: mm, proceed: () => {} });
+  };
+
   const addToTimeline = (mediaId) => {
     const m = project.media.find((x) => x.id === mediaId);
     guardAdd(m, () => {
@@ -883,6 +930,41 @@ export default function App() {
     const used = [p.videoClips, p.overlayClips || [], p.audioClips].reduce((n, list) => n + list.filter((c) => c.mediaId === id).length, 0);
     if (used && !window.confirm(`"${m.name}" is used by ${used} clip${used > 1 ? 's' : ''} on the timeline.\nRemove it and ${used > 1 ? 'those clips' : 'that clip'}? (${bindingHint(getCurrentKeymap(), 'undo') || 'Undo'} undoes it)`)) return;
     dispatch({ type: 'removeMedia', id });
+  };
+  // Rename a media item (checklist #9): display name only, the file path
+  // never changes, so clips and relink state are untouched. Undoable.
+  const renameMedia = (id, name) => {
+    const p = projectRef.current;
+    const m = p.media.find((x) => x.id === id);
+    const clean = (name || '').trim();
+    if (!m || !clean || clean === m.name) return;
+    dispatch({ type: 'renameMedia', id, name: clean });
+  };
+  // Duplicate a media item in the pool (checklist #9): a second entry pointing
+  // at the same file; no clips are copied. Returns the new id.
+  const duplicateMedia = (id) => {
+    const p = projectRef.current;
+    const m = p.media.find((x) => x.id === id);
+    if (!m) return null;
+    const copy = { ...m, id: uid() };
+    dispatch({ type: 'addMedia', items: [copy] });
+    return copy.id;
+  };
+  // Remove several media items at once (checklist #14, multi-select): one
+  // confirmation totalling the timeline clips, one undo step.
+  const removeMediaMany = (ids) => {
+    const p = projectRef.current;
+    const items = (ids || []).map((id) => p.media.find((x) => x.id === id)).filter(Boolean);
+    if (!items.length) return;
+    for (const m of items) {
+      const lockedUse = lockedMediaUse(p, m.id);
+      if (lockedUse) { alert(t('app.lockedMedia', { name: m.name, layer: layerDispName(p, lockedUse.track, lockedUse.layer) })); return; }
+    }
+    const used = items.reduce((n, m) => n + [p.videoClips, p.overlayClips || [], p.audioClips].reduce((k, list) => k + list.filter((c) => c.mediaId === m.id).length, 0), 0);
+    if (used && !window.confirm(`Remove ${items.length} item${items.length > 1 ? 's' : ''} used by ${used} clip${used > 1 ? 's' : ''} on the timeline?\nThose clips go too. (${bindingHint(getCurrentKeymap(), 'undo') || 'Undo'} undoes it)`)) return;
+    dispatch({ type: 'beginGesture' });
+    for (const m of items) dispatch({ type: 'removeMedia', id: m.id });
+    dispatch({ type: 'endGesture' });
   };
 
   const toggleRecording = () => (recorder.recording ? recorder.stop() : recorder.start(time));
@@ -1368,6 +1450,82 @@ export default function App() {
     dispatch({ type: 'endGesture' });
   };
 
+  // Checklist #5 — Replace clip: swap the clip's media for another library
+  // item without losing effects, transform or timing (replaceClipPatch).
+  // A linked clip is replaced as a pair — its audio partner gets the same
+  // new media so the pair stays in sync. Only a main-track replace can
+  // change the project sequence, so only that one goes through guardAdd.
+  const replaceClip = (sel, media) => {
+    const p = projectRef.current;
+    const c = findClip(p, sel);
+    if (!c || !media) return;
+    const partner = c.linkId ? findLinkPartner(p, c) : null;
+    const apply = () => {
+      const cur = projectRef.current;
+      const clip = findClip(cur, sel);
+      if (!clip) return;
+      const oldMedia = cur.media.find((x) => x.id === clip.mediaId);
+      dispatch({ type: 'beginGesture' });
+      dispatch({ type: 'update', ...sel, patch: replaceClipPatch(clip, oldMedia, media) });
+      if (partner) {
+        const pc = findClip(cur, partner);
+        if (pc) dispatch({ type: 'update', ...partner, patch: replaceClipPatch(pc, cur.media.find((x) => x.id === pc.mediaId), media) });
+      }
+      dispatch({ type: 'endGesture' });
+    };
+    if (sel.track === 'video') guardAdd(media, apply);
+    else apply();
+  };
+
+  // The Replace-clip submenu for one timeline clip: every other library
+  // item of a compatible kind. Images carry no sound, so they are not
+  // offered for a linked clip (its audio partner would go silent), and a
+  // linked clip only takes video that has audio. Unprobed video (no
+  // duration) is not offered either.
+  const replaceEntry = (sel, c, locked) => {
+    if (locked) return { label: t('menu.replaceClip'), icon: RefreshCw, disabled: true, hint: t('menu.layerLocked') };
+    const p = projectRef.current;
+    const linked = !!c.linkId;
+    const isAudio = sel.track === 'audio';
+    const candidates = p.media.filter((mm) => {
+      if (mm.id === c.mediaId || mm.missing) return false;
+      if (isAudio) return mm.type === 'audio' || (mm.type === 'video' && mm.hasAudio);
+      if (mm.type === 'image') return !linked;
+      if (mm.type === 'video') return !!mm.duration && (!linked || mm.hasAudio);
+      return false;
+    });
+    if (!candidates.length) return { label: t('menu.replaceClip'), icon: RefreshCw, disabled: true, hint: t('menu.replaceNone') };
+    return {
+      label: t('menu.replaceClip'), icon: RefreshCw,
+      submenu: candidates.map((mm) => ({
+        label: mm.name || String(mm.path || '').split(/[\\/]/).pop(),
+        onClick: () => replaceClip(sel, mm),
+      })),
+    };
+  };
+
+  // Checklist #11 — a solid-colour still at project size, generated by the
+  // main process through the same lavfi scene generator as the stock
+  // scenes. The PNG lives in <userData>/library/scenes, never in the media
+  // cache, so clearing proxies can never lose it. One media item per matte;
+  // the file itself is shared when colour and size match (a solid PNG has
+  // nothing to recolour — there is no recolour action). The matte lands on
+  // the main track at the playhead, one undo step.
+  const createMatte = async (color) => {
+    const p = projectRef.current;
+    let res = null;
+    try { res = await window.api.makeScene({ color, width: p.width, height: p.height }); } catch (e) { res = { error: e.message }; }
+    if (!res || res.error || !res.path) { setRenderJob({ error: (res && res.error) || t('matte.failed') }); return; }
+    const black = String(color).toLowerCase() === '#000000';
+    const media = { ...res, id: uid(), origin: 'matte', name: black ? t('matte.blackName') : t('matte.name', { color: String(color).toLowerCase() }) };
+    const clipId = uid();
+    dispatch({ type: 'beginGesture' });
+    dispatch({ type: 'addMedia', items: [media] });
+    dispatch({ type: 'addToTimeline', mediaId: media.id, clipId, at: time });
+    dispatch({ type: 'endGesture' });
+    setSelection({ track: 'video', id: clipId });
+  };
+
   const openClipMenu = (e, track, clip) => {
     setSelection({ track, id: clip.id });
     setMenu({ x: e.clientX, y: e.clientY, track, id: clip.id });
@@ -1650,7 +1808,14 @@ export default function App() {
     }
     const c = findClip(project, sel);
     if (!c) return [];
-    if (c.gap) return [{ label: t('menu.closeGap'), icon: Trash2, shortcut: menuKey('remove'), onClick: () => dispatch({ type: 'delete', ...sel }) }];
+    // Checklist #15: a locked layer used to swallow every clip edit
+    // silently (the store's actionLocked returns state unchanged with no
+    // feedback). Mutating entries below are disabled with the lock hint
+    // instead, so the menu says why nothing happens.
+    const locked = isLayerLocked(project, sel.track, layerOf(c));
+    const lockHint = t('menu.layerLocked');
+    const pasteLocked = !!(clipboard && isLayerLocked(project, clipboard.track, layerOf(clipboard.clip)));
+    if (c.gap) return [{ label: t('menu.closeGap'), icon: Trash2, shortcut: menuKey('remove'), disabled: locked, hint: locked ? lockHint : undefined, onClick: () => dispatch({ type: 'delete', ...sel }) }];
     const m = c.mediaId && project.media.find((x) => x.id === c.mediaId);
     const pic = sel.track === 'video' || sel.track === 'overlay';
     const withSound = (pic && m?.type === 'video' && m.hasAudio) || sel.track === 'audio';
@@ -1666,15 +1831,15 @@ export default function App() {
       // A lost clip's first job is finding its file again (Part 3, 2026-11-10).
       ...(m?.missing ? [{ label: t('menu.relink'), icon: Unlink, onClick: () => reopenRelink(m) }, 'sep'] : []),
       { label: t('menu.copy'), icon: Copy, shortcut: menuKey('copy'), onClick: copy },
-      { label: t('menu.cut'), icon: Scissors, shortcut: menuKey('cut'), onClick: cut },
-      { label: t('menu.paste'), icon: ClipboardPaste, shortcut: menuKey('paste'), onClick: paste, disabled: !clipboard, hint: t('menu.pasteHint') },
-      { label: t('menu.deleteClip'), icon: Trash2, shortcut: menuKey('remove'), onClick: remove },
+      { label: t('menu.cut'), icon: Scissors, shortcut: menuKey('cut'), onClick: cut, disabled: locked, hint: locked ? lockHint : undefined },
+      { label: t('menu.paste'), icon: ClipboardPaste, shortcut: menuKey('paste'), onClick: paste, disabled: !clipboard || pasteLocked, hint: pasteLocked ? lockHint : t('menu.pasteHint') },
+      { label: t('menu.deleteClip'), icon: Trash2, shortcut: menuKey('remove'), onClick: remove, disabled: locked, hint: locked ? lockHint : undefined },
       { label: t('menu.selectAllLayer'), icon: ListChecks, onClick: () => selectAllOnLayer(sel) },
       'sep',
-      { label: t('tl.split'), icon: Split, shortcut: menuKey('split'), onClick: split },
-      { label: t('menu.deleteLeft'), icon: ScissorsLineDashed, shortcut: menuKey('trimLeft'), onClick: () => trimSide('left') },
-      { label: t('menu.deleteRight'), icon: ScissorsLineDashed, shortcut: menuKey('trimRight'), onClick: () => trimSide('right') },
-      { label: t('menu.duplicate'), icon: CopyPlus, shortcut: menuKey('duplicate'), onClick: duplicate },
+      { label: t('tl.split'), icon: Split, shortcut: menuKey('split'), onClick: split, disabled: locked, hint: locked ? lockHint : undefined },
+      { label: t('menu.deleteLeft'), icon: ScissorsLineDashed, shortcut: menuKey('trimLeft'), onClick: () => trimSide('left'), disabled: locked, hint: locked ? lockHint : undefined },
+      { label: t('menu.deleteRight'), icon: ScissorsLineDashed, shortcut: menuKey('trimRight'), onClick: () => trimSide('right'), disabled: locked, hint: locked ? lockHint : undefined },
+      { label: t('menu.duplicate'), icon: CopyPlus, shortcut: menuKey('duplicate'), onClick: duplicate, disabled: locked, hint: locked ? lockHint : undefined },
     ];
     // Move to Track: the other layers of this clip's lane (multi-selection moves together).
     if (LAYERED[sel.track]) {
@@ -1685,7 +1850,7 @@ export default function App() {
         : { start: c.start, len: c.duration };
       if (count > 1) {
         items.push({
-          label: t('menu.moveToLayer'), icon: Layers,
+          label: t('menu.moveToLayer'), icon: Layers, disabled: locked, hint: locked ? lockHint : undefined,
           submenu: Array.from({ length: count }, (_, layer) => layer).filter((layer) => layer !== cur).map((layer) => ({
             label: layerDispName(project, sel.track, layer),
             disabled: !layerFree(project, sel.track, layer, span.start, span.len, c.id) || isLayerLocked(project, sel.track, layer),
@@ -1697,7 +1862,7 @@ export default function App() {
     }
     // Speed / Duration (constant speed — also on the inspector's Speed tab) and Properties.
     if (pic || sel.track === 'audio') {
-      items.push({ label: t('menu.speedDuration'), icon: Gauge, onClick: () => setSpeedAsk({ track: sel.track, id: sel.id }) });
+      items.push({ label: t('menu.speedDuration'), icon: Gauge, onClick: () => setSpeedAsk({ track: sel.track, id: sel.id }), disabled: locked, hint: locked ? lockHint : undefined });
     }
     items.push({ label: t('menu.properties'), icon: Info, onClick: () => {
       select(sel);
@@ -1708,19 +1873,21 @@ export default function App() {
     } });
     if (pic) {
       items.push('sep',
+        replaceEntry(sel, c, locked),
         { label: t('menu.copyAttrs'), icon: Paintbrush, onClick: () => setAttrClipboard(pickAttributes(c)) },
-        { label: t('menu.pasteAttrs'), icon: Paintbrush, disabled: !attrClipboard, hint: t('menu.pasteAttrsHint'),
+        { label: t('menu.pasteAttrs'), icon: Paintbrush, disabled: locked || !attrClipboard, hint: locked ? lockHint : t('menu.pasteAttrsHint'),
           onClick: () => dispatch({ type: 'update', ...sel, patch: attrClipboard }) },
-        { label: t('menu.resetTransform'), icon: RotateCcw, onClick: () => dispatch({ type: 'update', ...sel, patch: { transform: undefined } }) },
-        { label: t('menu.removeFilter'), icon: Eraser, disabled: !c.filter || c.filter === 'none', hint: t('menu.noFilterHint'),
+        { label: t('menu.resetTransform'), icon: RotateCcw, disabled: locked, hint: locked ? lockHint : undefined,
+          onClick: () => dispatch({ type: 'update', ...sel, patch: resetTransformPatch(c, sel.track) }) },
+        { label: t('menu.removeFilter'), icon: Eraser, disabled: locked || !c.filter || c.filter === 'none', hint: locked ? lockHint : t('menu.noFilterHint'),
           onClick: () => dispatch({ type: 'update', ...sel, patch: { filter: 'none' } }) },
         sel.track === 'video'
-          ? { label: t('menu.toOverlay'), icon: Layers, onClick: () => {
+          ? { label: t('menu.toOverlay'), icon: Layers, disabled: locked, hint: locked ? lockHint : undefined, onClick: () => {
             const l = videoLayout(project.videoClips).find((x) => x.clip.id === c.id);
             dispatch({ type: 'moveToOverlay', id: c.id, at: l ? l.start : time });
             setSelection({ track: 'overlay', id: c.id });
           } }
-          : { label: t('menu.toMain'), icon: PanelBottom, onClick: () => {
+          : { label: t('menu.toMain'), icon: PanelBottom, disabled: locked, hint: locked ? lockHint : undefined, onClick: () => {
             const index = videoLayout(project.videoClips).filter((l) => (l.start + l.end) / 2 < c.start).length;
             dispatch({ type: 'moveToMain', id: c.id, index });
             setSelection({ track: 'video', id: c.id });
@@ -1729,41 +1896,42 @@ export default function App() {
     if (pic) {
       const fx = c.effects || [];
       items.push('sep',
-        { label: t('menu.freeze'), icon: Snowflake, onClick: () => freezeClip(sel) },
-        { label: c.reversed ? t('menu.reverseRestore') : t('menu.reverse'), icon: Rewind, onClick: () => reverseClip(sel) },
-        { label: fx.includes('mirror') ? t('menu.mirrorOn') : t('menu.mirror'), icon: FlipHorizontal2,
+        { label: t('menu.freeze'), icon: Snowflake, disabled: locked, hint: locked ? lockHint : undefined, onClick: () => freezeClip(sel) },
+        { label: c.reversed ? t('menu.reverseRestore') : t('menu.reverse'), icon: Rewind, disabled: locked, hint: locked ? lockHint : undefined, onClick: () => reverseClip(sel) },
+        { label: fx.includes('mirror') ? t('menu.mirrorOn') : t('menu.mirror'), icon: FlipHorizontal2, disabled: locked, hint: locked ? lockHint : undefined,
           onClick: () => dispatch({ type: 'update', ...sel, patch: { effects: fx.includes('mirror') ? fx.filter((x) => x !== 'mirror') : [...fx, 'mirror'] } }) },
-        { label: t('menu.rotate90'), icon: RotateCw,
+        { label: t('menu.rotate90'), icon: RotateCw, disabled: locked, hint: locked ? lockHint : undefined,
           onClick: () => { const t = c.transform || {}; dispatch({ type: 'update', ...sel, patch: { transform: { ...t, rot: ((t.rot || 0) + 90) % 360 } } }); } });
     }
     if (pic && m?.type === 'video') {
-      items.push({ label: t('menu.splitScenes'), icon: Scissors, onClick: () => splitAtScenes(sel) });
+      items.push({ label: t('menu.splitScenes'), icon: Scissors, disabled: locked, hint: locked ? lockHint : undefined, onClick: () => splitAtScenes(sel) });
     }
     if (pic && m?.type === 'video') {
-      items.push({ label: t('menu.aiEnhance'), icon: Sparkles, hint: t('menu.aiEnhanceHint'),
+      items.push({ label: t('menu.aiEnhance'), icon: Sparkles, disabled: locked, hint: locked ? lockHint : t('menu.aiEnhanceHint'),
         onClick: () => setEnhanceDlg({ sel, media: m }) });
     }
     if (sel.track === 'video') {
-      items.push({ label: t('menu.splitBeats'), icon: ScissorsLineDashed, disabled: !(project.beats && project.beats.times && project.beats.times.length),
-        hint: t('menu.splitBeatsHint'),
+      items.push({ label: t('menu.splitBeats'), icon: ScissorsLineDashed, disabled: locked || !(project.beats && project.beats.times && project.beats.times.length),
+        hint: locked ? lockHint : t('menu.splitBeatsHint'),
         onClick: () => { const tgt = beatSplitTarget(project, time, sel); if (tgt) dispatch({ type: 'splitAtBeats', id: tgt.clip.id, newIds: tgt.times.map(() => uid()) }); } });
     }
     if (withSound) {
-      items.push({ label: t('menu.removeSilences'), icon: AudioLines, disabled: sel.track === 'audio' && !!c.linkId,
-        hint: t('menu.removeSilencesHint'),
+      items.push({ label: t('menu.removeSilences'), icon: AudioLines, disabled: locked || (sel.track === 'audio' && !!c.linkId),
+        hint: locked ? lockHint : t('menu.removeSilencesHint'),
         onClick: () => removeSilences(sel) });
     }
     items.push('sep');
-    if (pic) items.push({ label: t('menu.detachAudio'), icon: AudioLines, shortcut: menuKey('extractAudio'), onClick: () => detachAudio(sel), disabled: !canDetach, hint: detachHint });
-    if (pic) items.push({ label: t('menu.extractAudio'), icon: FileAudio, onClick: () => dispatch({ type: 'extractAudio', track: sel.track, id: sel.id, newId: uid() }), disabled: !canExtract, hint: extractHint });
+    if (pic) items.push({ label: t('menu.detachAudio'), icon: AudioLines, shortcut: menuKey('extractAudio'), onClick: () => detachAudio(sel), disabled: locked || !canDetach, hint: locked ? lockHint : detachHint });
+    if (pic) items.push({ label: t('menu.extractAudio'), icon: FileAudio, onClick: () => dispatch({ type: 'extractAudio', track: sel.track, id: sel.id, newId: uid() }), disabled: locked || !canExtract, hint: locked ? lockHint : extractHint });
     if (c.linkId) {
-      items.push({ label: t('menu.unlink'), icon: Unlink, onClick: () => unlinkClip(sel) });
+      items.push({ label: t('menu.unlink'), icon: Unlink, disabled: locked, hint: locked ? lockHint : undefined, onClick: () => unlinkClip(sel) });
     } else if (selection?.items?.length === 2
       && selection.items.some((it) => it.track === 'audio')
       && selection.items.some((it) => it.track === 'video' || it.track === 'overlay')) {
-      items.push({ label: t('menu.link'), icon: Link2, onClick: linkPair });
+      items.push({ label: t('menu.link'), icon: Link2, disabled: locked, hint: locked ? lockHint : undefined, onClick: linkPair });
     }
-    if (sel.track === 'audio') items.push({ label: c.reversed ? t('menu.reverseRestore') : t('menu.reverse'), icon: Rewind, onClick: () => reverseClip(sel) });
+    if (sel.track === 'audio') items.push(replaceEntry(sel, c, locked));
+    if (sel.track === 'audio') items.push({ label: c.reversed ? t('menu.reverseRestore') : t('menu.reverse'), icon: Rewind, disabled: locked, hint: locked ? lockHint : undefined, onClick: () => reverseClip(sel) });
     items.push({ label: t('menu.exportClipAudio'), icon: AudioLines, onClick: () => exportAudio('mp3', sel), disabled: !withSound, hint: t('menu.noSoundHint') });
     // Enhance voice on the clip's own menu too — the same render the inspector's
     // Enhance voice section drives (clip.enhance via enhanceClip), for audio clips and
@@ -1774,7 +1942,7 @@ export default function App() {
       const stale = !!(e?.path && (Math.abs((e.from ?? -1) - (c.in || 0)) > 0.02 || Math.abs((e.to ?? -1) - (c.out ?? -1)) > 0.02));
       const enhOn = !!(e?.on && e?.path && !stale);
       items.push({
-        label: enhOn ? t('menu.enhanceOn', { strength: e.strength }) : t('menu.enhance'), icon: Sparkles,
+        label: enhOn ? t('menu.enhanceOn', { strength: e.strength }) : t('menu.enhance'), icon: Sparkles, disabled: locked, hint: locked ? lockHint : undefined,
         submenu: [
           { label: t('menu.off'), disabled: !e?.on, hint: t('menu.enhanceOffHint'), onClick: () => dispatch({ type: 'update', ...sel, patch: { enhance: { ...e, on: false } } }) },
           ...[['light', 'Light'], ['standard', 'Standard'], ['strong', 'Strong']].map(([s, name]) => ({
@@ -1785,11 +1953,11 @@ export default function App() {
       });
     }
     items.push(c.disabled
-      ? { label: t('menu.activate'), icon: Eye, onClick: () => dispatch({ type: 'update', ...sel, patch: { disabled: false } }) }
-      : { label: t('menu.deactivate'), icon: EyeOff, onClick: () => dispatch({ type: 'update', ...sel, patch: { disabled: true } }) });
+      ? { label: t('menu.activate'), icon: Eye, disabled: locked, hint: locked ? lockHint : undefined, onClick: () => dispatch({ type: 'update', ...sel, patch: { disabled: false } }) }
+      : { label: t('menu.deactivate'), icon: EyeOff, disabled: locked, hint: locked ? lockHint : undefined, onClick: () => dispatch({ type: 'update', ...sel, patch: { disabled: true } }) });
     // Motion tracking: track a video clip's moving point; pin overlay / text clips to a track.
     if (pic && m?.type === 'video') {
-      items.push('sep', { label: c.track ? t('menu.trackAgain') : t('menu.track'), icon: Crosshair, onClick: () => startTrackPick(sel) });
+      items.push('sep', { label: c.track ? t('menu.trackAgain') : t('menu.track'), icon: Crosshair, disabled: locked, hint: locked ? lockHint : undefined, onClick: () => startTrackPick(sel) });
     }
     if (sel.track === 'overlay' || sel.track === 'text') {
       const sources = trackedClips(project).filter((s) => s.clip.id !== c.id);
@@ -2252,7 +2420,7 @@ export default function App() {
     if (!next) return;
     exportActiveId.current = next.id;
     updateExportJob(next, { status: 'running' });
-    const run = next.kind === 'audio' ? runAudioJob(next) : next.kind === 'enhance' ? runEnhanceJob(next) : runVideoJob(next);
+    const run = next.kind === 'audio' ? runAudioJob(next) : next.kind === 'enhance' ? runEnhanceJob(next) : next.kind === 'zip' ? runZipJob(next) : runVideoJob(next);
     run.catch((e) => finishExportJob(next, { status: 'error', error: e.message, progress: next.progress }, { ok: false, error: e.message }));
   };
   const cancelExportJob = (id) => {
@@ -2269,6 +2437,7 @@ export default function App() {
     if (job.status === 'running') {
       job.cancelled.current = true; // the renderer phases poll this flag
       if (job.kind === 'enhance') window.api.esrganCancel(); // kills the engine/ffmpeg child in the main process
+      else if (job.kind === 'zip') window.api.zipCancel(); // aborts the archive, deletes the partial file
       else window.api.cancelExport(); // the main-process phases (encode, audio job)
     }
   };
@@ -2415,6 +2584,39 @@ export default function App() {
     }
     showJobToast(t('enhance.done', { name: job.title }));
     return finishExportJob(job, { status: 'done', file: res.file, size: res.media.size, duration: res.media.duration, progress: 1 }, { ok: true, file: res.file });
+  };
+
+  // Checklist #7 — the project-ZIP job: the tray's first-class job for a
+  // .zip holding the project JSON plus every referenced media file. No
+  // missing-media guard here (unlike video export): the ZIP is the tool
+  // for a project with missing media — what exists is backed up, and the
+  // missing files are listed on the done card.
+  const runZipJob = async (job) => {
+    const off = window.api.onZipProgress((pr) => {
+      if (job.cancelled.current) return;
+      updateExportJob(job, { progress: Math.max(job.progress || 0, Math.min(1, pr.fraction || 0)) });
+    });
+    let res;
+    try { res = await window.api.exportProjectZip(JSON.stringify(job.project, null, 2), { name: job.name }); }
+    catch (e) { res = { error: e.message }; }
+    off();
+    if (!res || res.canceled || job.cancelled.current) return finishExportJob(job, null, { canceled: true });
+    if (res.error) return finishExportJob(job, { status: 'error', error: res.error }, { ok: false, error: res.error });
+    return finishExportJob(job, {
+      status: 'done', progress: 1, file: res.path, size: res.bytes,
+      note: res.missing?.length ? t('tray.zipMissing', { count: res.missing.length, names: res.missing.slice(0, 3).map((m) => m.name).join(', ') + (res.missing.length > 3 ? '…' : '') }) : undefined,
+    }, { ok: true, path: res.path });
+  };
+
+  // The TopBar export menu's "Export project as ZIP": enqueue the job (it
+  // runs when the queue reaches it); the save dialog picks the .zip file.
+  const exportProjectZip = () => {
+    const p = projectRef.current;
+    return enqueueExportJob({
+      id: uid(), kind: 'zip', title: p.name || 'project', formatLabel: 'ZIP',
+      status: 'queued', progress: 0, phase: 'pack', phases: zipPhases(),
+      project: p, name: p.name || 'project', cancelled: { current: false }, settle: null,
+    });
   };
 
   // The dialog's Start: enqueue the enhance job (it runs when the queue
@@ -2597,7 +2799,7 @@ export default function App() {
       onDragOver={(e) => { e.preventDefault(); if (isFiles(e) && !isInternal(e)) setDragOver(true); }}
       onDragLeave={(e) => { if (e.target === e.currentTarget) setDragOver(false); }}
       onDrop={onDrop}>
-      <TopBar project={project} dispatch={dispatch} onOpen={open} onSave={save} saveState={saveState} onHistory={() => setHistoryOpen(true)} onBridge={bridgeInfo.enabled ? () => setBridgeOpen(true) : null} bridgePending={bridgeInfo.pending} onExport={startExport} onExportAudio={(f) => exportAudio(f)} onReframe={startReframe} onSettings={() => setSettingsOpen(true)}
+      <TopBar project={project} dispatch={dispatch} onOpen={open} onSave={save} saveState={saveState} onHistory={() => setHistoryOpen(true)} onBridge={bridgeInfo.enabled ? () => setBridgeOpen(true) : null} bridgePending={bridgeInfo.pending} onExport={startExport} onExportAudio={(f) => exportAudio(f)} onExportProjectZip={exportProjectZip} onReframe={startReframe} onSettings={() => setSettingsOpen(true)}
         onHome={async () => { await flushAutosave(); refreshSlots(); setScreen('home'); }}
         onAbout={() => setAboutOpen(true)} updateReady={!!update?.newer} />
 
@@ -2612,7 +2814,8 @@ export default function App() {
         <LeftPanel tab={tab} setTab={setTab} media={project.media} dispatch={dispatch} time={time}
           onRelink={reopenRelink}
           onImport={importMedia} onAdd={addToTimeline} onAddAsOverlay={addAsOverlay} onLibraryAdd={libraryAdd} onStockAdd={stockAdd} onAddFile={addFile} stockKey={stockKey} onTtsAdd={ttsAdd} selectedText={selectedText} onOpenSettings={() => setSettingsOpen(true)}
-          onOpenSettings={() => setSettingsOpen(true)} onRemoveMedia={removeMedia} onPeek={peek} peekId={peekId} onPeekAsset={peekAsset}
+          onNewBlackVideo={() => createMatte('#000000')} onNewMatte={() => setMatteDlg({ color: '#e5484d' })}
+          onOpenSettings={() => setSettingsOpen(true)} onRemoveMedia={removeMedia} onRenameMedia={renameMedia} onDuplicateMedia={duplicateMedia} onRemoveMediaMany={removeMediaMany} onPeek={peek} peekId={peekId} onPeekAsset={peekAsset}
           recorder={recorder} onStartRecord={() => recorder.start(time)} onAddText={addText} onAddTextOver={addTextOver}
           onRecordScreen={() => { setPlaying(false); setScreenOpen(true); }}
           target={target} updateTarget={updateTarget} selectedCount={selectedPictures(project, selection).length}
@@ -2628,6 +2831,7 @@ export default function App() {
         </div>
         <Preview project={cropPreviewProject} editProject={project} selection={selection} onSelect={select} dispatch={dispatch} time={time} seekVer={seekVer} playing={playing} duration={duration}
           onTime={setTime} onEnd={() => setPlaying(false)} onTogglePlay={togglePlay} onSeek={seek} onDropItem={dropOnPreview}
+          onMatchSequence={matchSequenceToClip}
           peek={project.media.find((m) => m.id === peekId) || assetPeek} onClosePeek={() => { setPeekId(null); setAssetPeek(null); }}
           onAddPeek={(m) => { setPeekId(null); setAssetPeek(null); if (m && m.assetPath) addFile(m.assetPath, m.assetWhere || 'main'); else if (m) addToTimeline(m.id); }}
           quality={quality} onQualityChange={async (q) => { const st = await window.api.qualitySet(q); setPlaybackQuality(st.quality); setQuality(st.quality); }}
@@ -2689,7 +2893,7 @@ export default function App() {
         silenceMarks={silenceAsk ? { id: silenceAsk.id, ranges: silenceAsk.ranges } : null}
         tool={tool} setTool={setTool} onTrimSide={trimSide} onMarker={toggleMarker} recorder={recorder} onToggleRecord={toggleRecording}
         onDropItem={dropItem} onDropFiles={dropFiles} canUndo={!!state.past.length} canRedo={!!state.future.length} onClipMenu={openClipMenu} onAddText={addText}
-        />
+        onScrubStart={() => setPlaying(false)} />
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems(menu)} onClose={() => setMenu(null)} />}
       {speedAsk && (() => {
         const c = findClip(project, speedAsk);
@@ -2742,6 +2946,8 @@ export default function App() {
       {closeAsk && <CloseDialog name={closeAsk.name} onChoice={closeAsk.resolve} />}
       {seqAsk && <SequenceDialog media={seqAsk.media} mismatch={seqAsk.mismatch}
         onChangeSettings={() => resolveSeq(true)} onKeepSettings={() => resolveSeq(false)} />}
+      {matteDlg && <ColorMatteDialog initialColor={matteDlg.color}
+        onConfirm={(color) => { setMatteDlg(null); createMatte(color); }} onCancel={() => setMatteDlg(null)} />}
       {settingsOpen && <SettingsDialog onClose={() => { setSettingsOpen(false); setSettingsVersion((v) => v + 1); }}
         onProxiesCleared={(deleted) => projectRef.current.media.forEach((m) => {
           if (m.lightProxy && deleted.includes(m.lightProxy)) dispatch({ type: 'mediaVisuals', path: m.path, patch: { lightProxy: null } });

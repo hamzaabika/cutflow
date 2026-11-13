@@ -52,6 +52,29 @@ async function refreshSizes(projectJson, probe) {
   }
 }
 
+// A project whose media paths are relative (a project ZIP's bundled JSON
+// writes assets/<basename>): resolve them against the project file's own
+// folder so the media is found on the receiving machine. Absolute paths
+// pass through untouched; a relative path that still does not resolve is
+// left as-is and surfaces as missing through the relink flow.
+function resolveRelativeMedia(projectJson, baseDir) {
+  try {
+    const p = JSON.parse(projectJson);
+    if (!baseDir || !Array.isArray(p.media)) return projectJson;
+    let changed = false;
+    p.media = p.media.map((m) => {
+      if (!m || typeof m.path !== 'string' || !m.path || path.isAbsolute(m.path)) return m;
+      const abs = path.resolve(baseDir, m.path);
+      if (abs === m.path) return m;
+      changed = true;
+      return { ...m, path: abs };
+    });
+    return changed ? JSON.stringify(p) : projectJson;
+  } catch {
+    return projectJson;
+  }
+}
+
 // Source media whose file is gone (moved, renamed, on an unplugged drive): the entries
 // stay in the project (clips reference them by id), but every frame would render black
 // until the user points the project at the file's new home — the relink flow. Returns
@@ -106,4 +129,4 @@ function scanMediaFolder(rootDir, wantedNames, opts = {}) {
   return found;
 }
 
-module.exports = { checkGenerated, refreshSizes, findMissingMedia, scanMediaFolder };
+module.exports = { checkGenerated, refreshSizes, findMissingMedia, scanMediaFolder, resolveRelativeMedia };

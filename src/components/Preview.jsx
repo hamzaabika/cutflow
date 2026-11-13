@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { FIT_VIEW, QUALITY_LABELS, QUALITY_MAX_SIDE, applyZoomChoice, clipLen, formatTime, freeLen, getPlaybackQuality, levelCopyState, needsPreviewCopy, previewPath, toFileUrl, videoLayout, zoomByFactor, zoomTransform } from '../store.js';
 import { hasMotion } from '../anim.js';
+import { mismatchFor } from '../sequence.js';
 import { fitFactors, mediaToStage, pinOffsetAt, stageToMedia, stateAtPinned } from '../track.js';
 import { aspectRatioOf, dragCrop, moveCrop } from '../cropMath.js';
 import { pictureGeometry, stageToSource } from '../pictureGeometry.js';
@@ -238,6 +239,7 @@ export default function Preview({
   trackPick, onTrackPoint,
   cropEdit, onCropDraft,
   colorPick, onColorPicked,
+  onMatchSequence,
 }) {
   const t = useT();
   const [dropOver, setDropOver] = useState(false);
@@ -358,6 +360,17 @@ export default function Preview({
     return () => window.removeEventListener('keydown', onKey);
   }, []);
   const mediaById = Object.fromEntries(project.media.map((m) => [m.id, m]));
+
+  // Checklist #3: the main clip at the playhead vs the project sequence.
+  // When they mismatch (a 9:16 clip in a 16:9 project shows black bars),
+  // the panel-head pill below becomes a button that re-opens the sequence
+  // dialog, so the project can still be matched to the clip in one click.
+  const seqMismatch = (() => {
+    const at = videoLayout(project.videoClips).find((l) => !l.clip.gap && !l.clip.disabled && time >= l.start && time < l.end);
+    if (!at) return null;
+    const m = mediaById[at.clip.mediaId];
+    return m ? mismatchFor(project, m) : null;
+  })();
 
   // QA2 (2026-11-05) — honest stage state + error recovery for clips whose file the
   // player cannot show directly. While such a clip's preview copy is being made, the
@@ -725,7 +738,9 @@ export default function Preview({
       <div className="panel-head">
         <span className="panel-title">{t('player.title')}</span>
         {peek ? <span className="pill peek-pill" title={peek.name}>{peek.assetPath ? t('player.asset') : t('player.media')} · {peek.name}</span>
-          : <span className="pill">{project.ratio} · {project.width}×{project.height} · {project.fps} {t('player.fpsUnit')}</span>}
+          : seqMismatch && onMatchSequence ? (
+            <button type="button" className="pill pill-btn" title={t('seq.matchClip')} onClick={onMatchSequence}>{project.ratio} · {project.width}×{project.height} · {project.fps} {t('player.fpsUnit')}</button>
+          ) : <span className="pill">{project.ratio} · {project.width}×{project.height} · {project.fps} {t('player.fpsUnit')}</span>}
       </div>
       {peek && <MediaPeek m={peek} fps={project.fps} onClose={onClosePeek} onAdd={onAddPeek} />}
       <div className={`stage-wrap ${view.z > 1 ? 'zoomed' : ''}`} ref={wrapRef} onMouseDown={onStageMouseDown}>

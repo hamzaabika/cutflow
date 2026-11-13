@@ -78,6 +78,7 @@ function JobCard({ job, onCancelJob, onDismissJob, onShow, onOpen }) {
           <div className="xjob-path" title={job.file}>{job.file}</div>
           {job.cover === 'embedded' && <div className="xjob-note">{t('tray.coverEmbedded')}</div>}
           {job.coverNote && <div className="xjob-note">{job.coverNote}</div>}
+          {job.note && <div className="xjob-note">{job.note}</div>}
           <div className="xjob-actions">
             <button type="button" className="btn btn-sm" onClick={() => onShow(job.file)}><FolderOpen size={13} /> {t('tray.showInFolder')}</button>
             <button type="button" className="btn btn-sm" onClick={() => onOpen(job.file)}><Play size={13} /> {t('tray.openFile')}</button>

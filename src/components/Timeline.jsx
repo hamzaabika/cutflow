@@ -66,7 +66,7 @@ const LANES = [
 export default function Timeline({
   project, time, duration, selection, onSelect, onSeek, dispatch, onSplit, onDelete, onDuplicate,
   onDropItem, onDropFiles, canUndo, canRedo, tool, setTool, onTrimSide, onMarker, recorder, onToggleRecord, onClipMenu, overlay, onAddText, clockRef, playing,
-  onDetach, detachOk, onLinkToggle, linkMode, onDetectBeats, onSplitBeats, silenceMarks,
+  onDetach, detachOk, onLinkToggle, linkMode, onDetectBeats, onSplitBeats, silenceMarks, onScrubStart,
 }) {
   const t = useT();
   // Layer display name: the user's rename (stored, never translated) or the
@@ -467,6 +467,10 @@ export default function Timeline({
   };
 
   const scrub = (e) => {
+    // Checklist #4: scrubbing while playing never landed — the playback
+    // clock re-asserted the old position every frame and clobbered the
+    // seek. Pause first (Premiere-like); the user presses play again.
+    if (onScrubStart) onScrubStart();
     onSelect(null);
     onSeek(timeFromEvent(e));
     const move = (ev) => onSeek(timeFromEvent(ev));

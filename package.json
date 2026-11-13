@@ -66,6 +66,7 @@
     "@fontsource/tajawal": "^5.3.0",
     "@fontsource/titan-one": "^5.3.0",
     "@fontsource/yellowtail": "^5.3.0",
+    "archiver": "^8.0.0",
     "ffmpeg-static": "^5.2.0",
     "ffprobe-static": "^3.1.0",
     "lucide-react": "^0.469.0",

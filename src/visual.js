@@ -4,6 +4,21 @@ import { hasCustomMask, rasterizeCustomMask } from './customMask.js';
 export { hasCustomMask };
 
 export const DEFAULT_TRANSFORM = { scale: 1, scaleX: 1, scaleY: 1, uniform: true, x: 0, y: 0, rot: 0 };
+// Checklist #8 / #15 — the one correct transform reset, shared by the clip
+// menu and the inspector's Transform section. The menu's old patch
+// (`transform: undefined`) left transform keyframes behind, so the clip
+// snapped back to its keyframed pose on the next frame, and it reset
+// overlays to scale 1 instead of their 0.5 creation default (stickers:
+// 0.3). Keyframed transform props are scale/x/y/rot.
+export function resetTransformPatch(clip, track) {
+  const k = { ...(clip.keyframes || {}) };
+  ['scale', 'x', 'y', 'rot'].forEach((p) => delete k[p]);
+  const scale = track === 'overlay' ? 0.5 : track === 'sticker' ? 0.3 : 1;
+  return {
+    transform: { ...DEFAULT_TRANSFORM, scale },
+    keyframes: Object.keys(k).length ? k : undefined,
+  };
+}
 export const DEFAULT_CHROMA = { on: false, color: '#00ff00', intensity: 20, feather: 20, spill: 0 };
 // Crop: the fraction of the SOURCE picture cut away at each edge (0..0.9), applied before the
 // fit / transform, in the preview and the export alike. A static per-clip property (no keyframes).

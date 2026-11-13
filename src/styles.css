@@ -368,6 +368,10 @@ input[type='checkbox'] { width: 16px; height: 16px; accent-color: var(--primary)
 }
 .panel-title { font-weight: 600; color: var(--text); }
 .pill { margin-left: auto; font-size: var(--fs-2); color: var(--text-3); background: var(--surface-2); padding: 2px 8px; border-radius: 10px; font-variant-numeric: tabular-nums; }
+/* Checklist #3: the player ratio pill is a button while the clip at the
+   playhead mismatches the project sequence (click = match project to clip). */
+button.pill { font: inherit; border: 1px solid transparent; cursor: pointer; }
+button.pill:hover { border-color: var(--primary); color: var(--text); }
 
 /* ---------- Left: rail + library ---------- */
 .left { display: flex; flex-direction: column; }
@@ -403,7 +407,7 @@ input[type='checkbox'] { width: 16px; height: 16px; accent-color: var(--primary)
 .dropzone b { color: var(--text); font-size: var(--fs-5); }
 .dz-icon { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 50%; background: var(--primary-soft); color: var(--primary); margin-bottom: 4px; }
 
-.asset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--sp-6); padding: 0 14px; }
+.asset-grid { position: relative; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--sp-6); padding: 0 14px; }
 .asset-list { display: grid; gap: var(--sp-4); padding: 0 14px; }
 .asset { cursor: grab; }
 .asset:active { cursor: grabbing; }
@@ -418,6 +422,12 @@ input[type='checkbox'] { width: 16px; height: 16px; accent-color: var(--primary)
 .asset-thumb video, .asset-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
 .asset-thumb .asset-sprite { max-width: none; max-height: none; }
 .asset.peeking .asset-thumb { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-soft); }
+.asset.selected .asset-thumb { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-soft); }
+/* Marquee (drag-select) rectangle over the media grid; pointer-events none so
+   the drag that draws it never hits the rect itself. */
+.marquee { position: absolute; z-index: 5; pointer-events: none; border: 1px solid var(--primary); background: var(--primary-soft); border-radius: 2px; }
+/* Inline rename editor on a media card: reads as the name, not a form field. */
+.asset-rename { width: 100%; margin-top: 5px; padding: 1px 4px; font-size: var(--fs-2h); color: var(--text); background: var(--bg-2); border: 1px solid var(--primary); border-radius: var(--r-sm); outline: none; }
 .asset-audio { width: 100%; height: 100%; display: grid; place-items: center; background: linear-gradient(180deg, #0f3b2e, #0a241c); color: #6ee7b7; }
 .asset-audio img { opacity: 0.8; object-fit: fill; }
 .asset-list .asset-thumb { aspect-ratio: auto; height: 56px; }
@@ -1065,9 +1075,11 @@ input.switch:checked::after { transform: translateX(16px); }
 .clip.overlay .filmstrip { opacity: 0.85; }
 .asset-add.overlay { right: 34px; }
 
-/* Right-click menu */
+/* Right-click menu — capped well under the viewport (checklist #13: the
+   clip menu was ~1000px tall, a full-height scrolling strip) so it reads
+   as a menu, not a sheet; submenus get the same cap. */
 .ctx-menu {
-  position: fixed; z-index: 1000; min-width: 220px; max-height: calc(100vh - 8px); overflow-y: auto; padding: 5px;
+  position: fixed; z-index: 1000; min-width: 220px; max-height: min(560px, calc(100vh - 16px)); overflow-y: auto; padding: 5px;
   border-radius: var(--r-lg); background: var(--surface-3); border: 1px solid var(--border-strong); box-shadow: var(--shadow-menu);
 }
 .ctx-menu button {
@@ -1096,7 +1108,15 @@ input.switch:checked::after { transform: translateX(16px); }
 /* Context-menu submenus (Move to Track): fixed-positioned by ContextMenu so the parent
    menu's scroll overflow cannot clip them. */
 .ctx-subwrap { position: relative; }
-.ctx-menu .ctx-sub { position: fixed; overflow: visible; }
+.ctx-menu .ctx-sub { position: fixed; max-height: min(560px, calc(100vh - 16px)); overflow-y: auto; }
+
+/* Colour matte dialog (checklist #11). */
+.matte-row { display: flex; align-items: center; gap: 10px; margin: 12px 0; }
+.matte-row input[type="color"] { width: 44px; height: 32px; padding: 2px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface-2); cursor: pointer; }
+.matte-row code { font-size: var(--fs-3); color: var(--text-2); }
+.matte-swatches { display: flex; gap: 8px; margin: 4px 0 12px; }
+.matte-swatch { width: 28px; height: 28px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; padding: 0; }
+.matte-swatch.on { border-color: var(--primary); }
 .ctx-chev { color: var(--text-3); flex: none; }
 
 /* Player: move / scale / rotate box */

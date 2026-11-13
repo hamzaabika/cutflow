@@ -164,6 +164,13 @@ export default function TransformBox({ project, time, selection, onSelect, dispa
     const p = local(e);
     const hit = onScreen.find((o) => hits(geo(o), p.x, p.y));
     if (!hit) {
+      // Checklist #2: the fitted picture box is smaller than the stage for a
+      // letterboxed/pillarboxed clip, so grabbing the black bars around it
+      // missed every hit test and the video felt undraggable. A click
+      // anywhere on the stage with no smaller item under it grabs the main
+      // video instead.
+      const video = onScreen.find((o) => o.track === 'video');
+      if (video) { onSelect({ track: 'video', id: video.clip.id }); startMove(e, video); return; }
       if (selection && ['video', 'overlay', 'text', 'sticker'].includes(selection.track)) onSelect(null);
       return;
     }

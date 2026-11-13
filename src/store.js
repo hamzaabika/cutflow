@@ -315,6 +315,10 @@ function reduceProjectInner(p, a) {
       return { ...p, ...a.patch };
     case 'addMedia':
       return { ...p, media: [...p.media, ...a.items] };
+    case 'renameMedia':
+      // Display name only — the file path never changes, so clips, proxies
+      // and relink state are untouched. A normal edit: undoable.
+      return { ...p, media: p.media.map((m) => (m.id === a.id ? { ...m, name: a.name } : m)) };
     case 'removeMedia':
       return {
         ...p,
@@ -1925,7 +1929,32 @@ export function formatTime(t) {
 // Look and placement of a picture clip, for "Copy / paste attributes".
 export const ATTRIBUTE_KEYS = ['filter', 'filterIntensity', 'adjust', 'grade', 'effects', 'transform', 'opacity', 'blend', 'chroma', 'mask', 'crop', 'customMask', 'bgRemove', 'enhance', 'speed', 'volume'];
 export function pickAttributes(c) {
-  return Object.fromEntries(ATTRIBUTE_KEYS.filter((k) => c[k] !== undefined).map((k) => [k, c[k]]));
+  // Checklist #15: deep-copy — the old shallow copy shared the source
+  // clip's transform / filter / keyframe objects with the pasted clip, so
+  // an edit to one silently moved the other. Every attribute value is
+  // plain JSON data (see ATTRIBUTE_KEYS), so structuredClone is exact.
+  return Object.fromEntries(ATTRIBUTE_KEYS.filter((k) => c[k] !== undefined).map((k) => [k, structuredClone(c[k])]));
+}
+
+// Checklist #5 — the patch that swaps a clip's media without losing its
+// attributes: effects, transform, timing and position stay; only
+// media-bound state goes (the speed curve re-anchors to the new source,
+// a reversed render and an enhanced-audio render belong to the old file).
+// Timing is preserved: the clip keeps its timeline span, using the first
+// N seconds of the new source; a shorter new source shortens the clip
+// (there is nothing else to play). Images hold their frame for the whole
+// span, so an image replacement keeps the span exactly.
+export function replaceClipPatch(c, oldMedia, newMedia) {
+  const span = (c.out ?? (oldMedia?.type === 'image' ? IMAGE_DEFAULT : oldMedia?.duration ?? 0)) - (c.in || 0);
+  const newDur = newMedia.type === 'image' ? Infinity : (newMedia.duration || 0);
+  return {
+    mediaId: newMedia.id,
+    in: 0,
+    out: Math.max(0.05, Math.min(newDur, span)),
+    speedCurve: undefined,
+    reversed: null,
+    enhance: undefined,
+  };
 }
 
 // What plays and exports: deactivated main clips become gaps (black, silent), other deactivated clips are left out.

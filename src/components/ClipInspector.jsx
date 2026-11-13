@@ -6,7 +6,7 @@ import { clipLen, formatTime, uid } from '../store.js';
 import { EFFECTS, FILTERS, TRANSITIONS } from '../effects.js';
 import { directionGroupFor } from '../fx/collections.js';
 import {
-  BLEND_MODES, DEFAULT_CHROMA, DEFAULT_CROP, DEFAULT_MASK, DEFAULT_TRANSFORM, MASK_SHAPES, chromaOf, cropOf, maskOf, scaleXY, transformOf,
+  BLEND_MODES, DEFAULT_CHROMA, DEFAULT_CROP, DEFAULT_MASK, MASK_SHAPES, chromaOf, cropOf, maskOf, resetTransformPatch, scaleXY, transformOf,
 } from '../visual.js';
 import { CROP_ASPECTS, aspectRatioOf, cropForAspect } from '../cropMath.js';
 import { hasCustomMask } from '../customMask.js';
@@ -372,7 +372,7 @@ export default function ClipInspector({ clip, media, project, set, dispatch, tra
           {sub === 'basic' && (
             <>
               <Section id="video:transform" title={t('ci.transform')} keys={keys(['scale', 'x', 'y', 'rot'], 'transform')}
-                onReset={() => set({ transform: { ...DEFAULT_TRANSFORM }, keyframes: dropKeys(['scale', 'x', 'y', 'rot']) })}>
+                onReset={() => set(resetTransformPatch(clip, track))}>
                 {S({ label: t('insp.scale'), value: tf.scale, min: 0.05, max: 4, step: 0.01, fmt: pct, numScale: 100, onChange: (scale) => setT({ scale }), extra: keys(['scale'], 'scale') })}
                 <div className="fitfill-row">
                   <button type="button" className="btn btn-sm" onClick={() => fitFill('fit')}

@@ -639,6 +639,32 @@ ipcMain.handle('project:save', async (_e, json, file, opts = {}) => {
     return { error: `Could not save the project: ${e.message}` };
   }
 });
+
+// Checklist #7 — export the project with all its media as one .zip
+// (backup / sharing). Missing media is reported, never silently dropped
+// (the bundled JSON keeps those entries with their original paths); the
+// job streams, so a multi-gigabyte project never sits in memory whole.
+ipcMain.handle('project:exportZip', async (event, json, opts = {}) => {
+  try {
+    const project = JSON.parse(json);
+    const name = String(opts.name || project.name || 'project').replace(/[\\/:*?"<>|]+/g, '').trim() || 'project';
+    const res = await dialog.showSaveDialog(win, {
+      title: 'Export project as ZIP',
+      defaultPath: `${name}.zip`,
+      filters: [{ name: 'ZIP archive', extensions: ['zip'] }],
+    });
+    if (res.canceled) return null;
+    const { writeProjectZip } = require('./projectzip.cjs');
+    return await writeProjectZip(project, name, res.filePath, (p) => {
+      try { event.sender.send('zip:progress', p); } catch { /* window closed mid-zip */ }
+    });
+  } catch (e) {
+    return { error: `Could not export the project ZIP: ${e.message}` };
+  }
+});
+ipcMain.handle('zip:cancel', () => {
+  try { return require('./projectzip.cjs').cancelProjectZip(); } catch { return false; }
+});
 // Auto save: rewrites an already chosen project file.
 ipcMain.handle('project:autosave', (_e, file, json) => {
   if (!projectFiles.has(file)) return false;
@@ -666,8 +692,12 @@ const loadProjectFile = async (file) => {
   const r = draftsafety.readProjectWithFallback(file, slotJson, slot?.updatedAt || null);
   if (r.missing) return { missingFile: true };
   if (r.corrupt) return { corrupt: true };
-  const json = await pf.refreshSizes(pf.checkGenerated(r.json, mediaCacheDir()), probe);
-  return { json, recoveredFrom: r.recoveredFrom || null, missing: pf.findMissingMedia(json) };
+  // A bundled project (a ZIP's <name>.clipcraft.json) writes its media
+  // paths relative to the project file — resolve them against this file's
+  // folder before anything probes or checks them (checklist #7).
+  const json = pf.resolveRelativeMedia(r.json, path.dirname(file));
+  const sized = await pf.refreshSizes(pf.checkGenerated(json, mediaCacheDir()), probe);
+  return { json: sized, recoveredFrom: r.recoveredFrom || null, missing: pf.findMissingMedia(sized) };
 };
 
 ipcMain.handle('project:open', async () => {

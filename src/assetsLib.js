@@ -27,9 +27,11 @@ export const assetAddWhere = (item) => (item && (item.kind === 'video' || item.k
 //   App tags new renders origin: 'detach' | 'reverse' | 'stabilize'; renders made before
 //   the tag existed are recognised by the render cache's file naming (<hash>-detach.wav,
 //   <hash>-rev.mp4, <hash>-stab.mp4 — electron/detach.cjs, reverse.cjs, stabilize.cjs).
+//   Colour mattes and black videos (checklist #11) are generated in-app too, so
+//   origin 'matte' counts as processed as well.
 //   Voice-enhance renders are NOT media (they hang off the clip as clip.enhance), so they
 //   truthfully never appear here.
-export const PROCESSED_ORIGINS = ['detach', 'reverse', 'stabilize', 'enhance'];
+export const PROCESSED_ORIGINS = ['detach', 'reverse', 'stabilize', 'enhance', 'matte'];
 const RENDER_NAME = /-(detach|rev|stab)\.[a-z0-9]+$/i;
 
 export const isSpeechMedia = (m) => !!m && m.type === 'audio'
