@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Install Playwright and Chromium
-        run: python3 -m pip install --quiet --break-system-packages playwright && python3 -m playwright install chromium 
+        run: python3 -m pip install --quiet --break-system-packages playwright && python3 -m playwright install chromium
       - name: Download deb in a real browser and attach it
         env:
           GH_TOKEN: ${{ github.token }}
@@ -31,6 +31,13 @@ jobs:
                         page.wait_for_timeout(8000)
                         print('title:', page.title())
                         print('buttons:', page.locator('button').all_inner_texts())
+                        # Dismiss the SwissTransfer cookie banner so it cannot cover the Download button.
+                        try:
+                            page.get_by_role("button", name="Accept all").click(timeout=15000)
+                            page.get_by_role("button", name="Accept all").wait_for(state="detached", timeout=15000)
+                            print('cookie banner dismissed')
+                        except Exception as e:
+                            print('cookie banner dismiss skipped/failed:', e)
                         try:
                             with page.expect_download(timeout=300000) as dl:
                                 page.get_by_role('button', name='Download', exact=True).click()
