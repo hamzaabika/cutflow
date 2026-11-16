@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Install Playwright and Chromium
-        run: python3 -m pip install --quiet --break-system-packages playwright && python3 -m playwright install chromium && sudo python3 -m playwright install-deps chromium
+        run: python3 -m pip install --quiet --break-system-packages playwright && python3 -m playwright install chromium 
       - name: Download deb in a real browser and attach it
         env:
           GH_TOKEN: ${{ github.token }}
