@@ -19,9 +19,6 @@ export default function ScreenRecordDialog({ rec, at, onClose }) {
   // Where finished recordings land, spelled the way this OS spells it
   // (the folder is the Videos folder's Cutflow subfolder on every OS).
   const recDir = `Videos${(navigator.platform || '').toLowerCase().startsWith('win') ? String.fromCharCode(92) : '/'}Cutflow`;
-  // Linux recorder notes (P1-29): loopback audio comes through the system audio server, and the Stop bar is
-  // hidden during screen recordings because Linux cannot exclude a window from a capture.
-  const isLinux = (navigator.platform || '').toLowerCase().includes('linux');
   // Device names are only given once a device was allowed; list them again after the camera / microphone opens.
   const listDevices = () => navigator.mediaDevices.enumerateDevices().then((all) => setDevices({
     mics: all.filter((d) => d.kind === 'audioinput' && d.deviceId !== 'communications'),
@@ -177,8 +174,6 @@ export default function ScreenRecordDialog({ rec, at, onClose }) {
           <label><input type="checkbox" checked={opts.systemAudio} onChange={set('systemAudio')} /> <Volume2 size={14} /> {t('rec.computerSound')}</label>
           <label><input type="checkbox" checked={opts.hideApp} onChange={set('hideApp')} /> {t('rec.hideApp')}</label>
         </div>
-        {isLinux && <p className="muted small">{t('rec.linuxAudioNote')}</p>}
-        {isLinux && kind === 'screen' && <p className="muted small">{t('rec.linuxBarNote')}</p>}
         <div className="rec-devices">
           <div className="rec-device">
             <label><input type="checkbox" checked={opts.mic} onChange={onMicToggle} /> <Mic size={14} /> {t('rec.microphone')}</label>
@@ -250,7 +245,7 @@ export default function ScreenRecordDialog({ rec, at, onClose }) {
           </div>
         )}
         {rec.error && <p className="error-text">{rec.error}</p>}
-        <p className="muted small">{t(isLinux && kind === 'screen' ? 'rec.footNoteLinux' : 'rec.footNote', { dir: recDir })}</p>
+        <p className="muted small">{t('rec.footNote', { dir: recDir })}</p>
         <div className="modal-actions">
           <button className="btn" onClick={close}>{t('common.cancel')}</button>
           <button className="btn btn-primary" disabled={!pick} onClick={tryStart}>

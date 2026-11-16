@@ -12,7 +12,7 @@ import { useT } from '../i18n/index.jsx';
 // relinkMedia action; skipping leaves the clips in place, still missing.
 // `context="export"` is the export guard (Part 3 addendum, 2026-11-10): the
 // same surface, but closing it cancels the export it was blocking.
-export default function RelinkDialog({ items, onApply, onClose, context, closeLabel, totalMedia }) {
+export default function RelinkDialog({ items, onApply, onClose, context, closeLabel }) {
   const t = useT();
   const [found, setFound] = useState({}); // id -> { path, verified, ...patch }
   const [busy, setBusy] = useState(false);
@@ -67,12 +67,6 @@ export default function RelinkDialog({ items, onApply, onClose, context, closeLa
         {context === 'export' && (
           <p className="muted">{t('rl.exportNote')}</p>
         )}
-        {context === 'midsession' && (
-          <p className="muted">{t('rl.midsessionNote')}</p>
-        )}
-        {context === 'packaged' && (
-          <p className="muted">{t('rl.packagedNote', { missing: (items || []).length, total: totalMedia || (items || []).length })}</p>
-        )}
         <div className="relink-list">
           {(items || []).map((m) => {
             const f = found[m.id];
@@ -83,11 +77,6 @@ export default function RelinkDialog({ items, onApply, onClose, context, closeLa
                   <span className="relink-path muted" title={f ? f.path : m.path}>
                     {f ? t('rl.nowPath', { path: f.path }) : t('rl.wasPath', { path: m.path })}
                   </span>
-                  {Array.isArray(m.clips) && (
-                    <span className="relink-clips muted">
-                      {m.clips.length ? t(m.clips.length === 1 ? 'rl.usedInOne' : 'rl.usedIn', { count: m.clips.length }) : t('rl.unused')}
-                    </span>
-                  )}
                   {f && f.verified === false && (
                     <span className="relink-warn">{t('rl.warn')}</span>
                   )}

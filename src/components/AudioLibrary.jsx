@@ -7,7 +7,6 @@ import PackMusic from './PackMusic.jsx';
 import Card from '../ui/Card.jsx';
 import { useT } from '../i18n/index.jsx';
 import { libName, slugifyPhrase } from '../i18n/libNames.js';
-import { AUDITION_RATES, REVERSE_AUDITION_SECONDS, reverseAuditionItem, reverseAuditionWindow } from '../audition.js';
 
 // Chip label -> search words. Openverse matches titles and tags, so some genres search better under another word.
 export const MUSIC_TAGS = [
@@ -46,17 +45,9 @@ export const TROLL_TAGS = [
 // into the library folder) and plays it. Soundza results carry a preview link: the main
 // process fetches that small preview file once (the page itself may only play local media),
 // and it never counts as a download of the sound.
-// P2-4: pitch + reverse audition for licensed library audio. Pitch is the
-// Audio element's own playbackRate with preservesPitch off (rate and pitch
-// move together, like a tape); reverse renders the first 20 seconds through
-// the existing areverse derivative (cached per item) and plays that file.
-// Audition only — adding a sound still uses the original.
 function usePreview() {
   const audio = useRef(null);
   const [state, setState] = useState({ id: null, loading: false, error: '', progress: 0 });
-  const [rate, setRateState] = useState(1);
-  const [reversed, setReversedState] = useState(false);
-  const revCache = useRef(new Map()); // item id -> reversed derivative path
   useEffect(() => {
     const a = new Audio();
     a.onended = () => setState((s) => ({ ...s, id: null, progress: 0 }));
@@ -65,19 +56,6 @@ function usePreview() {
     audio.current = a;
     return () => a.pause();
   }, []);
-  const setRate = (r) => {
-    setRateState(r);
-    const a = audio.current;
-    if (a) { a.playbackRate = r; a.preservesPitch = false; }
-  };
-  const stop = () => {
-    audio.current?.pause();
-    setState({ id: null, loading: false, error: '', progress: 0 });
-  };
-  const setReversed = (on) => {
-    setReversedState(on);
-    stop(); // the mode applies to the next play, not mid-playback
-  };
   const toggle = async (item) => {
     const a = audio.current;
     if (state.id === item.id && !state.loading) {
@@ -90,27 +68,15 @@ function usePreview() {
     // main process; other library sounds are resolved (and downloaded once).
     const res = item.path ? { path: item.path } : item.previewUrl ? await window.api.soundzaPreview(item) : await window.api.libraryFile(item);
     if (res.error) return setState({ id: null, loading: false, error: res.error, progress: 0 });
-    let src = res.path;
-    if (reversed) {
-      const cached = revCache.current.get(item.id);
-      if (cached) {
-        src = cached;
-      } else {
-        const { from, to } = reverseAuditionWindow(item.duration);
-        const rev = await window.api.reverseRun(reverseAuditionItem(res.path, item.duration), from, to);
-        if (rev.canceled) return setState({ id: null, loading: false, error: '', progress: 0 });
-        if (rev.error) return setState({ id: null, loading: false, error: rev.error, progress: 0 });
-        src = rev.path;
-        revCache.current.set(item.id, src);
-      }
-    }
-    a.src = toFileUrl(src);
-    a.playbackRate = rate;
-    a.preservesPitch = false;
+    a.src = toFileUrl(res.path);
     a.play().catch(() => {});
     setState({ id: item.id, loading: false, error: '', progress: 0 });
   };
-  return { ...state, rate, reversed, setRate, setReversed, toggle, stop };
+  const stop = () => {
+    audio.current?.pause();
+    setState({ id: null, loading: false, error: '', progress: 0 });
+  };
+  return { ...state, toggle, stop };
 }
 
 function Row({ item, preview, onAdd, adding, fav = item.path ? null : favLibrary(item) }) {
@@ -288,18 +254,6 @@ export default function AudioLibrary({ media, project, onImport, onAddMedia, onL
   return (
     <>
       {(preview.error || addError) && <p className="error-text">{preview.error || addError}</p>}
-      <div className="lib-audition" data-testid="audition-bar">
-        <span>{t('lib.audition')}</span>
-        <div className="dir-seg" role="group" aria-label={t('lib.pitch')}>
-          {AUDITION_RATES.map((r) => (
-            <button key={r} type="button" className={`btn btn-sm ${preview.rate === r ? 'btn-primary' : ''}`}
-              aria-pressed={preview.rate === r} onClick={() => preview.setRate(r)}>{r}×</button>
-          ))}
-        </div>
-        <button type="button" className={`btn btn-sm ${preview.reversed ? 'btn-primary' : ''}`} aria-pressed={preview.reversed}
-          onClick={() => preview.setReversed(!preview.reversed)} title={t('lib.reverseTitle', { seconds: REVERSE_AUDITION_SECONDS })}>{t('lib.reverse')}</button>
-        <span className="dim small">{t('lib.auditionNote')}</span>
-      </div>
 
       {view === 'music' && (sub.startsWith('pack:') ? (
         <PackMusic collection={sub.slice(5)} onAddFile={onAddFile} />

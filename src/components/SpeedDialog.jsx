@@ -11,13 +11,7 @@ import { useT } from '../i18n/index.jsx';
 // A clip WITH a speed curve: applying here replaces the curve with the constant rate
 // (the store enforces it); the duration field starts from the curve's real duration.
 const PRESETS = [25, 50, 75, 100, 125, 150, 200, 400];
-// Speed range 0.1–100x (spec matrix) + named presets from src/gapB.js.
-const clampSpeed = (s) => Math.min(100, Math.max(0.1, s));
-const NAMED_PRESETS = [
-  { id: 'montage', label: 'Montage', pct: 400 },
-  { id: 'hero', label: 'Hero', pct: 50 },
-  { id: 'bullet', label: 'Bullet', pct: 1000 },
-];
+const clampSpeed = (s) => Math.min(16, Math.max(0.05, s));
 
 export default function SpeedDialog({ clip, name, onApply, onClose }) {
   const t = useT();
@@ -51,14 +45,9 @@ export default function SpeedDialog({ clip, name, onApply, onClose }) {
             <button key={p} className={`chip ${Number(pct) === p ? 'on' : ''}`} onClick={() => setFromPct(p)}>{p}%</button>
           ))}
         </div>
-        <div className="speed-presets" role="group" aria-label="Named speed presets">
-          {NAMED_PRESETS.map((p) => (
-            <button key={p.id} className={`chip ${Number(pct) === p.pct ? 'on' : ''}`} title={`${p.label} — ${p.pct / 100}×`} onClick={() => setFromPct(p.pct)}>{p.label} {p.pct / 100}×</button>
-          ))}
-        </div>
         <label className="field">
           <span>{t('spd.speedPct')}</span>
-          <input type="number" min="10" max="10000" step="5" value={pct} aria-label={t('spd.speedPercent')}
+          <input type="number" min="5" max="1600" step="5" value={pct} aria-label={t('spd.speedPercent')}
             onChange={(e) => setFromPct(e.target.value)} />
         </label>
         <label className="field">

@@ -2,39 +2,14 @@
 // it answers in plain text. The model lives in the main process (the API key never reaches the interface);
 // the tools run here, next to the project.
 import { TOOL_DECLARATIONS, createToolRunner } from './tools.js';
-import { projectDuration } from '../store.js';
-
-const TRACK_LISTS = ['videoClips', 'overlayClips', 'textClips', 'audioClips', 'effectClips'];
-export const TRACK_LABELS = { videoClips: 'video', overlayClips: 'overlay', textClips: 'text', audioClips: 'audio', effectClips: 'effect' };
-
-// A-F9 — per-track change summary: what a run added / removed / changed on each
-// track, plus the duration shift. Pure; the UI renders it, and the rollback path
-// reports what was attempted before it was undone.
-export function summarizeProjectDiff(before, after) {
-  const diff = { lists: {}, added: 0, removed: 0, changed: 0, durationBefore: projectDuration(before || {}), durationAfter: projectDuration(after || {}) };
-  for (const key of TRACK_LISTS) {
-    const b = new Map(((before || {})[key] || []).map((c) => [c.id, c]));
-    const a = new Map(((after || {})[key] || []).map((c) => [c.id, c]));
-    const counts = { added: 0, removed: 0, changed: 0 };
-    for (const [id, clip] of a) {
-      if (!b.has(id)) { counts.added += 1; continue; }
-      if (JSON.stringify(b.get(id)) !== JSON.stringify(clip)) counts.changed += 1;
-    }
-    for (const id of b.keys()) if (!a.has(id)) counts.removed += 1;
-    diff.lists[key] = counts;
-    diff.added += counts.added; diff.removed += counts.removed; diff.changed += counts.changed;
-  }
-  return diff;
-}
 
 export const SYSTEM_PROMPT = `You are FlowAI, the assistant inside Cutflow, a desktop video editor. You help the user edit their project by calling tools.
 
 How to work:
 - Never guess clip ids, times or names. Call get_project first when you need them, and again after cuts because times shift.
-- Do the edit with the tools, then answer in one to three short sentences saying what you changed and the important numbers. The user can undo everything with one click, so do not ask for confirmation unless the request is genuinely ambiguous or would remove most of the video. When a tool removes content (cutting, keeping only some ranges, removing silences, deleting a clip), the app itself shows the user what will be removed and asks them first — never ask for that confirmation in your reply; if the tool says the user declined, do not retry the same change, suggest a smaller one or ask what they want instead.
+- Do the edit with the tools, then answer in one to three short sentences saying what you changed and the important numbers. The user can undo everything with one click, so do not ask for confirmation unless the request is genuinely ambiguous or would remove most of the video.
 - Reply in the language the user writes in. If they write Arabic or Darija, answer in Arabic script, never in Latin transliteration. Keep tool names and technical words (FFmpeg, Undo) as they are.
 - Only use what your tools can do. If something is not possible with them, say so plainly and suggest the closest thing you can do.
-- Your changes may be collected into a reviewable plan instead of applying at once — either way, never ask for confirmation in your reply; the app handles the review.
 - Times are in seconds on the timeline. Only the main (video) track is cut by cutting tools; music and text keep their own time.
 - Use transcribe when the request depends on what is said (highlights, summaries, finding a moment). It can be slow on long videos, so use it once and reuse the result.
 - For captions in Arabic or Darija pass language "ar". Auto-detect is unreliable.
@@ -97,29 +72,9 @@ export function describeCall(name, args) {
 }
 
 // contents: the running conversation (mutated). onEvent: UI callback. isCanceled(): polled between steps.
-// ctx: { getProject, dispatch, api, settle, historyDepth?, undoOwn? }.
-// A-F9 — atomic rollback: a run that fails (provider error, cancel, step cap) never
-// leaves a half-applied edit behind. The project is snapshotted at the start; on a
-// failed ending the summary is computed against the project at the failure, then the
-// history is jumped back to its starting depth in one dispatch (undoTo) — or, when
-// no depth is available, the caller's undoOwn is drained. The return carries
-// { summary, rolledBack } either way, so the UI can say what was attempted and that
-// it was undone. Plan-mode runs edit a clone, so a rollback there is a no-op safety net.
+// ctx: { getProject, dispatch, api, settle }.
 export async function runAgent({ contents, ctx, onEvent, isCanceled }) {
   const runner = createToolRunner(ctx);
-  const before = ctx.getProject ? structuredClone(ctx.getProject()) : null;
-  const startDepth = typeof ctx.historyDepth === 'function' ? ctx.historyDepth() : null;
-  const rollback = () => {
-    if (!changed) return false;
-    if (typeof ctx.dispatch === 'function' && startDepth !== null) {
-      ctx.dispatch({ type: 'undoTo', depth: startDepth });
-      return true;
-    }
-    let n = 0;
-    while (typeof ctx.undoOwn === 'function' && ctx.undoOwn()) n++;
-    return n > 0;
-  };
-  const failSummary = () => (before ? summarizeProjectDiff(before, ctx.getProject ? ctx.getProject() : before) : null);
   // MCP servers configured in Settings contribute their tools for this run, prefixed
   // mcp_<server>_<tool>; a server that fails to start is skipped, never fatal.
   let tools = TOOL_DECLARATIONS;
@@ -133,37 +88,22 @@ export async function runAgent({ contents, ctx, onEvent, isCanceled }) {
   let changed = false;
   let provider; // once a fallback answered, the rest of the request stays on it
   for (let step = 0; step < MAX_STEPS; step++) {
-    if (isCanceled()) {
-      const summary = failSummary();
-      const rolledBack = rollback();
-      return { text: '', canceled: true, changed: rolledBack ? false : changed, summary, rolledBack };
-    }
+    if (isCanceled()) return { text: '', canceled: true, changed };
     const res = await ctx.api.agentStep({ system: SYSTEM_PROMPT, contents, tools, provider });
-    if (!res.ok) {
-      const summary = failSummary();
-      const rolledBack = rollback();
-      return { error: res, summary, rolledBack, changed: rolledBack ? false : changed };
-    }
+    if (!res.ok) return { error: res };
     if (res.fellBack?.length) {
       const why = res.fellBack.map((f) => `${f.name} ${f.reason}`).join(', ');
       onEvent({ type: 'tool', id: `switch-${step}`, name: 'switch', label: `${why}: switched to ${providerName(res.provider)} (${res.model})`, status: 'switch' });
     }
     provider = res.provider;
     contents.push(res.content);
-    if (!res.calls.length) {
-      const summary = changed && before ? summarizeProjectDiff(before, ctx.getProject ? ctx.getProject() : before) : null;
-      return { text: res.text, changed, summary };
-    }
+    if (!res.calls.length) return { text: res.text, changed };
 
     const responses = [];
     for (const call of res.calls) {
-      if (isCanceled()) {
-        const summary = failSummary();
-        const rolledBack = rollback();
-        return { text: '', canceled: true, changed: rolledBack ? false : changed, summary, rolledBack };
-      }
+      if (isCanceled()) return { text: '', canceled: true, changed };
       const id = `${step}-${responses.length}`;
-      onEvent({ type: 'tool', id, name: call.name, args: call.args, label: describeCall(call.name, call.args), status: 'running' });
+      onEvent({ type: 'tool', id, name: call.name, label: describeCall(call.name, call.args), status: 'running' });
       const result = call.name.startsWith('mcp_')
         ? await (async () => {
           const r = await ctx.api.mcpCall({ name: call.name, args: call.args });
@@ -172,14 +112,10 @@ export async function runAgent({ contents, ctx, onEvent, isCanceled }) {
         : await runner.run(call.name, call.args);
       const failed = !!result.error;
       if (!failed && !call.name.startsWith('mcp_') && runner.mutates(call.name)) changed = true;
-      onEvent({ type: 'tool', id, name: call.name, args: call.args, label: describeCall(call.name, call.args), status: failed ? 'error' : 'done', detail: failed ? result.error : undefined });
+      onEvent({ type: 'tool', id, name: call.name, label: describeCall(call.name, call.args), status: failed ? 'error' : 'done', detail: failed ? result.error : undefined });
       responses.push({ functionResponse: { name: call.name, response: { result } } });
     }
     contents.push({ role: 'user', parts: responses });
   }
-  // Step cap reached without finishing: an incomplete multi-step run, rolled back
-  // like any other failed run rather than left half-applied.
-  const summary = failSummary();
-  const rolledBack = rollback();
-  return { text: 'I stopped after several steps without finishing. Tell me what to continue with.', changed: rolledBack ? false : changed, summary, rolledBack };
+  return { text: 'I stopped after several steps without finishing. Tell me what to continue with.', changed };
 }

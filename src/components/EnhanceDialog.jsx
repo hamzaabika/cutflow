@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import Button from '../ui/Button.jsx';
 import { Sparkles } from '../icons.jsx';
 import { useT } from '../i18n/index.jsx';
-import AiBadge from './AiBadge.jsx';
 
 // AI Enhance (Real-ESRGAN, local): pick a model and a scale for the chosen
 // video, then Start hands the work to the export-jobs queue — the dialog is
@@ -24,7 +23,7 @@ export default function EnhanceDialog({ name, onStart, onClose }) {
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal">
         <div className="modal-icon"><Sparkles size={24} /></div>
-        <h3 id="enhance-title">{t('enhance.title')} <AiBadge kind="local" /></h3>
+        <h3 id="enhance-title">{t('enhance.title')}</h3>
         <p className="muted">{t('enhance.intro')}</p>
         {name && <p className="enhance-target" title={name}>{name}</p>}
         <div className="enhance-field">

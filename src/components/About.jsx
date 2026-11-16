@@ -26,23 +26,19 @@ export function AboutDialog({ onClose, onWelcome }) {
     window.api.updatesCheck?.(false).then((r) => setCheck(r || { error: t('about.updateCheckFailed') })).catch(() => setCheck({ error: t('about.updateCheckFailed') }));
   };
   const [dl, setDl] = useState(null); // in-app installer download state
-  // FB-21 (P1-36): an update whose feed carries no checksum is refused by
-  // default. The checkbox below is the explicit override — one decision per
-  // update, applied to both the download and the install.
-  const [allowUnverified, setAllowUnverified] = useState(false);
   useEffect(() => window.api.onUpdateProgress?.((p) => setDl((d) => (d?.phase === 'downloading' ? { phase: 'downloading', ...p } : d))), []);
   const startDownload = () => {
     setDl({ phase: 'downloading', received: 0, total: 0 });
-    window.api.updatesDownload?.(allowUnverified)
-      .then((r) => setDl(r?.error ? { phase: 'error', error: r?.missingChecksum ? t('about.missingChecksum') : r.error } : { phase: 'done', fileName: r?.fileName || '', verified: r?.verified === true, unverified: r?.unverified === true }))
+    window.api.updatesDownload?.()
+      .then((r) => setDl(r?.error ? { phase: 'error', error: r.error } : { phase: 'done', fileName: r?.fileName || '', verified: r?.verified === true }))
       .catch(() => setDl({ phase: 'error', error: t('about.downloadFailed') }));
   };
   const openInstaller = () => window.api.updatesOpenInstaller?.().then((r) => { if (r?.error) setDl({ phase: 'error', error: r.error }); }).catch(() => {});
   const startInstall = () => {
     setDl({ phase: 'installing' });
-    window.api.updatesInstall?.(allowUnverified)
+    window.api.updatesInstall?.()
       .then((r) => {
-        if (r?.error) setDl((d) => ({ phase: 'install-error', error: r?.missingChecksum ? t('about.missingChecksum') : r.error, fileName: d?.fileName || '' }));
+        if (r?.error) setDl((d) => ({ phase: 'install-error', error: r.error, fileName: d?.fileName || '' }));
         else if (r?.opened) setDl((d) => ({ phase: 'opened', fileName: d?.fileName || '' }));
         else setDl((d) => ({ phase: 'restarting', fileName: d?.fileName || '' }));
       })
@@ -88,24 +84,12 @@ export function AboutDialog({ onClose, onWelcome }) {
               <b>{t('about.available', { v: check.latest })}</b>
               {(check.releaseDate || check.size) && <span className="muted small">{[check.releaseDate, check.size].filter(Boolean).join(' · ')}</span>}
               {check.notes && <span className="about-notes">{check.notes}</span>}
-              {check.hashMissing && !dl && (
-                <span className="about-status error" role="alert"><WifiOff size={15} /> {t('about.hashMissing', { v: check.latest })}</span>
-              )}
-              {!dl && !check.hashMissing && (
+              {!dl && (
                 <>
                   <div className="about-devlinks">
                     <button className="btn btn-primary btn-sm" onClick={startDownload}><Download size={13} /> {t('about.downloadInstall')}</button>
                     {check.notesUrl && <button className="btn btn-sm" onClick={() => window.api.openHelp(check.notesUrl)}>{t('about.whatsNew')}</button>}
                   </div>
-                  {!check.sha256 && (
-                    <>
-                      <span className="muted small">{t('about.noChecksum')}</span>
-                      <label className="field row">
-                        <span>{t('about.allowUnverified')}</span>
-                        <input type="checkbox" checked={allowUnverified} onChange={(e) => setAllowUnverified(e.target.checked)} />
-                      </label>
-                    </>
-                  )}
                   <span className="muted small">{t('about.youHave', { v: check.current })} <button className="linklike" onClick={() => window.api.openHelp(check.downloadUrl)}>{t('about.orBrowser')}</button></span>
                 </>
               )}
@@ -117,7 +101,7 @@ export function AboutDialog({ onClose, onWelcome }) {
               )}
               {dl?.phase === 'done' && (
                 <>
-                  <span className="about-status ok"><CheckCircle2 size={15} /> {dl.fileName ? t('about.downloadedFile', { file: dl.fileName }) : t('about.downloadedPlain')}{dl.verified ? t('about.verifiedSuffix') : ''}{dl.unverified ? ` ${t('about.unverifiedNote')}` : ''}</span>
+                  <span className="about-status ok"><CheckCircle2 size={15} /> {dl.fileName ? t('about.downloadedFile', { file: dl.fileName }) : t('about.downloadedPlain')}{dl.verified ? t('about.verifiedSuffix') : ''}</span>
                   <div className="about-devlinks">
                     <button className="btn btn-primary btn-sm" onClick={startInstall}><Download size={13} /> {t('about.installRestart')}</button>
                     <button className="btn btn-sm" onClick={openInstaller}>{t('about.openInstaller')}</button>

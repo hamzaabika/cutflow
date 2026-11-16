@@ -1,12 +1,10 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
-  ArrowLeftRight, ArrowLeftToLine, ArrowRightToLine, AudioLines, AudioWaveform, BetweenHorizontalStart, Copy, CopyPlus, Eye, EyeOff, Film, Flag, Gauge, GripVertical, Layers, Link2, ListChecks, Lock, LockOpen, Magnet, Mic, MoreHorizontal, MousePointer2, Music, Pencil, Plus, Scissors, Slice, SlidersHorizontal, SlipTool, SlideTool, Sticker,
-  Sparkles, Split, Square, StretchHorizontal, Trash2, Type, Undo2, Unlink, Volume2, VolumeX, Redo2, X, ZoomIn, ZoomOut, Captions, FxGlyph, History,
+  ArrowLeftRight, ArrowLeftToLine, ArrowRightToLine, AudioLines, AudioWaveform, BetweenHorizontalStart, Copy, CopyPlus, Eye, EyeOff, Film, Flag, GripVertical, Layers, Link2, Lock, LockOpen, Magnet, Mic, MoreHorizontal, MousePointer2, Music, Pencil, Plus, Scissors, Slice, Sticker,
+  Sparkles, Split, Square, StretchHorizontal, Trash2, Type, Undo2, Unlink, Volume2, VolumeX, Redo2, X, ZoomIn, ZoomOut, Captions, FxGlyph,
 } from '../icons.jsx';
-import { LAYERED, MARKER_COLORS, MIN_CLIP, audioTrimOf, clipLayer, effectObjects, formatTime, freeLen, isLayerLocked, layerCount, layerFree, layerOf, layerStateOf, markerColorHex, toFileUrl, trimActions, uid, videoClipAt, videoLayout, withFxTiming } from '../store.js';
-import { followingClips } from '../groups.js';
+import { LAYERED, MARKER_COLORS, MIN_CLIP, clipLayer, effectObjects, formatTime, freeLen, isLayerLocked, layerCount, layerFree, layerOf, layerStateOf, markerColorHex, toFileUrl, trimActions, uid, videoClipAt, videoLayout, withFxTiming } from '../store.js';
 import { clipDuration, hasCurve, sourceOffsetAt, speedAtSource } from '../speedCurve.js';
-import { effectiveFps, quantize } from '../frames.js';
 import { clipGainAt, hasVolKeys, removeVolKey, upsertVolKey, volKeyLocalPoints } from '../volKeys.js';
 import { animById, animOf, keyTimes, moveKeys } from '../anim.js';
 import { beatSplitTarget, beatsOf, formatBpm } from '../beats.js';
@@ -15,13 +13,8 @@ import { EFFECTS, TRANSITIONS } from '../effects.js';
 import { FILTERS } from '../effects.js';
 import { activeDrag, isFiles, isInternal, laneFor, readPayload } from '../dnd.js';
 import { followScrollTarget, interpolateTime, playheadX } from '../playbackClock.js';
-import { clipInWindow, timesInWindow, visibleWindow } from '../timelineView.js';
 import AudioMeter from './AudioMeter.jsx';
-import { FadeHandles, VolLine } from './TimelineOverlays.jsx';
-import BeatGridPanel from './BeatGridPanel.jsx';
-import MixerPanel from './MixerPanel.jsx';
 import ContextMenu from './ContextMenu.jsx';
-import SequenceTabs from './SequenceTabs.jsx';
 import { bindingHint, getCurrentKeymap } from '../keymap.js';
 import { tr, useT } from '../i18n/index.jsx';
 import { libName } from '../i18n/libNames.js';
@@ -72,8 +65,8 @@ const LANES = [
 
 export default function Timeline({
   project, time, duration, selection, onSelect, onSeek, dispatch, onSplit, onDelete, onDuplicate,
-  onDropItem, onDropFiles, canUndo, canRedo, onOpenUndoHistory, onOpenLoudness, tool, setTool, onTrimSide, onMarker, recorder, onToggleRecord, onClipMenu, overlay, onAddText, clockRef, playing,
-  onDetach, detachOk, onLinkToggle, linkMode, onDetectBeats, onSplitBeats, silenceMarks, onScrubStart, apiRef,
+  onDropItem, onDropFiles, canUndo, canRedo, tool, setTool, onTrimSide, onMarker, recorder, onToggleRecord, onClipMenu, overlay, onAddText, clockRef, playing,
+  onDetach, detachOk, onLinkToggle, linkMode, onDetectBeats, onSplitBeats, silenceMarks, onScrubStart,
 }) {
   const t = useT();
   // Layer display name: the user's rename (stored, never translated) or the
@@ -81,29 +74,6 @@ export default function Timeline({
   // stays English for data/tests; the UI always renders through this.
   const dispLayerName = (track, layer) => (project.layerNames && project.layerNames[track] && project.layerNames[track][layer]) || `${t('lane.' + track)} ${layer + 1}`;
   const [pps, setPps] = useState(60); // pixels per second (zoom)
-  // B-E3: waveform amplitude zoom (1x/2x/4x, cycles) and audio scrubbing
-  // (hear the audio under the playhead while scrubbing). Both off by
-  // default in behaviour: zoom 1x is the old look, scrub audio is opt-in.
-  const [waveZoom, setWaveZoom] = useState(1);
-  const [scrubAudio, setScrubAudio] = useState(false);
-  const scrubAudioRef = useRef(null);
-  // PF-03 timeline virtualization: the visible time window, from the scroll
-  // position. Updated from the scroll event (and after a zoom/fit), only
-  // when the window moved by more than a quarter second — a scroll is not a
-  // render loop, but a state update per pixel would still churn. Lanes skip
-  // rendering clips outside the window (+ overscan); row assignment still
-  // runs over all clips so layer rows never shift as you scroll.
-  const [view, setView] = useState({ left: 0, width: 1200 });
-  const viewRef = useRef(view);
-  const onTlScroll = (e) => {
-    const el = e.currentTarget;
-    const next = { left: el.scrollLeft, width: el.clientWidth || viewRef.current.width };
-    const prev = viewRef.current;
-    if (Math.abs(next.left - prev.left) < 15 && next.width === prev.width) return;
-    viewRef.current = next;
-    setView(next);
-  };
-  const win = useMemo(() => visibleWindow({ scrollLeft: view.left, clientWidth: view.width, pps }), [view, pps]);
   const [insertMode, setInsertMode] = useState(false); // Sprint 10: drops ripple-insert instead of placing
   const [drop, setDrop] = useState(null); // { lane, time, index, clipId }
   const [snapAt, setSnapAt] = useState(null); // timeline time of the active snap guide
@@ -116,15 +86,6 @@ export default function Timeline({
   const ppsRef = useRef(pps);
   ppsRef.current = pps;
   const [razorAt, setRazorAt] = useState(null); // where the razor would cut (hover guide)
-  const [tlPanel, setTlPanel] = useState(null); // { kind: 'beats' | 'mixer', x, top } — toolbar popovers (P2-22 / P2-23)
-  // Popovers are position:fixed, measured from the button that opened them
-  // (the ContextMenu pattern): an absolute panel inside the toolbar painted
-  // under the preview row, so only a sliver showed.
-  const openPanel = (kind, e) => {
-    if (tlPanel?.kind === kind) { setTlPanel(null); return; }
-    const r = e.currentTarget.getBoundingClientRect();
-    setTlPanel({ kind, x: r.left + r.width / 2, top: r.top });
-  };
   const [layerMenu, setLayerMenu] = useState(null); // { x, y, track, layer } — layer (track) header menu, item 13
   const [markerMenu, setMarkerMenu] = useState(null); // { x, y, marker } — marker colour / bulk-delete menu (step 5)
   const [renaming, setRenaming] = useState(null); // { track, layer, draft } — inline layer rename
@@ -162,18 +123,6 @@ export default function Timeline({
           onClick: () => setLayer(m.track, m.layer, { solo: !st.solo }) },
       );
     }
-    // Per-lane magnet (P1-04): the ripple toggle lives on the lane again —
-    // the store always had per-track magnet defaults (video/audio on, text
-    // off so captions keep timing), but the menu entries were removed in
-    // the P4 structure pass and only the global snapping toggle remained.
-    // Toggling the main track on closes every gap (store setMagnet rule).
-    if (!LANES.find((l) => l.id === m.track)?.noMagnet) {
-      const magnetOn = !!(project.magnet || {})[m.track];
-      items.push(
-        { label: magnetOn ? t('tl.magnetOff', { name }) : t('tl.magnetOn', { name }), icon: Magnet,
-          onClick: () => dispatch({ type: 'setMagnet', track: m.track, on: !magnetOn }) },
-      );
-    }
     if (m.track === 'effect') return items; // the Effects lane is one row: state toggles only
     const srcCount = m.track === 'video'
       ? project.videoClips.filter((c) => !c.gap).length
@@ -188,9 +137,10 @@ export default function Timeline({
         onClick: () => dispatch({ type: 'deleteLayer', track: m.track, layer: m.layer }) });
     // Lane-level actions that lived on the old title strip (merged into the
     // first layer row in Hamza's 2026-11-10 UI review): adding a layer. Same
-    // handler the strip's button called. The per-lane magnet toggle lives in
-    // this same menu (added back in P1-04); snapping stays ONE global toggle
-    // in the timeline toolbar (the Magnet button).
+    // handler the strip's button called. The per-lane magnet entries were
+    // removed in the P4 structure pass — snapping is ONE global toggle in the
+    // timeline toolbar (the Magnet button); the store keeps its per-track
+    // ripple defaults (text stays un-magnetised so captions keep timing).
     const laneDef = LANES.find((l) => l.id === m.track);
     const extras = [];
     if (LAYERED[m.track]) {
@@ -309,20 +259,6 @@ export default function Timeline({
   const magnet = project.magnet || {};
   const scrollRef = useRef(null);
   const mediaById = Object.fromEntries(project.media.map((m) => [m.id, m]));
-  // Unused source around a clip, in TIMELINE seconds (P1-04): the source
-  // before the clip's in-point and after its out-point, converted at the
-  // clip's constant speed — the visible answer to "can I drag this edge
-  // further?". Speed-ramped clips are skipped (their source mapping is
-  // non-linear, so a straight strip would mislead); images have no duration
-  // to run out of. Returns 0 on a side with less than one frame of source.
-  const sourceGhost = (clip, media) => {
-    const fps = effectiveFps(project);
-    if (!media || media.type === 'image' || !Number.isFinite(media.duration) || hasCurve(clip)) return { head: 0, tail: 0 };
-    const sp = clip.speed || 1;
-    const head = Math.max(0, clip.in) / sp;
-    const tail = Math.max(0, media.duration - clip.out) / sp;
-    return { head: head > 1 / fps ? head : 0, tail: tail > 1 / fps ? tail : 0 };
-  };
   const layout = videoLayout(project.videoClips);
   // Room after the last clip is a fixed width in pixels, so zooming out to fit does not leave a huge empty tail.
   const width = Math.max(duration * pps + 600, 900);
@@ -331,11 +267,7 @@ export default function Timeline({
 
   const timeFromEvent = (e) => {
     const rect = scrollRef.current.getBoundingClientRect();
-    // Frame timebase (P1-04): every pointer time lands on a whole frame, so
-    // a click-seek, a razor hover and a drop position are all frame times.
-    // Drag deltas are differences of two quantized times, so they are whole
-    // frames too; the reducer quantizes again on the way in.
-    return quantize(Math.max(0, (e.clientX - rect.left - HEADER + scrollRef.current.scrollLeft) / pps), effectiveFps(project));
+    return Math.max(0, (e.clientX - rect.left - HEADER + scrollRef.current.scrollLeft) / pps);
   };
 
   // Layer at a height on a layered lane; one past the last (a new layer) just outside its rows.
@@ -429,23 +361,6 @@ export default function Timeline({
     });
   };
 
-  // Keyboard twin of the fade drag (arrows ±0.1s, Shift ±1s, Home 0, End max).
-  const keyFade = (e, track, clip, which, len) => {
-    const step = e.shiftKey ? 1 : 0.1;
-    const other = which === 'in' ? (clip.fadeOut || 0) : (clip.fadeIn || 0);
-    const base = which === 'in' ? (clip.fadeIn || 0) : (clip.fadeOut || 0);
-    const max = Math.max(0, len - other);
-    let v = base;
-    if (e.key === 'ArrowRight') v = base + (which === 'in' ? step : -step);
-    else if (e.key === 'ArrowLeft') v = base + (which === 'in' ? -step : step);
-    else if (e.key === 'Home') v = 0;
-    else if (e.key === 'End') v = max;
-    else return;
-    e.preventDefault();
-    const rounded = Math.round(clamp(v, 0, max) * 10) / 10;
-    dispatch({ type: 'update', track, id: clip.id, patch: which === 'in' ? { fadeIn: rounded } : { fadeOut: rounded } });
-  };
-
   // Volume keyframe drag (Sprint 10): a point on a clip's volume line drags
   // in time (horizontal) and gain (vertical, read off the line's own box).
   // Every move recomputes from the gesture-start clip — the generic drag
@@ -469,37 +384,15 @@ export default function Timeline({
     });
   };
 
-  // Fade drag (FB-09, P1-18): a fade handle on the volume line drags
-  // horizontally only and writes clip.fadeIn / clip.fadeOut straight from
-  // the gesture-start values — the generic drag wrapper folds the whole
-  // drag into one undo step, like the volume-key drags. The two fades are
-  // clamped so they never overlap (fadeIn + fadeOut <= len); dragging the
-  // fade-out handle left lengthens it, right shortens it.
-  const startFadeDrag = (e, track, clip, which, len) => {
-    if (e.button !== 0) return;
-    if (trackLocked(track, clip)) return;
-    const field = which === 'in' ? 'fadeIn' : 'fadeOut';
-    const base = clip[field] || 0;
-    const other = which === 'in' ? (clip.fadeOut || 0) : (clip.fadeIn || 0);
-    const max = Math.max(0, len - other);
-    const sign = which === 'in' ? 1 : -1;
-    drag(e, (d) => {
-      const v = clamp(Math.round((base + sign * d) * 100) / 100, 0, max);
-      dispatch({ type: 'update', track, id: clip.id, patch: { [field]: v } });
-    });
-  };
-
   // Snapping: pull a dragged clip's start or end (or a razor cut) to a nearby edge: other clips, markers,
   // beat markers (when a beat grid is on the project), the playhead, zero. Every caller gates on
   // project.snapping, so the beats join snapping exactly while the toggle is on.
-  // P2-22: beats join only while beat snapping is on (project.beatSnap).
   const edgeTimes = (excludeId) => {
-    const edges = [0, time, ...markers.map((m) => m.time), ...(project.beatSnap === false ? [] : beats)];
+    const edges = [0, time, ...markers.map((m) => m.time), ...beats];
     layout.forEach((l) => edges.push(l.start, l.end));
     project.audioClips.forEach((c) => c.id !== excludeId && edges.push(c.start, c.start + freeLen('audio', c)));
     project.textClips.forEach((c) => c.id !== excludeId && edges.push(c.start, c.start + c.duration));
       (project.effectClips || []).forEach((c) => c.id !== excludeId && edges.push(c.start, c.start + c.duration));
-    (project.stickerClips || []).forEach((c) => c.id !== excludeId && edges.push(c.start, c.start + c.duration));
     overlays.forEach((c) => c.id !== excludeId && edges.push(c.start, c.start + freeLen('overlay', c)));
     return edges;
   };
@@ -573,55 +466,17 @@ export default function Timeline({
     onSelect(null);
   };
 
-  // B-E3 — audio scrubbing: while the playhead drags, the hidden audio
-  // element plays the sounding clip under it (main-track video first, then
-  // the audio track), seeking its source time as the playhead moves. An
-  // <audio> element plays a video file's audio track, so no video element
-  // is needed. Only the source time is chased (a >120 ms drift re-seeks);
-  // the file itself is loaded once per clip, never per move.
-  const scrubAudioAt = (t) => {
-    const el = scrubAudioRef.current;
-    if (!el) return;
-    let media = null;
-    let srcT = 0;
-    const hit = videoClipAt(project, t);
-    if (hit && !hit.clip.muted) {
-      const m = mediaById[hit.clip.mediaId];
-      if (m?.hasAudio && m.path) { media = m; srcT = (hit.clip.in || 0) + sourceOffsetAt(hit.clip, t - hit.start); }
-    }
-    if (!media) {
-      const a = (project.audioClips || []).find((c) => !c.muted && t >= c.start && t < c.start + freeLen('audio', c));
-      if (a) {
-        const m = mediaById[a.mediaId];
-        if (m?.path) { media = m; srcT = (a.in || 0) + sourceOffsetAt(a, t - a.start); }
-      }
-    }
-    if (!media) { el.pause(); return; }
-    const url = toFileUrl(media.path);
-    if (el.dataset.src !== url) { el.dataset.src = url; el.src = url; }
-    if (!Number.isFinite(srcT) || srcT < 0) srcT = 0;
-    if (Math.abs(el.currentTime - srcT) > 0.12) { try { el.currentTime = srcT; } catch { /* not loaded yet */ } }
-    if (el.paused) el.play().catch(() => { /* autoplay guard: the drag is the gesture, retry on the next move */ });
-  };
-
   const scrub = (e) => {
     // Checklist #4: scrubbing while playing never landed — the playback
     // clock re-asserted the old position every frame and clobbered the
     // seek. Pause first (Premiere-like); the user presses play again.
     if (onScrubStart) onScrubStart();
     onSelect(null);
-    const t0 = timeFromEvent(e);
-    onSeek(t0);
-    if (scrubAudio) scrubAudioAt(t0);
-    const move = (ev) => {
-      const t = timeFromEvent(ev);
-      onSeek(t);
-      if (scrubAudio) scrubAudioAt(t);
-    };
+    onSeek(timeFromEvent(e));
+    const move = (ev) => onSeek(timeFromEvent(ev));
     const up = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
-      scrubAudioRef.current?.pause();
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
@@ -683,22 +538,6 @@ export default function Timeline({
     const isImage = media.type === 'image';
     const o = { ...clip };
     const sp = clip.speed || 1;
-    // P2-01 trim tools: body drags slip / slide, edge drags roll / rate-stretch.
-    // Anything a tool does not handle falls through to the plain trim / move below.
-    if (tool === 'slip' || tool === 'slide' || tool === 'roll' || tool === 'rate') {
-      if (mode === 'move' && (tool === 'slip' || tool === 'slide')) {
-        drag(e, (d) => dispatch({ type: tool === 'slip' ? 'slipClip' : 'slideClip', track: 'video', id: clip.id, delta: d }));
-        return;
-      }
-      if (mode !== 'move' && tool === 'roll') {
-        drag(e, trimAware('video', clip, mode, (d) => dispatch({ type: 'rollEdit', track: 'video', id: clip.id, edge: mode, delta: d })), endTrim());
-        return;
-      }
-      if (mode === 'right' && tool === 'rate') {
-        drag(e, trimAware('video', clip, mode, (d) => dispatch({ type: 'rateStretch', track: 'video', id: clip.id, delta: d })), endTrim());
-        return;
-      }
-    }
     const grab = timeFromEvent(e) - (layout.find((l) => l.clip.id === clip.id)?.start ?? 0);
     let toOverlay = null; // time where the clip lands when dropped on the Overlay lane
     const videoMove = (d, ev) => {
@@ -754,28 +593,9 @@ export default function Timeline({
   const startFreeDrag = (e, track, clip, mode) => {
     if (tool === 'razor') return razorSplit(e, track, clip);
     if (trackLocked(track, clip)) return;
-    // P2-01 trim tools on free tracks (audio / overlay): edges roll /
-    // rate-stretch, the body slips / slides. Unhandled combos fall through.
-    if ((track === 'audio' || track === 'overlay') && (tool === 'slip' || tool === 'slide' || tool === 'roll' || tool === 'rate')) {
-      if (mode === 'move' && (tool === 'slip' || tool === 'slide')) {
-        onSelect({ track, id: clip.id });
-        drag(e, (d) => dispatch({ type: tool === 'slip' ? 'slipClip' : 'slideClip', track, id: clip.id, delta: d }));
-        return;
-      }
-      if (mode !== 'move' && tool === 'roll') {
-        onSelect({ track, id: clip.id });
-        drag(e, trimAware(track, clip, mode, (d) => dispatch({ type: 'rollEdit', track, id: clip.id, edge: mode, delta: d })), endTrim());
-        return;
-      }
-      if (mode === 'right' && tool === 'rate') {
-        onSelect({ track, id: clip.id });
-        drag(e, trimAware(track, clip, mode, (d) => dispatch({ type: 'rateStretch', track, id: clip.id, delta: d })), endTrim());
-        return;
-      }
-    }
     // Moving one clip of a multiple selection moves every selected clip off the main track by the same time.
     // Members on locked layers stay behind (their updates would be refused anyway).
-    const group = mode === 'move' && tool === 'select' && selection?.items && isSelected(selection, track, clip.id)
+    const group = mode === 'move' && selection?.items && isSelected(selection, track, clip.id)
       ? selection.items.map((it) => ({ ...it, clip: findFree(it) })).filter((it) => it.clip && !trackLocked(it.track, it.clip)) : null;
     if (group && group.length > 1) {
       const minStart = Math.min(...group.map((g) => g.clip.start));
@@ -821,17 +641,14 @@ export default function Timeline({
         dispatch({ type: 'trimClip', track, id: clip.id, edge: mode, delta: mode === 'left' ? d : -d });
         return;
       }
-      if (project.snapping && (track === 'text' || track === 'effect' || track === 'sticker')) {
+      if (project.snapping && (track === 'text' || track === 'effect')) {
         // Duration-based clips: pull the dragged edge onto a snap target, like moves do.
         const edge0 = mode === 'left' ? o.start + d : o.start + o.duration + d;
         const snapped = snapPoint(edge0);
         if (snapped !== edge0) { d += snapped - edge0; setSnapAt(snapped); }
       }
       let patch;
-      // Duration-based clips (text / effect / sticker) trim on start+duration.
-      // Stickers fell into the media branch below, which reads o.in / o.out /
-      // o.speed — stickers have none — and wrote { in: NaN, start: NaN }.
-      if (track === 'text' || track === 'effect' || track === 'sticker') {
+      if (track === 'text' || track === 'effect') {
         if (mode === 'left') {
           const start = clamp(o.start + d, 0, o.start + o.duration - MIN_CLIP);
           patch = { start, duration: o.start + o.duration - start };
@@ -919,9 +736,7 @@ export default function Timeline({
     const n = clamp(next, 2, 300);
     if (el) {
       const t = at ?? time;
-      // ppsRef, not the render-closed pps: the keyboard zoom calls zoomTo
-      // through apiRef long after the render that created it.
-      zoomAnchor.current = { t, x: x ?? t * ppsRef.current - el.scrollLeft };
+      zoomAnchor.current = { t, x: x ?? t * pps - el.scrollLeft };
     }
     setPps(n);
   };
@@ -991,21 +806,6 @@ export default function Timeline({
     scrollRef.current?.scrollTo({ left: 0 });
   };
 
-  // Keyboard zoom (keymap zoomIn / zoomOut / zoomFit): App owns the keys,
-  // Timeline owns the zoom state, so the three controls are published here
-  // for App to call. ppsRef is read at call time so the step always starts
-  // from the current zoom, not a stale render.
-  useEffect(() => {
-    if (!apiRef) return undefined;
-    apiRef.current = {
-      zoomIn: () => zoomTo(ppsRef.current * 1.4),
-      zoomOut: () => zoomTo(ppsRef.current / 1.4),
-      zoomFit: fit,
-    };
-    return () => { if (apiRef) apiRef.current = {}; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiRef]);
-
   const markerEls = markers.map((m) => (
     <button key={m.id} className="marker" style={{ left: m.time * pps, color: markerColorHex(m.color) }} aria-label={t('tl.markerAt', { time: formatTime(m.time) })}
       title={`${t('tl.marker', { time: formatTime(m.time) })}${m.label ? ` · ${m.label}` : ''}\n${t('tl.markerHint')}`}
@@ -1044,9 +844,8 @@ export default function Timeline({
 
   // Beat markers: a small violet diamond low in the ruler per beat of the grid —
   // visual only (not buttons): clicking the ruler still scrubs, and the grid is
-  // cleared from the toolbar, not beat by beat. PF-03: only the beats in the
-  // visible window render (a long project can hold thousands).
-  const beatEls = timesInWindow(beats, win).map((t, i) => (
+  // cleared from the toolbar, not beat by beat.
+  const beatEls = beats.map((t, i) => (
     <div key={`beat-${i}`} className="beat-tick" style={{ left: t * pps }} title={tr('tl.beat', { time: formatTime(t) })} />
   ));
 
@@ -1140,42 +939,30 @@ export default function Timeline({
   const renderLane = (id) => {
     if (id === 'effect') {
       // One bar per effect applied to a clip; it follows the clip. Select it to see it in the panel, Delete removes it.
-      // PF-03: off-screen bars do not render (their Filmstrip-free Clip is cheap, but a long project holds hundreds).
-      return fxObjects.filter((o) => clipInWindow(o.start, o.duration, win)).map((o) => {
+      return fxObjects.map((o) => {
         const e = EFFECTS.find((x) => x.id === o.fx);
-        // A grade layer has no catalog tile: its label is its name, not the (absent) fx id.
-        const label = o.kind === 'grade' ? (o.clip.name || t('tl.adjustmentLayer')) : (o.free ? e?.name || o.fx : `${e?.name || o.fx} · ${t('tl.onClip')}`);
         return (
           <Clip {...common} key={o.key} track={o.free ? 'effect free' : 'effect bound'} selTrack="effect" clip={o.free ? o.clip : { id: o.key }}
             start={o.start} length={o.duration} row={stacks.effect.rows[o.key]}
-            icon={<span className="clip-emoji"><FxGlyph group={e?.group} size={12} /></span>} label={label}
+            icon={<span className="clip-emoji"><FxGlyph group={e?.group} size={12} /></span>} label={o.free ? e?.name || o.fx : `${e?.name || o.fx} · ${t('tl.onClip')}`}
             onDown={o.free ? (ev, mode) => startFreeDrag(ev, 'effect', o.clip, mode)
               : (ev, mode) => startBoundDrag(ev, o, mode)} />
         );
       });
     }
     if (id === 'overlay') {
-      return overlays.filter((c) => clipInWindow(c.start, freeLen('overlay', c), win)).map((c) => {
+      return overlays.map((c) => {
         const m = mediaById[c.mediaId];
         const len = freeLen('overlay', c);
-        const sg = sourceGhost(c, m);
         return (
           <Clip {...common} key={c.id} track="overlay" clip={c} start={c.start} length={len} row={stacks.overlay.rows[c.id]} rowH={rowOf('overlay')}
-            ghostHead={sg.head} ghostTail={sg.tail}
             icon={<Layers size={12} />} label={m?.name ?? '?'} lost={!!m?.missing} tags={lookTags('overlay', c)} onDown={(e, mode) => startFreeDrag(e, 'overlay', c, mode)}
             onKeyDrag={(e, t) => startKeyDrag(e, 'overlay', c, t, len, c.start)}>
             <Filmstrip m={m} clip={c} width={len * pps} pps={pps} />
-            {!c.muted && m?.hasAudio && (
+            {(hasVolKeys(c) || c.fadeIn > 0 || c.fadeOut > 0) && !c.muted && m?.hasAudio && (
               <VolLine clip={c} len={len} pps={pps}
                 onDragPoint={(e, k) => startVolDrag(e, 'overlay', c, k, len)}
-                onRemovePoint={(k) => { const keys = removeVolKey(c, k.t, 0.05); if (keys) dispatch({ type: 'update', track: 'overlay', id: c.id, patch: { volKeys: keys } }); }}
-                onDragFade={(e, which) => startFadeDrag(e, 'overlay', c, which, len)}
-                onClearFade={(which) => dispatch({ type: 'update', track: 'overlay', id: c.id, patch: { [which === 'in' ? 'fadeIn' : 'fadeOut']: 0 } })} />
-            )}
-            {!c.muted && m?.hasAudio && (
-              <FadeHandles clip={c} len={len} pps={pps}
-                onDragFade={(e, which) => startFadeDrag(e, 'overlay', c, which, len)}
-                onKeyFade={(e, which) => keyFade(e, 'overlay', c, which, len)} />
+                onRemovePoint={(k) => { const keys = removeVolKey(c, k.t, 0.05); if (keys) dispatch({ type: 'update', track: 'overlay', id: c.id, patch: { volKeys: keys } }); }} />
             )}
           </Clip>
         );
@@ -1184,14 +971,14 @@ export default function Timeline({
     if (id === 'sticker') {
       // Bundled stickers (10/10 step 3): free clips like text — drag moves, edges trim,
       // the generic update/delete/duplicate actions resolve through TRACKS.
-      return (project.stickerClips || []).filter((c) => clipInWindow(c.start, c.duration, win)).map((c) => (
+      return (project.stickerClips || []).map((c) => (
         <Clip {...common} key={c.id} track="sticker" clip={c} start={c.start} length={c.duration} row={stacks.sticker.rows[c.id]}
           icon={<Sticker size={12} />} label={c.name || t('tl.stickerClip')}
           onDown={(e, mode) => startFreeDrag(e, 'sticker', c, mode)} />
       ));
     }
     if (id === 'text') {
-      return project.textClips.filter((c) => clipInWindow(c.start, c.duration, win)).map((c) => (
+      return project.textClips.map((c) => (
         <Clip {...common} key={c.id} track={c.caption ? 'text caption' : 'text'} selTrack="text" clip={c} start={c.start} length={c.duration} row={stacks.text.rows[c.id]}
           icon={c.caption ? <Captions size={12} /> : <Type size={12} />} label={c.text}
           onDown={(e, mode) => startFreeDrag(e, 'text', c, mode)} />
@@ -1200,7 +987,7 @@ export default function Timeline({
     if (id === 'video') {
       return (
         <>
-          {layout.filter((l) => clipInWindow(l.start, l.end - l.start, win)).map((l) => {
+          {layout.map((l) => {
             if (l.clip.gap) {
               return (
                 <Clip {...common} key={l.clip.id} track="video gap" selTrack="video" clip={l.clip} start={l.start} length={l.end - l.start}
@@ -1209,36 +996,23 @@ export default function Timeline({
             }
             const m = mediaById[l.clip.mediaId];
             const sp = l.clip.speed || 1;
-            const sg = sourceGhost(l.clip, m);
-            // A nested sequence clip has no media: its label is the source
-            // sequence's name (Filmstrip renders nothing for it, by design).
-            const seqName = l.clip.sequenceId
-              ? (project.sequences || []).find((s) => s.id === l.clip.sequenceId)?.name : null;
             return (
               <Clip {...common} key={l.clip.id} track="video" clip={l.clip} start={l.start} length={l.end - l.start}
-                ghostHead={sg.head} ghostTail={sg.tail}
                 marks={marksFor(l.clip.id, l.start, l.end - l.start)}
-                label={seqName ? `${seqName} · ${t('seqs.nestedTitle')}` : videoLabel(l.clip, m)} lost={!!m?.missing} dropHere={drop?.clipId === l.clip.id} tags={lookTags('video', l.clip)}
+                label={videoLabel(l.clip, m)} lost={!!m?.missing} dropHere={drop?.clipId === l.clip.id} tags={lookTags('video', l.clip)}
                 onDown={(e, mode) => startVideoDrag(e, l.clip, mode)}
                 onKeyDrag={(e, t) => startKeyDrag(e, 'video', l.clip, t, l.end - l.start, l.start)}>
                 <Filmstrip m={m} clip={l.clip} width={(l.end - l.start) * pps} pps={pps} />
-                {m?.wave && !l.clip.muted && <ClipWave m={m} clip={l.clip} pps={pps} waveZoom={waveZoom} />}
+                {m?.wave && !l.clip.muted && <ClipWave m={m} clip={l.clip} pps={pps} />}
                 {(hasVolKeys(l.clip) || l.clip.fadeIn > 0 || l.clip.fadeOut > 0) && !l.clip.muted && m?.hasAudio && (
                   <VolLine clip={l.clip} len={l.end - l.start} pps={pps}
                     onDragPoint={(e, k) => startVolDrag(e, 'video', l.clip, k, l.end - l.start)}
-                    onRemovePoint={(k) => { const keys = removeVolKey(l.clip, k.t, 0.05); if (keys) dispatch({ type: 'update', track: 'video', id: l.clip.id, patch: { volKeys: keys } }); }}
-                    onDragFade={(e, which) => startFadeDrag(e, 'video', l.clip, which, l.end - l.start)}
-                    onClearFade={(which) => dispatch({ type: 'update', track: 'video', id: l.clip.id, patch: { [which === 'in' ? 'fadeIn' : 'fadeOut']: 0 } })} />
-                )}
-                {!l.clip.muted && m?.hasAudio && (
-                  <FadeHandles clip={l.clip} len={l.end - l.start} pps={pps}
-                    onDragFade={(e, which) => startFadeDrag(e, 'video', l.clip, which, l.end - l.start)}
-                    onKeyFade={(e, which) => keyFade(e, 'video', l.clip, which, l.end - l.start)} />
+                    onRemovePoint={(k) => { const keys = removeVolKey(l.clip, k.t, 0.05); if (keys) dispatch({ type: 'update', track: 'video', id: l.clip.id, patch: { volKeys: keys } }); }} />
                 )}
               </Clip>
             );
           })}
-          {layout.filter((l) => l.trans > 0 && clipInWindow(l.start, l.trans, win)).map((l) => {
+          {layout.filter((l) => l.trans > 0).map((l) => {
             const sel = selection?.track === 'transition' && selection.id === l.clip.id;
             const def = TRANSITIONS.find((t) => t.id === l.clip.transition.type);
             return (
@@ -1257,35 +1031,24 @@ export default function Timeline({
         </>
       );
     }
-    // PF-03: off-screen audio clips do not render (waveform strips are the
-    // most expensive lane children after filmstrips).
-    return project.audioClips.filter((c) => clipInWindow(c.start, freeLen('audio', c), win)).map((c) => {
+    return project.audioClips.map((c) => {
       const m = mediaById[c.mediaId];
-      const sg = sourceGhost(c, m);
       // Under a speed curve the strip is painted by WaveStrip (sampler-warped);
       // the single linear background below stays for every other clip.
       const warped = hasCurve(c) && m?.wave && m.duration > 0;
       const bg = !warped && m?.wave ? {
         backgroundImage: `url("${toFileUrl(m.wave)}")`, backgroundRepeat: 'no-repeat',
-        backgroundSize: `${(m.duration / (c.speed || 1)) * pps}px ${Math.min(400, 70 * waveZoom)}%`, backgroundPosition: `${(-c.in / (c.speed || 1)) * pps}px center`,
+        backgroundSize: `${(m.duration / (c.speed || 1)) * pps}px 70%`, backgroundPosition: `${(-c.in / (c.speed || 1)) * pps}px center`,
       } : null;
       return (
         <Clip {...common} key={c.id} track="audio" clip={c} start={c.start} length={freeLen('audio', c)} bg={bg} row={stacks.audio.rows[c.id]} rowH={rowOf('audio')}
-          ghostHead={sg.head} ghostTail={sg.tail}
           marks={marksFor(c.id, c.start, freeLen('audio', c))}
-          icon={<Music size={12} />} label={audioLabel(c, m)} lost={!!m?.missing} onDown={(e, mode) => startFreeDrag(e, 'audio', c, mode)}>
-          {warped && <WaveStrip m={m} clip={c} len={freeLen('audio', c)} pps={pps} waveZoom={waveZoom} />}
+          icon={<Music size={12} />} label={m?.name ?? '?'} lost={!!m?.missing} onDown={(e, mode) => startFreeDrag(e, 'audio', c, mode)}>
+          {warped && <WaveStrip m={m} clip={c} len={freeLen('audio', c)} pps={pps} />}
           {!c.muted && (
             <VolLine clip={c} len={freeLen('audio', c)} pps={pps}
               onDragPoint={(e, k) => startVolDrag(e, 'audio', c, k, freeLen('audio', c))}
-              onRemovePoint={(k) => { const keys = removeVolKey(c, k.t, 0.05); if (keys) dispatch({ type: 'update', track: 'audio', id: c.id, patch: { volKeys: keys } }); }}
-              onDragFade={(e, which) => startFadeDrag(e, 'audio', c, which, freeLen('audio', c))}
-              onClearFade={(which) => dispatch({ type: 'update', track: 'audio', id: c.id, patch: { [which === 'in' ? 'fadeIn' : 'fadeOut']: 0 } })} />
-          )}
-          {!c.muted && m?.hasAudio && (
-            <FadeHandles clip={c} len={freeLen('audio', c)} pps={pps}
-              onDragFade={(e, which) => startFadeDrag(e, 'audio', c, which, freeLen('audio', c))}
-              onKeyFade={(e, which) => keyFade(e, 'audio', c, which, freeLen('audio', c))} />
+              onRemovePoint={(k) => { const keys = removeVolKey(c, k.t, 0.05); if (keys) dispatch({ type: 'update', track: 'audio', id: c.id, patch: { volKeys: keys } }); }} />
           )}
         </Clip>
       );
@@ -1307,32 +1070,17 @@ export default function Timeline({
 
   return (
     <section className="timeline" dir="ltr" aria-label={t('tl.timeline')}>
-      <audio ref={scrubAudioRef} preload="auto" aria-hidden="true" style={{ display: 'none' }} />
       <div className="tl-main">
       {overlay}
-      <SequenceTabs project={project} dispatch={dispatch} onSelect={onSelect}
-        onInsertSequence={(seqId) => {
-          // Insert at the playhead (same midpoint rule as paste).
-          const index = layout.filter((l) => (l.start + l.end) / 2 < time).length;
-          dispatch({ type: 'addSequenceClip', clipId: uid(), sequenceId: seqId, index });
-        }} />
       <div className="tl-toolbar">
         <div className="tool-group">
           <div className="seg-icons" role="group" aria-label={t('tl.groupTool')}>
             <IconBtn label={`${t('tl.toolSelect')}${keyHint('toolSelect')}`} active={tool === 'select'} onClick={() => setTool('select')}><MousePointer2 size={16} /></IconBtn>
             <IconBtn label={`${t('tl.toolRazor')}${keyHint('toolRazor')}`} active={tool === 'razor'} onClick={() => setTool('razor')}><Slice size={16} /></IconBtn>
           </div>
-          <div className="seg-icons" role="group" aria-label={t('tl.groupTrimTools')}>
-            <IconBtn label={t('tl.toolRoll')} active={tool === 'roll'} onClick={() => setTool('roll')}><ArrowLeftRight size={16} /></IconBtn>
-            <IconBtn label={t('tl.toolSlip')} active={tool === 'slip'} onClick={() => setTool('slip')}><SlipTool size={16} /></IconBtn>
-            <IconBtn label={t('tl.toolSlide')} active={tool === 'slide'} onClick={() => setTool('slide')}><SlideTool size={16} /></IconBtn>
-            <IconBtn label={t('tl.toolRate')} active={tool === 'rate'} onClick={() => setTool('rate')}><StretchHorizontal size={16} /></IconBtn>
-          </div>
           <div className="tool-cluster" role="group" aria-label={t('tl.groupHistory')}>
             <IconBtn label={`${t('tl.undo')}${keyHint('undo')}`} onClick={() => dispatch({ type: 'undo' })} disabled={!canUndo}><Undo2 size={16} /></IconBtn>
             <IconBtn label={`${t('tl.redo')}${keyHint('redo')}`} onClick={() => dispatch({ type: 'redo' })} disabled={!canRedo}><Redo2 size={16} /></IconBtn>
-            <IconBtn label={t('tl.undoHistory')} onClick={onOpenUndoHistory} disabled={!canUndo && !canRedo}><History size={16} /></IconBtn>
-            <IconBtn label={t('tl.loudness')} onClick={onOpenLoudness}><Gauge size={16} /></IconBtn>
           </div>
           <div className="tool-cluster" role="group" aria-label={t('tl.groupEdit')}>
             <IconBtn label={`${t('tl.split')}${keyHint('split')}`} onClick={onSplit} disabled={!canSplit}><Scissors size={16} /></IconBtn>
@@ -1354,29 +1102,12 @@ export default function Timeline({
           <div className="tool-cluster" role="group" aria-label={t('tl.groupBeats')}>
             <IconBtn label={beats.length ? t('tl.beatsAgain', { bpm: formatBpm(project.beats.bpm) }) : t('tl.beatsDetect')}
               active={beats.length > 0} onClick={onDetectBeats}><AudioWaveform size={16} /></IconBtn>
-            {beats.length > 0 && (
-              <button type="button" className="beat-bpm" title={t(beats.length === 1 ? 'tl.beatsTempoOne' : 'tl.beatsTempo', { bpm: formatBpm(project.beats.bpm), count: beats.length })}
-                onClick={(e) => openPanel('beats', e)}>{formatBpm(project.beats.bpm)}</button>
-            )}
+            {beats.length > 0 && <span className="beat-bpm" title={t(beats.length === 1 ? 'tl.beatsTempoOne' : 'tl.beatsTempo', { bpm: formatBpm(project.beats.bpm), count: beats.length })}>{formatBpm(project.beats.bpm)}</span>}
             <IconBtn label={beatTarget ? t('tl.splitBeats', { count: beatTarget.times.length }) : t('tl.splitBeatsOff')}
               onClick={onSplitBeats} disabled={!beatTarget}><Split size={16} /></IconBtn>
             {beats.length > 0 && (
               <IconBtn label={t('tl.clearBeats')} onClick={() => dispatch({ type: 'setBeats', beats: null })}><X size={16} /></IconBtn>
             )}
-            {beats.length === 0 && (
-              <IconBtn label={t('tl.beatsManual')} active={tlPanel?.kind === 'beats'}
-                onClick={(e) => openPanel('beats', e)}><Music size={16} /></IconBtn>
-            )}
-          </div>
-          <div className="tool-cluster" role="group" aria-label={t('tl.groupMixer')}>
-            <IconBtn label={t('tl.mixer')} active={tlPanel?.kind === 'mixer'}
-              onClick={(e) => openPanel('mixer', e)}><SlidersHorizontal size={16} /></IconBtn>
-            <IconBtn label={t('tl.selectFollowing')}
-              disabled={!followingClips(project, selection?.track || 'video', time).length}
-              onClick={() => {
-                const items = followingClips(project, selection?.track || 'video', time);
-                if (items.length) onSelect(makeSelection(items));
-              }}><ListChecks size={16} /></IconBtn>
           </div>
         </div>
         <div className="tool-group">
@@ -1398,41 +1129,19 @@ export default function Timeline({
           )}
           <IconBtn label={project.snapping ? t('tl.snappingOn') : t('tl.snappingOff')} active={project.snapping}
             onClick={() => dispatch({ type: 'setProject', patch: { snapping: !project.snapping }, transient: true })}><Magnet size={16} /></IconBtn>
-          <select className="ripple-mode" aria-label={t('tl.rippleMode')} title={t('tl.rippleModeTitle')}
-            value={project.rippleMode || 'main'}
-            onChange={(e) => dispatch({ type: 'setProject', patch: { rippleMode: e.target.value }, transient: true })}>
-            <option value="main">{t('tl.rippleMain')}</option>
-            <option value="linked">{t('tl.rippleLinked')}</option>
-            <option value="all">{t('tl.rippleAll')}</option>
-          </select>
           <IconBtn label={insertMode ? t('tl.insertOn') : t('tl.insertOff')} active={insertMode}
             onClick={() => setInsertMode((v) => !v)}><BetweenHorizontalStart size={16} /></IconBtn>
           </div>
           <div className="tool-cluster" role="group" aria-label={t('tl.groupView')}>
-            <IconBtn label={`${t('tl.fit')}${keyHint('zoomFit')}`} onClick={fit}><StretchHorizontal size={16} /></IconBtn>
-            <IconBtn label={`${t('tl.zoomOut')}${keyHint('zoomOut')}`} onClick={() => zoomTo(pps / 1.4)}><ZoomOut size={16} /></IconBtn>
+            <IconBtn label={t('tl.fit')} onClick={fit}><StretchHorizontal size={16} /></IconBtn>
+            <IconBtn label={t('tl.zoomOut')} onClick={() => zoomTo(pps / 1.4)}><ZoomOut size={16} /></IconBtn>
             <input className="zoom" type="range" min="2" max="300" value={pps} aria-label={t('tl.zoomTimeline')}
               title={t('tl.zoomHint')} onChange={(e) => zoomTo(Number(e.target.value))} />
-            <IconBtn label={`${t('tl.zoomIn')}${keyHint('zoomIn')}`} onClick={() => zoomTo(pps * 1.4)}><ZoomIn size={16} /></IconBtn>
-            <IconBtn label={t('tl.waveZoom')} active={waveZoom > 1} title={`${t('tl.waveZoom')} · ${waveZoom}×`}
-              onClick={() => setWaveZoom((z) => (z >= 4 ? 1 : z * 2))}><AudioWaveform size={16} /></IconBtn>
-            <IconBtn label={t('tl.scrubAudio')} active={scrubAudio}
-              onClick={() => setScrubAudio((v) => !v)}><Volume2 size={16} /></IconBtn>
+            <IconBtn label={t('tl.zoomIn')} onClick={() => zoomTo(pps * 1.4)}><ZoomIn size={16} /></IconBtn>
           </div>
         </div>
-        {tlPanel && (
-          <>
-            <div className="tl-pop-backdrop" onPointerDown={() => setTlPanel(null)} />
-            <div className="tl-pop-anchor"
-              style={{ left: Math.max(8, Math.min(tlPanel.x - 150, window.innerWidth - 308)), bottom: window.innerHeight - tlPanel.top + 8 }}>
-              {tlPanel.kind === 'beats' && <BeatGridPanel project={project} dispatch={dispatch} onClose={() => setTlPanel(null)} />}
-              {tlPanel.kind === 'mixer' && <MixerPanel project={project} dispatch={dispatch} onClose={() => setTlPanel(null)} />}
-            </div>
-          </>
-        )}
       </div>
       <div className={`tl-scroll ${tool === 'razor' ? 'razor' : ''}`} ref={scrollRef}
-        onScroll={onTlScroll}
         onPointerMove={(e) => { if (tool === 'razor') { const t = timeFromEvent(e); setRazorAt(project.snapping ? snapPoint(t) : t); } }}
         onPointerLeave={() => setRazorAt(null)}
         onDragOver={onDragOver} onDragLeave={(e) => {
@@ -1445,10 +1154,10 @@ export default function Timeline({
             <div className="tl-ruler">
               {markerEls}
               {beatEls}
-              {timesInWindow(minorTicks, win).map((t) => (
+              {minorTicks.map((t) => (
                 <div key={`minor-${t}`} className="tick minor" style={{ left: t * pps }} />
               ))}
-              {timesInWindow(ticks, win).map((t) => (
+              {ticks.map((t) => (
                 <div key={t} className="tick" style={{ left: t * pps }}><span>{formatTime(t).slice(0, 5)}</span></div>
               ))}
             </div>
@@ -1478,8 +1187,8 @@ export default function Timeline({
             );
           })}
 
-          {markers.filter((m) => clipInWindow(m.time, 0.01, win)).map((m) => <div key={m.id} className="marker-line" style={{ left: HEADER + m.time * pps, background: `${markerColorHex(m.color)}73` }} />)}
-          {timesInWindow(beats, win).map((t, i) => <div key={`beatline-${i}`} className="beat-line" style={{ left: HEADER + t * pps }} />)}
+          {markers.map((m) => <div key={m.id} className="marker-line" style={{ left: HEADER + m.time * pps, background: `${markerColorHex(m.color)}73` }} />)}
+          {beats.map((t, i) => <div key={`beatline-${i}`} className="beat-line" style={{ left: HEADER + t * pps }} />)}
           {tool === 'razor' && razorAt != null && <div className="razor-line" style={{ left: HEADER + razorAt * pps }} />}
           {tool === 'razor' && razorAt != null && <div className="razor-time" style={{ left: HEADER + razorAt * pps }}>{formatTime(razorAt)}</div>}
           {snapAt != null && <div className="snap-line" style={{ left: HEADER + snapAt * pps }} />}
@@ -1528,23 +1237,13 @@ function RecMeter({ analyserRef }) {
   return <span className="rec-meter" aria-hidden="true"><span className="rec-meter-fill" ref={fillRef} /></span>;
 }
 
-function Clip({ pps, selection, track, selTrack, clip, start, length, label, icon, bg, dropHere, onDown, row, rowH = ROW, children, onMenu, onToggle, tags, onKeyDrag, layerStateFor, marks, lost, ghostHead = 0, ghostTail = 0 }) {
+function Clip({ pps, selection, track, selTrack, clip, start, length, label, icon, bg, dropHere, onDown, row, rowH = ROW, children, onMenu, onToggle, tags, onKeyDrag, layerStateFor, marks, lost }) {
   const st = selTrack || track;
   const selected = isSelected(selection, st, clip.id);
   const lst = layerStateFor ? layerStateFor(st, clip) : null;
   const stacked = row !== undefined ? { top: HEAD_TITLE_H + row * rowH, bottom: 'auto', height: rowH - 4 } : null;
-  // Source handles (P1-04): dimmed strips showing the unused source before
-  // / after the clip, as siblings (the clip itself is overflow:hidden, so
-  // they cannot live inside it). Capped at 48 px — a hint, not a ruler.
-  // pointer-events:none: they never steal a drag.
-  const ghostW = (s) => Math.min(s * pps, 48);
   return (
-    <>
-      {ghostHead > 0 && (
-        <div className="clip-ghost" aria-hidden="true" title={tr('tl.sourceBefore', { seconds: ghostHead.toFixed(2) })}
-          style={{ left: start * pps - ghostW(ghostHead), width: ghostW(ghostHead), ...stacked }} />
-      )}
-      <div className={`clip ${track} ${selected ? 'selected' : ''} ${dropHere ? 'drop-here' : ''} ${clip.disabled ? 'off' : ''} ${lst?.locked ? 'locked' : ''} ${lst?.hidden ? 'layer-hidden' : ''} ${lost ? 'lost' : ''}`}
+    <div className={`clip ${track} ${selected ? 'selected' : ''} ${dropHere ? 'drop-here' : ''} ${clip.disabled ? 'off' : ''} ${lst?.locked ? 'locked' : ''} ${lst?.hidden ? 'layer-hidden' : ''} ${lost ? 'lost' : ''}`}
       style={{ left: start * pps, width: Math.max(6, length * pps), ...stacked }}
       data-sel-track={st} data-sel-id={clip.id}
       onPointerDown={(e) => {
@@ -1577,11 +1276,6 @@ function Clip({ pps, selection, track, selTrack, clip, start, length, label, ico
       {(track === 'video' || track === 'overlay') && (clip.anim || clip.keyframes) && <ClipMotion clip={clip} length={length} pps={pps} selected={selected} onKeyDrag={onKeyDrag} />}
       <div className="handle right" onPointerDown={(e) => e.button === 0 && onDown(e, 'right')} />
     </div>
-      {ghostTail > 0 && (
-        <div className="clip-ghost" aria-hidden="true" title={tr('tl.sourceAfter', { seconds: ghostTail.toFixed(2) })}
-          style={{ left: (start + length) * pps, width: ghostW(ghostTail), ...stacked }} />
-      )}
-    </>
   );
 }
 
@@ -1649,10 +1343,7 @@ function Filmstrip({ m, clip, width, pps }) {
 // playback or export.
 const WAVE_SEG_PX = 56; // target segment width on screen
 const WAVE_SEG_MAX = 48; // and never more segments than this per strip
-function WaveStrip({ m, clip, len, pps, waveZoom = 1 }) {
-  // B-E3: amplitude zoom magnifies the painted strip around its centre
-  // line; the clip's overflow:hidden keeps the spill inside the clip.
-  const zoom = waveZoom > 1 ? { transform: `scaleY(${waveZoom})`, transformOrigin: 'center' } : undefined;
+function WaveStrip({ m, clip, len, pps }) {
   const n = Math.max(1, Math.min(WAVE_SEG_MAX, Math.ceil((len * pps) / WAVE_SEG_PX)));
   const segs = [];
   for (let j = 0; j < n; j++) {
@@ -1671,32 +1362,60 @@ function WaveStrip({ m, clip, len, pps, waveZoom = 1 }) {
       }} />
     );
   }
-  return <div className="wave-strip" style={zoom}>{segs}</div>;
+  return <div className="wave-strip">{segs}</div>;
+}
+
+// The volume line on a sounding clip (Sprint 10): the clip's effective gain
+// trace — volume keyframes (or plain volume) times the fade envelope, the
+// src/volKeys.js clipGainAt the preview plays and the export renders — drawn
+// across the clip's foot. Keyframe points ride on it: drag one to move it in
+// time and gain (one undo step), double-click one to remove it. The line
+// itself never takes pointer events, so every existing clip gesture keeps
+// the surface; only the points are grabbable.
+function VolLine({ clip, len, pps, onDragPoint, onRemovePoint }) {
+  if (!(len > 0)) return null;
+  const H = 30;
+  const W = Math.max(2, len * pps);
+  const Y = (g) => H - (Math.min(2, Math.max(0, g)) / 2) * (H - 4) - 2;
+  const keys = volKeyLocalPoints(clip).filter((k) => k.lt >= -1e-6 && k.lt <= len + 1e-6);
+  const samples = [];
+  const N = 24;
+  for (let i = 0; i <= N; i++) samples.push((len * i) / N);
+  for (const k of keys) samples.push(Math.min(len, Math.max(0, k.lt)));
+  samples.sort((a, b) => a - b);
+  const path = samples
+    .map((lt, i) => `${i ? 'L' : 'M'}${(lt * pps).toFixed(1)},${Y(clipGainAt(clip, lt, len)).toFixed(1)}`)
+    .join(' ');
+  return (
+    <svg className="vol-line" width={W} height={H} viewBox={`0 0 ${W} ${H}`} aria-hidden="true">
+      <path d={path} className="vol-line-path" />
+      {keys.map((k) => (
+        <circle key={k.t} cx={Math.min(len, Math.max(0, k.lt)) * pps} cy={Y(clipGainAt(clip, k.lt, len))} r={3.4}
+          className="vol-key" role="button" aria-label={tr('tl.volKeyAria', { pct: Math.round(k.v * 100) })}
+          onPointerDown={(e) => onDragPoint(e, k)}
+          onDoubleClick={(e) => { e.stopPropagation(); onRemovePoint(k); }}>
+          <title>{tr('tl.volKeyTitle')}</title>
+        </circle>
+      ))}
+    </svg>
+  );
 }
 
 // Audio waveform strip under a video clip (follows trim and speed).
-// B-E3: amplitude zoom — the strip paints inside an overflow:hidden box
-// and scales around its centre line, so quiet passages get readable.
-function ClipWave({ m, clip, pps, waveZoom = 1 }) {
-  const zoom = waveZoom > 1 ? { transform: `scaleY(${waveZoom})`, transformOrigin: 'center' } : undefined;
+function ClipWave({ m, clip, pps }) {
   if (hasCurve(clip) && m.duration > 0) {
     return (
-      <div className="clip-wave" style={{ overflow: 'hidden' }}>
-        <div style={{ position: 'absolute', inset: 0, ...zoom }}>
-          <WaveStrip m={m} clip={clip} len={clipDuration(clip)} pps={pps} />
-        </div>
+      <div className="clip-wave">
+        <WaveStrip m={m} clip={clip} len={clipDuration(clip)} pps={pps} />
       </div>
     );
   }
   const sp = clip.speed || 1;
   return (
-    <div className="clip-wave" style={{ overflow: 'hidden' }}>
-      <div style={{
-        position: 'absolute', inset: 0, ...zoom,
-        backgroundImage: `url("${toFileUrl(m.wave)}")`, backgroundRepeat: 'no-repeat',
-        backgroundSize: `${(m.duration / sp) * pps}px 100%`, backgroundPosition: `${(-clip.in / sp) * pps}px center`,
-      }} />
-    </div>
+    <div className="clip-wave" style={{
+      backgroundImage: `url("${toFileUrl(m.wave)}")`, backgroundRepeat: 'no-repeat',
+      backgroundSize: `${(m.duration / sp) * pps}px 100%`, backgroundPosition: `${(-clip.in / sp) * pps}px 0`,
+    }} />
   );
 }
 
@@ -1706,17 +1425,6 @@ function videoLabel(clip, m) {
   else if ((clip.speed || 1) !== 1) tags.push(`${clip.speed}×`);
   if (clip.effects?.length) tags.push(tr(clip.effects.length > 1 ? 'tl.effectsOther' : 'tl.effectsOne', { count: clip.effects.length }));
   if (clip.muted) tags.push(tr('tl.mutedTag'));
-  return [m?.name ?? '?', ...tags].join(' · ');
-}
-
-// Sync label (P1-03): a linked audio clip with a J/L-cut shows its trims
-// in its timeline label, so the offset is visible without opening the
-// inspector. Also the clip's tooltip (the label doubles as the title).
-function audioLabel(clip, m) {
-  const { lead, trail } = audioTrimOf(clip);
-  const tags = [];
-  if (lead > 0) tags.push(`J ${lead.toFixed(2)}s`);
-  if (trail > 0) tags.push(`L ${trail.toFixed(2)}s`);
   return [m?.name ?? '?', ...tags].join(' · ');
 }
 

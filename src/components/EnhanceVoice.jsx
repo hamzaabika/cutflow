@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { useT } from '../i18n/index.jsx';
 import Toggle from '../ui/Toggle.jsx';
-import AiBadge from './AiBadge.jsx';
 
 // Voice Enhancer controls (the section body; hosts frame it). The render itself runs in the
 // main process (electron/enhance.cjs) via App's onEnhance, which drives the shared render-job
@@ -31,7 +30,7 @@ export default function EnhanceVoice({ clip, media, set, onEnhance }) {
   return (
     <>
       <label className="field row">
-        <span>{t('enh.title')} <AiBadge kind="local" /></span>
+        <span>{t('enh.title')}</span>
         <Toggle aria-label={t('enh.title')} checked={on} disabled={!onEnhance && !ready}
           onChange={(ev) => toggle(ev.target.checked)} />
       </label>

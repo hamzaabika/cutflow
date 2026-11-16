@@ -1,84 +1,66 @@
-import React, { useMemo, useCallback, useEffect, useReducer, useRef, useState, lazy, Suspense } from 'react';
+import React, { useMemo, useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { useT, tr, getLanguage } from './i18n/index.jsx';
 import { recentEntryFor } from './recents.js';
 import { isTrashExpired, mergeHomeEntries, trashEntryForRecent, trashEntryForSlot } from './homeList.js';
-import { IMAGE_DEFAULT, LAYERED, canvasFor, clipLayer, clipLen, emptyProject, exportDuration, findClipIn, findLinkPartner, freeLen, historyReducer, isLayerLocked, layerCount, layerFree, layerName, layerOf, layerStateOf, levelCopyState, linkedPairInfo, lockedMediaUse, markerNear, missingClipRefs, needsPreviewCopy, newVideoClip, newlyMissingIds, parseEffectKey, pickAttributes, projectDuration, renderable, replaceClipPatch, replaceCompatible, setPlaybackQuality, toFileUrl, trimActions, uid, videoClipAt, videoLayout } from './store.js';
-import { flattenProject } from './sequences.js';
-import { effectiveFps, quantize } from './frames.js';
+import { IMAGE_DEFAULT, LAYERED, canvasFor, clipLayer, clipLen, emptyProject, exportDuration, findClipIn, findLinkPartner, freeLen, historyReducer, isLayerLocked, layerCount, layerFree, layerName, layerOf, levelCopyState, lockedMediaUse, markerNear, needsPreviewCopy, newVideoClip, parseEffectKey, pickAttributes, projectDuration, renderable, replaceClipPatch, replaceCompatible, setPlaybackQuality, toFileUrl, trimActions, uid, videoClipAt, videoLayout } from './store.js';
 
 // Layer display name for menus/alerts: user rename wins, else the localised
 // lane default. store.layerName stays the English data form.
 const layerDispName = (p, track, layer) => (p.layerNames && p.layerNames[track] && p.layerNames[track][layer]) || `${tr('lane.' + track)} ${layer + 1}`;
 import { sliceCurve, sourceOffsetAt, timelineOffsetAt } from './speedCurve.js';
 import HomeScreen from './components/HomeScreen.jsx';
-import ReframeDialog, { loadReframePrefs } from './components/ReframeDialog.jsx';
-const SequenceDialog = lazy(() => import('./components/SequenceDialog.jsx'));
-const ColorMatteDialog = lazy(() => import('./components/ColorMatteDialog.jsx'));
+import SequenceDialog from './components/SequenceDialog.jsx';
+import ColorMatteDialog from './components/ColorMatteDialog.jsx';
 import { mismatchFor, sequencePatchFor } from './sequence.js';
 import { buildVerticalCopy } from './reframe.js';
 import { beatSplitTarget } from './beats.js';
 import { sizeFor } from './effects.js';
 import ContextMenu from './components/ContextMenu.jsx';
 import {
-  AudioLines, ChevronLeft, ChevronRight, CircleAlert, ClipboardPaste, Copy, CopyPlus, Crop, Crosshair, Eraser, Eye, EyeOff, FileAudio, FlipHorizontal2, Gauge, Info, Layers, Link2, ListChecks, Loader2, Paintbrush, PanelBottom, Pin, PinOff, Pipette, RefreshCw, Rewind, RotateCcw, RotateCw, Scissors, ScissorsLineDashed, Snowflake, Sparkles, Split, Trash2, Unlink, Upload, Volume2, VolumeX, Zap,
+  AudioLines, ChevronLeft, ChevronRight, CircleAlert, ClipboardPaste, Copy, CopyPlus, Crop, Crosshair, Eraser, Eye, EyeOff, FileAudio, FlipHorizontal2, Gauge, Info, Layers, Link2, ListChecks, Loader2, Paintbrush, PanelBottom, Pin, PinOff, Pipette, RefreshCw, Rewind, RotateCcw, RotateCw, Scissors, ScissorsLineDashed, Snowflake, Sparkles, Split, Trash2, Unlink, Upload, Volume2, VolumeX,
 } from './icons.jsx';
 import { brandTextPatch, loadBrand } from './brand.js';
 import ConfirmDialog from './components/ConfirmDialog.jsx';
-import CutReviewDialog from './components/CutReviewDialog.jsx';
-import { useSystemStatus } from './systemStatus.js';
-import { scoreSilenceRanges } from './aiCutConfidence.js';
 import { useRecorder } from './useRecorder.js';
 import { useLayout, effectiveWidths } from './useLayout.js';
-import { useWorkspaces, WORKSPACE_IDS } from './useWorkspaces.js';
-import { applyAccessibilitySettings } from './accessibility.js';
 import { customMaskImages, decoImages, maskImages } from './visual.js';
-import { KEY_PROPS, addKeys, keyTimes, motionData, moveKeys, nextKeyTime, prevKeyTime, removeKeys } from './anim.js';
+import { motionData } from './anim.js';
 import { clipStartTl, motionDataPinned, trackedClips } from './track.js';
 import { CROP_ASPECTS, aspectRatioOf, cropForAspect } from './cropMath.js';
 import { chromaOf, cropOf, resetTransformPatch, transformOf } from './visual.js';
 import { isLookPatch, lookAction, selectedPictures } from './look.js';
 import { regroupSegments, toSRT } from './subtitles.js';
 import { loadProjectLuts, onLutLoaded } from './fx/lut.js';
-import { copyEffects as copyEffectStacks, pasteEffects as pasteEffectStacks, getEffectsClipboard } from './fx/effectClipboard.js';
-import { cleanVoiceChain, hasAudioFx, hasCleanVoice, hasRepair } from './fx/audioFxChain.js';
-import { audioFxPathOf, audioFxSliceSourceFor, audioFxSliceValid, audioFxSourceFor } from './fx/audioFxPreview.js';
+import { audioFxFilters, hasAudioFx } from './fx/audioFxChain.js';
+import { audioFxPathOf, audioFxSourceFor } from './fx/audioFxPreview.js';
 import LeftPanel from './components/LeftPanel.jsx';
 import Preview from './components/Preview.jsx';
 import Timeline, { makeSelection } from './components/Timeline.jsx';
-import { groupMates } from './groups.js';
-const SpeedDialog = lazy(() => import('./components/SpeedDialog.jsx'));
+import SpeedDialog from './components/SpeedDialog.jsx';
 import Inspector from './components/Inspector.jsx';
-const ExportDialog = lazy(() => import('./components/ExportDialog.jsx'));
+import ExportDialog from './components/ExportDialog.jsx';
 import ExportJobsTray from './components/ExportJobsTray.jsx';
-const EnhanceDialog = lazy(() => import('./components/EnhanceDialog.jsx'));
-import { audioPhaseId, audioPhases, canPauseRunning, enhancePhases, jobsAhead, pickNextJob, projectHasAudio, retryPatch, videoPhases, zipPhases } from './exportJobs.js';
-import { missingFontsOf } from './fx/missingFonts.js';
-import { playExportDoneSound } from './exportDoneSound.js';
+import EnhanceDialog from './components/EnhanceDialog.jsx';
+import { audioPhaseId, audioPhases, enhancePhases, jobsAhead, videoPhases } from './exportJobs.js';
 import { EXPORT_PRESETS, resolveExport, settingsPatch, storedExportSettings } from './exportQuality.js';
-import { EXPORT_VARIANTS, buildVariantProject, variantById } from './exportVariants.js';
-const CloseDialog = lazy(() => import('./components/CloseDialog.jsx'));
-const RelinkDialog = lazy(() => import('./components/RelinkDialog.jsx'));
-const HistoryDialog = lazy(() => import('./components/HistoryDialog.jsx'));
-const UndoHistoryPanel = lazy(() => import('./components/UndoHistoryPanel.jsx'));
-const LoudnessPanel = lazy(() => import('./components/LoudnessPanel.jsx'));
-const ResourceMonitor = lazy(() => import('./components/ResourceMonitor.jsx'));
-const BridgeDialog = lazy(() => import('./components/BridgeDialog.jsx'));
+import CloseDialog from './components/CloseDialog.jsx';
+import RelinkDialog from './components/RelinkDialog.jsx';
+import HistoryDialog from './components/HistoryDialog.jsx';
+import BridgeDialog from './components/BridgeDialog.jsx';
 import TopBar from './components/TopBar.jsx';
 import TopRail from './components/TopRail.jsx';
-const SettingsDialog = lazy(() => import('./components/SettingsDialog.jsx'));
-const PackManagerDialog = lazy(() => import('./components/PackManagerDialog.jsx'));
+import SettingsDialog from './components/SettingsDialog.jsx';
 import KeystrokesOverlay from './components/KeystrokesOverlay.jsx';
 import { actionForEvent, applyKeymapOverrides, bindingHint, firstBinding, getCurrentKeymap, isKeyCaptureActive } from './keymap.js';
 import { AboutDialog, UpdateNotice, useUpdateCheck } from './components/About.jsx';
-const WelcomeCard = lazy(() => import('./components/WelcomeCard.jsx'));
+import WelcomeCard from './components/WelcomeCard.jsx';
 import ScreenRecordDialog from './components/ScreenRecordDialog.jsx';
 import { useScreenRecorder } from './useScreenRecorder.js';
-const CraftAI = lazy(() => import('./components/CraftPilot.jsx'));
+import CraftAI from './components/CraftPilot.jsx';
 import { isFiles, isInternal } from './dnd.js';
 import { renderTextFrames } from './exportText.js';
-import { graphicTemplateClips } from './graphics/catalog.js';
 import { fxWork, renderFxPass } from './fxExport.js';
-
+import { TEXT_TEMPLATES } from './text/catalog.js';
 import { allFonts } from './fonts.js';
 
 // (The emoji-to-PNG rasterizer that lived here served only the Stickers feature, removed
@@ -103,12 +85,6 @@ export default function App() {
   // frame; the Timeline playhead reads it directly so it glides without React re-renders.
   const clockRef = useRef({ time: 0, stamp: 0, playing: false, rate: 1 });
   const [playing, setPlaying] = useState(false);
-  // Shuttle rate (J/K/L, P2-35): 1×, 2× or 4× forward. Any pause resets it
-  // to 1×, so Space always resumes at normal speed; K stops the shuttle.
-  const [shuttleRate, setShuttleRate] = useState(1);
-  useEffect(() => { if (!playing) setShuttleRate(1); }, [playing]);
-  // Timeline zoom controls, published by Timeline through apiRef (P2-35).
-  const timelineApi = useRef({});
   const [selection, setSelection] = useState(null); // { track, id }
   // Selection as the timeline and the preview see it: linked pairs (Detach audio) select
   // together, and clips on locked layers cannot be selected at all.
@@ -116,16 +92,6 @@ export default function App() {
     if (!sel) return setSelection(null);
     const p = projectRef.current;
     const items = sel.items ? [...sel.items] : [{ track: sel.track, id: sel.id }];
-    // Preview renders the FLATTENED project, so a click on nested content
-    // arrives as a namespaced id ("parentClipId:clipId"): select the parent
-    // sequence clip on the real timeline instead.
-    for (let i = 0; i < items.length; i++) {
-      const it = items[i];
-      if (typeof it.id === 'string' && it.id.includes(':')) {
-        const parent = it.id.split(':')[0];
-        if (findClipIn(p, 'video', parent)) items[i] = { track: 'video', id: parent };
-      }
-    }
     const have = new Set(items.map((i) => `${i.track}:${i.id}`));
     for (const it of [...items]) {
       const c = findClipIn(p, it.track, it.id);
@@ -133,13 +99,6 @@ export default function App() {
       if (partner && !have.has(`${partner.track}:${partner.clip.id}`)) {
         items.push({ track: partner.track, id: partner.clip.id });
         have.add(`${partner.track}:${partner.clip.id}`);
-      }
-    }
-    // P2-03: a grouped clip selects its whole group.
-    for (const it of [...items]) {
-      for (const mate of groupMates(p, it.track, it.id)) {
-        const k = `${mate.track}:${mate.id}`;
-        if (!have.has(k)) { have.add(k); items.push(mate); }
       }
     }
     const kept = items.filter((it) => {
@@ -164,26 +123,8 @@ export default function App() {
   const [trackPick, setTrackPick] = useState(null); // motion tracking pick mode: { track, id, point: {x,y} | null, box: {w,h} }
   const [cropEdit, setCropEdit] = useState(null); // visual crop mode: { track, id, snapshot: { crop, cropAspect } }
   const [silenceAsk, setSilenceAsk] = useState(null); // silence removal awaiting confirm: { track, id, ranges: [{start,end}] (timeline), totalSec }
-  // FB-24: the silence confirm opens the cut review (confidence per span)
-  // instead of removing blind; the dialog applies the accepted cuts.
-  const [silenceReview, setSilenceReview] = useState(null);
   const [tab, setTab] = useState('media');
-  const { layout: panes, collapsed, toggle: togglePanel, startDrag: startResize, reset: resetSize, nudge: nudgeSize, applySizes } = useLayout();
-  // Workspaces (P2-37): the active arrangement (tab + panel sizes + collapse)
-  // is saved under its workspace as the user works, so switching away and
-  // back restores exactly what was left; Reset restores the shipped preset.
-  const { workspace, applyWorkspace, resetWorkspace } = useWorkspaces({ tab, sizes: panes, collapsed });
-  const onWorkspaceChange = (id) => {
-    const next = applyWorkspace(id);
-    if (!next) return;
-    setTab(next.tab);
-    applySizes(next.sizes, next.collapsed);
-  };
-  const onWorkspaceReset = () => {
-    const next = resetWorkspace();
-    setTab(next.tab);
-    applySizes(next.sizes, next.collapsed);
-  };
+  const { layout: panes, collapsed, toggle: togglePanel, startDrag: startResize, reset: resetSize, nudge: nudgeSize } = useLayout();
   const effWidths = effectiveWidths(panes, collapsed);
   const [tool, setTool] = useState('select'); // timeline tool: 'select' | 'razor'
   const [clipboard, setClipboard] = useState(null); // { track, clip } for copy / cut / paste
@@ -191,8 +132,6 @@ export default function App() {
   const [menu, setMenu] = useState(null); // right-click menu: { x, y, track, id }
   const [speedAsk, setSpeedAsk] = useState(null); // clip whose Speed / Duration dialog is open: { track, id }
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [reframeOpen, setReframeOpen] = useState(false); // auto-reframe options (P2-42)
-  const [packsOpen, setPacksOpen] = useState(false); // Creative Pack Manager (P2-14)
   const [pilotOpen, setPilotOpen] = useState(false); // FlowAI panel: toggled from the floating pill over the timeline
   const [quality, setQuality] = useState('full'); // Playback quality: which scaled copy the player uses
   const [perfMode, setPerfMode] = useState('balanced'); // Performance mode (Settings + the player toggle)
@@ -237,14 +176,7 @@ export default function App() {
   // state, the relink offer when source media is missing, and the version-history dialog.
   const [fileNote, setFileNote] = useState(null);
   const [relinkAsk, setRelinkAsk] = useState(null); // { items: [{ id, name, path, ... }] }
-  // refreshMissingMedia is a []-deps callback, so it reads the dialog state
-  // through this ref instead of a stale closure (P1-28: never stack dialogs).
-  const relinkAskRef = useRef(null);
-  useEffect(() => { relinkAskRef.current = relinkAsk; }, [relinkAsk]);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [undoHistoryOpen, setUndoHistoryOpen] = useState(false);
-  const [loudnessOpen, setLoudnessOpen] = useState(false);
-  const [resourcesOpen, setResourcesOpen] = useState(false); // P2-36: live resource monitor dialog
   // Agent draft bridge (Sprint 8): whether the local bridge is enabled, how many
   // agent shadow drafts wait for review, and the review dialog itself.
   const [bridgeOpen, setBridgeOpen] = useState(false);
@@ -356,27 +288,9 @@ export default function App() {
     const a = autosave.current;
     clearTimeout(a.slotTimer);
     a.slotTimer = null;
-    // Ordering guard (P0-04): slot writes are serialized on a.writing — the
-    // field was declared but never used, so a debounced write that had already
-    // fired could land AFTER a newer flush and overwrite it with a stale
-    // snapshot. Each write waits for the previous one to settle, then re-reads
-    // the record (slotRecord defaults to the CURRENT project), so the store
-    // always ends on the newest snapshot.
-    const prev = a.writing || Promise.resolve();
-    let release;
-    a.writing = new Promise((r) => { release = r; });
-    await prev.catch(() => {});
-    try {
-      const rec = slotRecord(p, file);
-      if (!rec) return;
-      try {
-        // P0-04: an evicted unsaved project is moved to the trash, never
-        // deleted — the write reports it, and the user is told where it went.
-        const res = await window.api.slotWrite(rec);
-        if (res?.evicted?.length) showJobToast(t('autosave.evictedUnsaved', { count: res.evicted.length, names: res.evicted.slice(0, 3).map((e) => e.title).join(', ') + (res.evicted.length > 3 ? '…' : '') }));
-        refreshSlots();
-      } catch { /* the next change retries */ }
-    } finally { release(); }
+    const rec = slotRecord(p, file);
+    if (!rec) return;
+    try { await window.api.slotWrite(rec); refreshSlots(); } catch { /* the next change retries */ }
   };
   // Force-write everything pending for the CURRENT project (its file, then its slot) —
   // awaited before any switch (Home, new, open) so no edit hides inside a debounce window.
@@ -393,26 +307,6 @@ export default function App() {
       const entry = await window.api.slotForFile(file);
       return entry?.id ? { ...p, id: entry.id } : p;
     } catch { return p; }
-  };
-  // P1-54 — packaged-project missing-asset report: attach the per-clip refs
-  // (which timeline clips use each missing file) to the dialog items, so a
-  // missing file that breaks the timeline reads differently from an unused
-  // pool item. `project` may be the parsed load JSON or an in-memory project.
-  const relinkItemsFor = (project, missing) => {
-    const refs = missingClipRefs(project, (missing || []).map((m) => m.id));
-    return (missing || []).map((m) => ({ ...m, clips: refs[m.id] || [] }));
-  };
-  // P1-54 — the same missing check for a project that was loaded WITHOUT
-  // going through loadProjectFile (crash recovery, unsaved restore, agent
-  // draft): re-verify against the disk and open the relink dialog when
-  // anything is gone, instead of leaving black clips with no report.
-  const promptMissingFor = async (project) => {
-    if (!project?.media?.length) return;
-    let miss = [];
-    try { miss = (await window.api.checkMissingMedia?.(project)) || []; } catch { miss = []; }
-    if (!miss.length) return;
-    dispatch({ type: 'setMediaMissing', ids: miss.map((m) => m.id) });
-    if (!relinkAskRef.current) setRelinkAsk({ items: relinkItemsFor(project, miss) });
   };
   // Draft safety, after any project load (file, slot, version): when the main process
   // recovered the project from a backup or the autosave slot because the file itself
@@ -433,13 +327,7 @@ export default function App() {
       // relink dialog leaves the lost state visible in the pool, the
       // timeline and the player instead of vanishing with the dialog.
       dispatch({ type: 'setMediaMissing', ids: res.missing.map((m) => m.id) });
-      if (res.missing.length) {
-        // The loaded project (not projectRef — the dispatch above has not
-        // rendered yet) is the source for the per-clip refs.
-        let proj = null;
-        try { proj = res.json ? JSON.parse(res.json) : null; } catch { proj = null; }
-        setRelinkAsk({ items: relinkItemsFor(proj, res.missing), context: res.packaged ? 'packaged' : undefined, totalMedia: res.totalMedia });
-      }
+      if (res.missing.length) setRelinkAsk({ items: res.missing });
     }
   };
   // Relink applied: the store patches the media paths through every history state
@@ -461,8 +349,7 @@ export default function App() {
   // dialog item uses the same shape findMissingMedia returns at load.
   const reopenRelink = (m) => {
     if (!m) return;
-    const refs = missingClipRefs(projectRef.current, [m.id])[m.id] || [];
-    setRelinkAsk({ items: [{ id: m.id, name: m.name, path: m.path, type: m.type || '', duration: m.duration || 0, width: m.width || 0, height: m.height || 0, clips: refs }] });
+    setRelinkAsk({ items: [{ id: m.id, name: m.name, path: m.path, type: m.type || '', duration: m.duration || 0, width: m.width || 0, height: m.height || 0 }] });
   };
   // Export guard (Part 3 addendum, 2026-11-10): before an export is set up or
   // started, re-verify the referenced paths against the disk with the
@@ -477,31 +364,24 @@ export default function App() {
     try { miss = (await window.api.checkMissingMedia?.(scopedMedia ? { media: scopedMedia } : proj)) || []; } catch { miss = []; }
     dispatch({ type: 'setMediaMissing', ids: miss.map((m) => m.id), merge: !!scopedMedia });
     if (!miss.length) return false;
-    setRelinkAsk({ items: relinkItemsFor(proj, miss), after });
+    setRelinkAsk({ items: miss, after });
     return true;
   };
-  // Mid-session missing-media refresh (checklist #1, 2026-11-13; P1-28): a file
-  // can be deleted from disk while the app is open, and the load-time check
-  // never sees it — the timeline would keep playing the cached proxy as if
-  // nothing happened. Re-verify against the disk before playback starts and
-  // whenever the window regains focus. The lost flags always refresh (red
-  // cards and clips, dark slots, muted audio); files that were present and
-  // are now gone ALSO open the relink dialog — the refresh used to stay
-  // silent, so the loss was only visible as red cards. Only newly-lost files
-  // prompt: files already flagged (load-time loss, or an earlier dismissed
-  // prompt) do not re-nag, and an already-open dialog is never stacked.
-  // Returns the newly-lost items (empty when nothing newly went missing).
-  // Without `merge` the id list is the complete truth, so a file that came
-  // back clears again.
+  // Mid-session missing-media refresh (checklist #1, 2026-11-13): a file can
+  // be deleted from disk while the app is open, and the load-time check never
+  // sees it — the timeline would keep playing the cached proxy as if nothing
+  // happened. Re-verify against the disk before playback starts and whenever
+  // the window regains focus. Silent: only the lost flags refresh (red cards
+  // and clips, dark slots, muted audio); the relink dialog stays a
+  // load/export-time thing. Without `merge` the id list is the complete
+  // truth, so a file that came back clears again.
   const refreshMissingMedia = useCallback(async () => {
     const p = projectRef.current;
     if (!p?.media?.length) return [];
     let miss = [];
     try { miss = (await window.api.checkMissingMedia?.(p)) || []; } catch { miss = []; }
-    const newly = newlyMissingIds(miss, p.media);
     dispatch({ type: 'setMediaMissing', ids: miss.map((m) => m.id) });
-    if (newly.length && !relinkAskRef.current) setRelinkAsk({ items: relinkItemsFor(p, newly), context: 'midsession' });
-    return newly;
+    return miss;
   }, []);
   // Restore an earlier version: the CURRENT state is recorded as a restore point
   // first (and flushed to file + slot), so the restore itself can be undone from the
@@ -530,61 +410,7 @@ export default function App() {
     setSelection(null);
     setTime(0);
     setFileNote(t('app.restoredVersion', { when: new Date(entry.savedAt).toLocaleString(NUM_LOCALES[getLanguage()] || 'en-US', { dateStyle: 'medium', timeStyle: 'short' }) }));
-    if (res.missing?.length) { dispatch({ type: 'setMediaMissing', ids: res.missing.map((m) => m.id) }); setRelinkAsk({ items: relinkItemsFor(vp, res.missing) }); }
-  };
-  // P1-48: save the live project as a named version. Returns false when the
-  // store refused it (blank name / unchanged content), so the dialog keeps
-  // the typed name instead of clearing it.
-  const createNamedVersion = async (name) => {
-    const p = projectRef.current;
-    if (!p?.id || !String(name || '').trim()) return false;
-    let entry = null;
-    try { entry = await window.api.versionsCreateNamed?.(p.id, JSON.stringify(p), String(name).trim(), autosave.current.file); } catch { entry = null; }
-    if (!entry) {
-      // The store dedupes unchanged content, so a named save of a state that
-      // is already the newest snapshot would silently do nothing — name that
-      // snapshot instead: its content IS the current state.
-      try {
-        const list = await window.api.versionsList?.(p.id);
-        const newest = Array.isArray(list) ? list[0] : null;
-        if (newest) entry = await window.api.versionsRename?.(p.id, newest.file, String(name).trim());
-      } catch { entry = null; }
-    }
-    if (!entry) return false;
-    setFileNote(t('app.namedVersionSaved', { name: String(name).trim() }));
-    return true;
-  };
-  // P1-48: restore only the chosen tracks/clips of a version. The current
-  // state is recorded as a restore point first, exactly like a whole restore,
-  // and the merged document loads through the same path (identity + file
-  // binding kept, missing media flagged the same way).
-  const restoreVersionPartial = async (entry, selection) => {
-    const p = projectRef.current;
-    if (!p?.id || !entry?.file) return;
-    const count = (selection?.tracks?.length || 0) + (selection?.clips?.length || 0);
-    if (!count) return;
-    try { await window.api.versionsRecord?.(p.id, JSON.stringify(p), autosave.current.file); } catch { /* the restore still proceeds */ }
-    const res = await window.api.versionsSelective?.(p.id, entry.file, JSON.stringify(p), selection);
-    if (!res?.json) {
-      alert(t('app.versionUnreadable'));
-      return;
-    }
-    let vp;
-    try {
-      vp = JSON.parse(res.json);
-    } catch {
-      alert(t('app.versionDamaged'));
-      return;
-    }
-    await flushAutosave();
-    dispatch({ type: 'load', project: { ...vp, id: p.id } });
-    setHistoryOpen(false);
-    setSaveState(autosave.current.file ? 'saved' : 'new');
-    setUnsavedNote(null);
-    setSelection(null);
-    setTime(0);
-    setFileNote(t('app.restoredPartial', { count, when: new Date(entry.savedAt).toLocaleString(NUM_LOCALES[getLanguage()] || 'en-US', { dateStyle: 'medium', timeStyle: 'short' }) }));
-    if (res.missing?.length) { dispatch({ type: 'setMediaMissing', ids: res.missing.map((m) => m.id) }); setRelinkAsk({ items: relinkItemsFor(vp, res.missing) }); }
+    if (res.missing?.length) { dispatch({ type: 'setMediaMissing', ids: res.missing.map((m) => m.id) }); setRelinkAsk({ items: res.missing }); }
   };
   // Agent draft bridge: keep the TopBar badge + enabled flag fresh (main pushes
   // a change event whenever a shadow appears, is edited, or is resolved).
@@ -623,9 +449,6 @@ export default function App() {
     setTime(0);
     setFileNote(t('app.appliedDraft'));
     refreshBridge();
-    // P1-54: the draft may reference files this PC does not have — check it
-    // the same way a file open does.
-    promptMissingFor(np);
     return { ok: true };
   };
   const discardBridgeDraft = async (shadowId) => {
@@ -683,9 +506,6 @@ export default function App() {
         dispatch({ type: 'load', project: snap.project });
         setRecoveredNote(true);
         setScreen('editor');
-        // P1-54: the recovered project never went through loadProjectFile,
-        // so its missing media would otherwise load silently — check it here.
-        promptMissingFor(snap.project);
       } else if (snap?.unsaved && snap.project && hasContent(snap.project)) {
         autosave.current.pendingRestore = true;
         setUnsavedNote(snap);
@@ -732,7 +552,7 @@ export default function App() {
     // queued too — the main process confirms with a real probe before making anything.
     const missing = project.media.filter((m) => (m.type === 'video' && (!m.thumbCount || !m.poster || m.optimizing || m.proxyFailed || (needsPreviewCopy(m) && !m.proxy) || levelCopyState(m, quality) === 'fallback' || levelCopyState(m, quality) === 'failed' || carriesCopies(m))) || (m.hasAudio && !m.wave));
     if (missing.length) {
-      window.api.ensureVisuals(missing.map(({ path, type, duration, hasAudio, width, height, proxy, lightProxy, proxies, remux, container, vcodec, pixFmt, hdr, colorSpace, colorPrimaries, colorTransfer, colorRange }) => ({ path, type, duration, hasAudio, width, height, proxy, lightProxy, proxies, remux, container, vcodec, pixFmt, hdr, colorSpace, colorPrimaries, colorTransfer, colorRange })));
+      window.api.ensureVisuals(missing.map(({ path, type, duration, hasAudio, width, height, proxy, lightProxy, proxies, remux, container, vcodec, pixFmt, hdr }) => ({ path, type, duration, hasAudio, width, height, proxy, lightProxy, proxies, remux, container, vcodec, pixFmt, hdr })));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mediaKey]);
@@ -788,13 +608,9 @@ export default function App() {
   const [seekVer, setSeekVer] = useState(0);
   const seek = useCallback((t) => {
     setPeekId(null);
-    // Frame timebase (P1-04): the playhead always sits on a whole frame of
-    // the project rate, so a split at the playhead and the frame the
-    // preview shows are the same frame. Depends on project.fps only, so
-    // the callback identity survives every other project edit.
-    setTime(quantize(Math.max(0, t), effectiveFps(project)));
+    setTime(Math.max(0, t));
     setSeekVer((v) => v + 1);
-  }, [project?.fps]);
+  }, []);
 
   const togglePlay = useCallback(async () => {
     setPeekId(null);
@@ -803,18 +619,13 @@ export default function App() {
     if (duration <= 0) return;
     // Checklist #1: refresh the lost flags before playback starts, so a file
     // deleted mid-session turns its clips red and stays silent instead of
-    // playing its cached proxy. When files just went missing, the relink
-    // dialog is up (P1-28) — do not start playing a broken timeline behind it.
-    const newly = await refreshMissingMedia();
-    if (newly.length) return;
+    // playing its cached proxy.
+    await refreshMissingMedia();
     setPlaying(true);
   }, [playing, time, duration, refreshMissingMedia]);
 
   const addItems = (items) => {
-    // P1-47: stamp when each item joined the project so the Media tab can
-    // sort by date added. Items from older saves have no stamp and keep
-    // their registry order (assetsLib.sortMedia treats them as undated).
-    const ok = items.filter((i) => !i.error).map((i) => ({ ...i, id: uid(), addedAt: i.addedAt ?? Date.now() }));
+    const ok = items.filter((i) => !i.error).map((i) => ({ ...i, id: uid() }));
     const bad = items.filter((i) => i.error);
     if (bad.length) alert(t('app.couldNotImport') + bad.map((b) => `${b.name}: ${b.error}`).join('\n'));
     if (ok.length) dispatch({ type: 'addMedia', items: ok });
@@ -982,9 +793,6 @@ export default function App() {
     window.api.settingsGet().then((st) => setStockKey(!!st.serviceKeys?.pixabay));
     window.api.proxyStatus?.().then((st) => { setPlaybackQuality(st.quality); setQuality(st.quality); }).catch(() => {});
     window.api.perfGetMode?.().then((m) => setPerfMode(m)).catch(() => {});
-    // Accessibility (P2-39): Reduce Motion / Flashing, re-applied whenever
-    // settings change (mount, and whenever the Settings dialog closes).
-    window.api.settingsGet?.().then((st) => applyAccessibilitySettings(st)).catch(() => {});
   }, [settingsVersion]);
 
   // Customisable shortcuts + keystroke display (Sprint 11): the effective
@@ -1100,16 +908,6 @@ export default function App() {
     guardAdd(m, () => {
       const clipId = uid();
       dispatch({ type: 'addToTimeline', mediaId, clipId, at: time });
-      setSelection({ track: m && m.type === 'audio' ? 'audio' : 'video', id: clipId });
-    });
-  };
-
-  // Source Monitor (spec matrix): insert only the marked source range.
-  const addToTimelineRange = (mediaId, range) => {
-    const m = project.media.find((x) => x.id === mediaId);
-    guardAdd(m, () => {
-      const clipId = uid();
-      dispatch({ type: 'addToTimeline', mediaId, clipId, at: time, in: range?.in, out: range?.out });
       setSelection({ track: m && m.type === 'audio' ? 'audio' : 'video', id: clipId });
     });
   };
@@ -1242,16 +1040,6 @@ export default function App() {
     setSelection({ track: 'text', id: clipId });
   };
 
-  // Gap-build C: insert a grouped layer template (src/graphics/catalog.js) —
-  // one dispatch (one undo step), all parts sharing a groupId; the last part
-  // is selected so its inspector opens.
-  const addGraphic = (templateId) => {
-    const clips = graphicTemplateClips(templateId, time);
-    if (!clips.length) return;
-    dispatch({ type: 'addGraphicTemplate', clips });
-    setSelection({ track: 'text', id: clips[clips.length - 1].id });
-  };
-
   // Contextual timeline tools (reference pattern): Detach audio and Link / Unlink appear
   // in the toolbar when the selection can use them, calling the same handlers as the menu.
   const selSingle = selection && !selection.items ? findClipIn(project, selection.track, selection.id) : null;
@@ -1290,9 +1078,6 @@ export default function App() {
 
   // Delete everything left (or right) of the playhead in the selected clip when the playhead is inside it,
   // otherwise in the main-track clip under the playhead.
-  // Q/W trim (spec matrix): one 'qwTrim' store action — split + delete one
-  // half in a single dispatch / single undo step. The track magnet is the
-  // ripple: magnet on closes the space, magnet off leaves a gap / clips stay.
   const trimSide = useCallback((side) => {
     const targets = [];
     if (selection) targets.push(selection);
@@ -1300,8 +1085,12 @@ export default function App() {
     if (v && !(selection && selection.id === v.clip.id)) targets.push({ track: 'video', id: v.clip.id });
     for (const tgt of targets) {
       const newId = uid();
-      dispatch({ type: 'qwTrim', track: tgt.track, id: tgt.id, t: time, which: side === 'left' ? 'q' : 'w', newId });
-      dispatch({ type: 'setTrimMode', mode: 'qw' });
+      const actions = trimActions(project, { track: tgt.track, id: tgt.id, t: time, side, newId });
+      if (!actions.length) continue;
+      // Split + delete land as ONE undo step.
+      dispatch({ type: 'beginGesture' });
+      actions.forEach((a) => dispatch(a));
+      dispatch({ type: 'endGesture' });
       setSelection(side === 'right' ? { track: tgt.track, id: tgt.id } : { track: tgt.track, id: newId });
       return;
     }
@@ -1313,60 +1102,6 @@ export default function App() {
     if (near) dispatch({ type: 'removeMarker', id: near.id });
     else dispatch({ type: 'addMarker', id: uid(), time });
   }, [project.markers, time]);
-
-  // J/K/L shuttle (P2-35). There is no reverse playback in the player (the
-  // video elements only run forward), so J does not play backwards: while
-  // playing it pauses, while paused it steps back one frame. L plays, then
-  // cycles 1× → 2× → 4× → 1×; K pauses. Any pause resets the rate to 1×
-  // (see the effect on `playing` above), so Space always resumes at 1×.
-  const shuttleFwd = useCallback(() => {
-    if (!playing) { setShuttleRate(1); togglePlay(); return; }
-    setShuttleRate((r) => (r >= 4 ? 1 : r * 2));
-  }, [playing, togglePlay]);
-  const shuttleStop = useCallback(() => { setPlaying(false); }, []);
-  const shuttleBack = useCallback(() => {
-    if (playing) { setPlaying(false); return; }
-    seek(time - 1 / (project.fps || 30));
-  }, [playing, time, project.fps, seek]);
-
-  // Marker navigation (P2-35): the nearest marker strictly past / before the
-  // playhead; nothing happens when there is none in that direction.
-  const markerSeek = useCallback((dir) => {
-    const ms = [...(project.markers || [])].map((m) => m.time).sort((a, b) => a - b);
-    const next = dir > 0 ? ms.find((m) => m > time + 0.001) : [...ms].reverse().find((m) => m < time - 0.001);
-    if (next !== undefined) seek(next);
-  }, [project.markers, time, seek]);
-
-  // Ripple toggle (P2-35): the store's magnet IS the ripple — with it on, a
-  // trim/delete closes the gap and later clips move up. There is no UI for
-  // it yet, so this shortcut is its first switch: it flips the video and
-  // audio tracks together (the two that default on); overlay and text keep
-  // their designed-off magnets. A mode toggle, not a document edit: transient,
-  // like the snapping toggle, so it never costs an undo step.
-  const toggleRipple = useCallback(() => {
-    const on = !(project.magnet?.video ?? true);
-    dispatch({ type: 'setMagnet', track: 'video', on, transient: true });
-    dispatch({ type: 'setMagnet', track: 'audio', on, transient: true });
-  }, [project.magnet]);
-
-  // Lock / hide the selected clip's layer (P2-35). Layer state is view-and-
-  // guard state, not a document edit (setLayerState never pushes an undo
-  // step), so a toggle here is free. Nothing happens with no selection.
-  const toggleSelectedLayer = useCallback((field) => {
-    if (!selection) return;
-    const c = findClip(project, selection);
-    if (!c) return;
-    const track = selection.track;
-    const layer = clipLayer(track, c);
-    dispatch({ type: 'setLayerState', track, layer, patch: { [field]: !layerStateOf(project, track, layer)[field] } });
-  }, [selection, project]);
-
-  // Open a left panel (P2-35): uncollapse it first when it is hidden, so the
-  // key always lands somewhere visible.
-  const openTab = useCallback((tabId) => {
-    if (collapsed.left) togglePanel('left');
-    setTab(tabId);
-  }, [collapsed.left, togglePanel]);
 
   const remove = useCallback(() => {
     if (!selection) return;
@@ -1385,7 +1120,7 @@ export default function App() {
   }, [selection]);
 
   // What the player shows and exports: deactivated clips left out.
-  const playProject = useMemo(() => flattenProject(renderable(project)), [project]);
+  const playProject = useMemo(() => renderable(project), [project]);
 
   // ---- Copy / cut / paste and the right-click clip menu ----
   const findClip = (p, sel) => {
@@ -1410,23 +1145,6 @@ export default function App() {
     dispatch({ type: 'paste', track: clipboard.track, clip: clipboard.clip, at: time, newId });
     setSelection({ track: clipboard.track, id: newId });
   }, [clipboard, time]);
-  // FX-02 — multi-select effect copy/paste: the effect stacks of the
-  // selected clips (selection.items when the clicked clip is part of it,
-  // else the single selection) travel with relative keyframes; pasting
-  // applies them to every selected clip in one updateMany = one undo step.
-  const effectTargets = useCallback(() => {
-    const items = (selection?.items && selection.items.some((it) => it.track === selection.track && it.id === selection.id))
-      ? selection.items.filter((it) => it.track !== 'transition')
-      : selection ? [{ track: selection.track, id: selection.id }] : [];
-    return items.map((it) => ({ track: it.track, clip: findClip(project, it) })).filter((x) => x.clip && !x.clip.gap);
-  }, [project, selection]);
-  const copyEffects = useCallback(() => {
-    copyEffectStacks(effectTargets().map((x) => x.clip));
-  }, [effectTargets]);
-  const pasteEffects = useCallback(() => {
-    const updates = pasteEffectStacks(effectTargets());
-    if (updates.length) dispatch({ type: 'updateMany', updates });
-  }, [effectTargets]);
   // Detach audio: render the clip's sound to its own file (electron/detach.cjs, cached),
   // put it on the Audio track at the clip's position and LINK the pair — the store keeps
   // linked clips in sync (select / move / trim / split / speed together). One undo step.
@@ -1470,38 +1188,10 @@ export default function App() {
           .map((k) => ({ ...k, t: Math.max(0, k.t - (c.in || 0)) })),
       } : {}),
       linkId, linkOff: 0, linkInOff: -(c.in || 0),
-      role: 'dialogue', // P2-23: detached sound is the picture's dialogue, not music
     } });
     dispatch({ type: 'endGesture' });
     select({ track: 'audio', id: audioId });
   }, [selection, select]);
-
-  // J-cut / L-cut to playhead (P1-03, Alt+J / Alt+L): the selected linked
-  // pair's audio starts / ends at the playhead. Before the picture start
-  // the audio leads (a J-cut); after the picture end it trails (an
-  // L-cut); a playhead inside the picture clears that side back to sync.
-  // The trim is clamped to the source media by setAudioTrim, so a
-  // playhead far outside the pair just takes the longest cut the source
-  // allows. One undo step.
-  const jlCutToPlayhead = useCallback((side) => {
-    const p = projectRef.current;
-    const sel = selection;
-    if (!sel || sel.items) return;
-    const c = findClip(p, sel);
-    if (!c || !c.linkId) return;
-    const info = linkedPairInfo(p, sel.track, c);
-    if (!info) return;
-    const at = time;
-    if (side === 'j') {
-      const lead = Math.max(0, info.picStart - at);
-      if (Math.abs(lead - info.lead) < 1e-6) return;
-      dispatch({ type: 'setAudioTrim', id: info.aud.id, lead, trail: info.trail });
-    } else {
-      const trail = Math.max(0, at - info.picEnd);
-      if (Math.abs(trail - info.trail) < 1e-6) return;
-      dispatch({ type: 'setAudioTrim', id: info.aud.id, lead: info.lead, trail });
-    }
-  }, [selection, time]);
 
   // Voice Enhancer: render the clip's range cleaned (electron/enhance.cjs, cached) and point
   // the clip at the result (clip.enhance = { on, strength, path, from, to }). Preview and export
@@ -1543,9 +1233,9 @@ export default function App() {
         const m = mediaById[c.mediaId];
         if (!m || !m.hasAudio || m.type === 'image' || c.gap) continue;
         if (track === 'overlay' && m.type !== 'video') continue; // overlay sound exists only for video media
-        if ((!hasAudioFx(c.audioFx) && !hasCleanVoice(c.cleanVoice) && !hasRepair(c.repair)) || audioFxPathOf(c, m)) continue;
+        if (!hasAudioFx(c.audioFx) || audioFxPathOf(c, m)) continue;
         if (afxBusyRef.current.has(c.id)) continue;
-        const chain = cleanVoiceChain(c.cleanVoice, c.audioFx, c.repair);
+        const chain = audioFxFilters(c.audioFx).join(',');
         if (afxFailedRef.current.get(c.id) === chain) continue;
         stale.push({ track, id: c.id, chain });
       }
@@ -1557,37 +1247,14 @@ export default function App() {
         const p = projectRef.current;
         const c = findClipIn(p, job.track, job.id);
         const m = c && p.media.find((x) => x.id === c.mediaId);
-        if (!c || !m || (!hasAudioFx(c.audioFx) && !hasCleanVoice(c.cleanVoice) && !hasRepair(c.repair)) || audioFxPathOf(c, m)) continue;
-        if (cleanVoiceChain(c.cleanVoice, c.audioFx, c.repair) !== job.chain) { setAfxTick((n) => n + 1); continue; }
+        if (!c || !m || !hasAudioFx(c.audioFx) || audioFxPathOf(c, m)) continue;
+        if (audioFxFilters(c.audioFx).join(',') !== job.chain) { setAfxTick((n) => n + 1); continue; }
         const src = audioFxSourceFor(c, m);
         if (!src) continue;
         afxBusyRef.current.add(c.id);
-        // P1-13 audition slice first: a 6 s window from the playhead lands in ~1 s,
-        // so a preset change is heard at once; the full render still follows below.
-        // A failed slice is never recorded as a failure — the full render gets its
-        // chance either way, and a slice for a superseded chain is inert by the
-        // validity check (the preview never plays it).
-        const start = job.track === 'video'
-          ? videoLayout(p.videoClips).find((l) => l.clip.id === c.id)?.start ?? 0
-          : c.start || 0;
-        const lt = timeRef.current - start;
-        if (lt >= 0 && lt < clipLen(c) && !audioFxSliceValid(c, m)) {
-          const sliceSrc = audioFxSliceSourceFor(c, m, sourceOffsetAt(c, lt));
-          if (sliceSrc) {
-            let sliceRes = null;
-            try {
-              sliceRes = await window.api.audioFxRender({ ...sliceSrc, fx: c.audioFx, cleanVoice: c.cleanVoice, repair: c.repair });
-            } catch { sliceRes = null; }
-            const c2 = findClipIn(projectRef.current, job.track, job.id);
-            if (sliceRes && sliceRes.path && c2 && cleanVoiceChain(c2.cleanVoice, c2.audioFx, c2.repair) === job.chain) {
-              dispatch({ type: 'clipDerivative', track: job.track, id: c.id, field: 'audioFxSlice',
-                value: { path: sliceRes.path, from: sliceSrc.from, to: sliceSrc.to, chain: sliceRes.chain, src: sliceSrc.srcPath, srcOff0: sliceSrc.srcOff0 } });
-            }
-          }
-        }
         let res;
         try {
-          res = await window.api.audioFxRender({ ...src, fx: c.audioFx, cleanVoice: c.cleanVoice, repair: c.repair });
+          res = await window.api.audioFxRender({ ...src, fx: c.audioFx });
         } catch (e) { res = { error: e && e.message }; }
         afxBusyRef.current.delete(c.id);
         if (res && res.path) {
@@ -1605,27 +1272,7 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project, afxTick]);
 
-  // FB-30: audio-preview status for the tray + the Preview badge — how
-  // many clips are still waiting for their processed sound, rendering one,
-  // or failed one. Same clip enumeration as the stale-render scan above.
-  const audioPreview = useMemo(() => {
-    const mediaById = Object.fromEntries(project.media.map((m) => [m.id, m]));
-    const pendingIds = new Set(); const renderingIds = new Set(); const failedIds = new Set();
-    for (const [track, clips] of [['video', project.videoClips], ['overlay', project.overlayClips || []], ['audio', project.audioClips]]) {
-      for (const c of clips) {
-        const m = mediaById[c.mediaId];
-        if (!m || !m.hasAudio || m.type === 'image' || c.gap) continue;
-        if (track === 'overlay' && m.type !== 'video') continue;
-        if ((!hasAudioFx(c.audioFx) && !hasCleanVoice(c.cleanVoice)) || audioFxPathOf(c, m)) continue;
-        const chain = cleanVoiceChain(c.cleanVoice, c.audioFx);
-        if (afxFailedRef.current.get(c.id) === chain) { failedIds.add(c.id); continue; }
-        if (afxBusyRef.current.has(c.id)) { renderingIds.add(c.id); continue; }
-        pendingIds.add(c.id);
-      }
-    }
-    return { pending: pendingIds.size, rendering: renderingIds.size, failed: failedIds.size, pendingIds, renderingIds, failedIds };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project, afxTick]);
+  // Unlink a linked pair: both clips become independent (one undo step).
   const unlinkClip = useCallback((sel = selection) => {
     const p = projectRef.current;
     const c = sel && findClip(p, sel);
@@ -1694,7 +1341,7 @@ export default function App() {
   // and its save dialog opens when the job starts (the main-process handler
   // asks) — the stamped project below is the job's snapshot either way.
   const exportAudio = async (format, clipSel) => {
-    let p = flattenProject(renderable(project));
+    let p = renderable(project);
     let name = project.name;
     if (clipSel) {
       const c = findClip(project, clipSel);
@@ -2016,7 +1663,7 @@ export default function App() {
   // Auto-reframe 9:16 (v1.1.8): track the faces on the main track, then switch to a NEW vertical
   // copy of the project whose pictures follow the subject (src/reframe.js). The original keeps
   // its file and autosave slot untouched — the copy starts unbound, like a new project.
-  const startReframe = async (opts = loadReframePrefs()) => {
+  const startReframe = async () => {
     const p = projectRef.current;
     if (p.ratio === '9:16') { setRenderJob({ error: t('app.alreadyVertical') }); return; }
     const items = [];
@@ -2029,14 +1676,9 @@ export default function App() {
     }
     const hasPicture = p.videoClips.some((c) => !c.gap && p.media.some((x) => x.id === c.mediaId));
     if (!hasPicture) { setRenderJob({ error: t('app.reframeNeedsVideo') }); return; }
-    // Centre mode needs no faces: reframeClip ignores the tracked points
-    // entirely there, so skip the model download + analysis — it can only
-    // fail a flow that needs no faces (offline, or the model host
-    // unreachable). Face mode still runs the analysis as before.
-    const needFaces = opts.mode !== 'center' && items.length > 0;
-    setRenderJob({ kind: 'reframe', label: needFaces ? t('app.jobReframeFaces') : t('app.jobReframeMake'), fraction: 0 });
+    setRenderJob({ kind: 'reframe', label: items.length ? t('app.jobReframeFaces') : t('app.jobReframeMake'), fraction: 0 });
     let res = { results: {} };
-    if (needFaces) {
+    if (items.length) {
       const off = window.api.onReframeProgress(({ stage, fraction }) => setRenderJob((j) => (j && j.kind === 'reframe'
         ? { ...j, label: stage === 'download' ? t('app.jobModelDownload') : t('app.jobReframeFaces'), fraction } : j)));
       try { res = await window.api.reframeRun(items); } catch { res = null; }
@@ -2046,7 +1688,7 @@ export default function App() {
     if (res.canceled) { setRenderJob(null); return; }
     const paths = {};
     for (const [clipId, r] of Object.entries(res.results || {})) paths[clipId] = r.points;
-    const copy = buildVerticalCopy(projectRef.current, paths, uid, opts);
+    const copy = buildVerticalCopy(projectRef.current, paths, uid);
     await flushAutosave(); // the original keeps its last changes (file + slot)
     autosave.current.file = null;
     autosave.current.pendingRestore = false;
@@ -2148,14 +1790,12 @@ export default function App() {
     setSilenceAsk({ track: sel.track, id: c.id, ranges, totalSec: ranges.reduce((n, r) => n + (r.end - r.start), 0) });
   };
 
-  const confirmSilenceRemoval = (ranges) => {
+  const confirmSilenceRemoval = () => {
     const ask = silenceAsk;
     if (!ask) return;
-    const accepted = ranges || ask.ranges;
-    if (ask.track === 'video') dispatch({ type: 'cutRanges', ranges: accepted, rippleText: true });
-    else dispatch({ type: 'cutFreeRanges', track: ask.track, id: ask.id, ranges: accepted });
+    if (ask.track === 'video') dispatch({ type: 'cutRanges', ranges: ask.ranges, rippleText: true });
+    else dispatch({ type: 'cutFreeRanges', track: ask.track, id: ask.id, ranges: ask.ranges });
     setSilenceAsk(null);
-    setSilenceReview(null);
   };
 
   const menuItems = (sel) => {
@@ -2194,32 +1834,14 @@ export default function App() {
     const canExtract = pic && m?.type === 'video' && m.hasAudio && !c.muted;
     const extractHint = !(pic && m?.type === 'video') ? t('app.onlyVideo')
       : !m.hasAudio ? t('app.videoNoSound') : t('app.clipMuted');
-    // P2-03: grouping acts on the whole multi-selection when this clip is part
-    // of it, else on this clip alone.
-    const groupItems = (selection?.items && selection.items.some((it) => it.track === sel.track && it.id === sel.id))
-      ? selection.items.filter((it) => it.track !== 'transition')
-      : [{ track: sel.track, id: sel.id }];
     const items = [
       // A lost clip's first job is finding its file again (Part 3, 2026-11-10).
       ...(m?.missing ? [{ label: t('menu.relink'), icon: Unlink, onClick: () => reopenRelink(m) }, 'sep'] : []),
       { label: t('menu.copy'), icon: Copy, shortcut: menuKey('copy'), onClick: copy },
       { label: t('menu.cut'), icon: Scissors, shortcut: menuKey('cut'), onClick: cut, disabled: locked, hint: locked ? lockHint : undefined },
       { label: t('menu.paste'), icon: ClipboardPaste, shortcut: menuKey('paste'), onClick: paste, disabled: !clipboard || pasteLocked, hint: pasteLocked ? lockHint : t('menu.pasteHint') },
-      // FX-02: the effect stack travels separately from the clip — copy it
-      // from the selection, paste it onto the selection.
-      { label: t('menu.copyEffects'), icon: Copy, onClick: copyEffects, disabled: locked || !groupItems.some((it) => (findClip(project, it)?.effects || []).length), hint: locked ? lockHint : t('menu.copyEffectsHint') },
-      { label: t('menu.pasteEffects'), icon: ClipboardPaste, onClick: pasteEffects, disabled: locked || !getEffectsClipboard(), hint: locked ? lockHint : t('menu.pasteEffectsHint') },
       { label: t('menu.deleteClip'), icon: Trash2, shortcut: menuKey('remove'), onClick: remove, disabled: locked, hint: locked ? lockHint : undefined },
       { label: t('menu.selectAllLayer'), icon: ListChecks, onClick: () => selectAllOnLayer(sel) },
-      'sep',
-      // P2-03: group the current selection (or ungroup this clip). Grouping
-      // needs at least two clips; the selection expands to the group on click.
-      { label: t('menu.group'), icon: Layers,
-        onClick: () => dispatch({ type: 'groupClips', items: groupItems, groupId: uid() }),
-        disabled: locked || groupItems.length < 2, hint: locked ? lockHint : t('menu.groupHint') },
-      { label: t('menu.ungroup'), icon: Layers,
-        onClick: () => dispatch({ type: 'ungroupClips', items: [{ track: sel.track, id: sel.id }] }),
-        disabled: locked || !c.groupId, hint: locked ? lockHint : t('menu.ungroupHint') },
       'sep',
       { label: t('tl.split'), icon: Split, shortcut: menuKey('split'), onClick: split, disabled: locked, hint: locked ? lockHint : undefined },
       { label: t('menu.deleteLeft'), icon: ScissorsLineDashed, shortcut: menuKey('trimLeft'), onClick: () => trimSide('left'), disabled: locked, hint: locked ? lockHint : undefined },
@@ -2467,7 +2089,7 @@ export default function App() {
     setTime(0);
     setSelection(null);
     setScreen('editor');
-    if (slot.missing?.length) { dispatch({ type: 'setMediaMissing', ids: slot.missing.map((m) => m.id) }); setRelinkAsk({ items: relinkItemsFor(slot.project, slot.missing) }); }
+    if (slot.missing?.length) { dispatch({ type: 'setMediaMissing', ids: slot.missing.map((m) => m.id) }); setRelinkAsk({ items: slot.missing }); }
   };
 
   const openRecent = async (r) => {
@@ -2525,9 +2147,6 @@ export default function App() {
     setTime(0);
     setSelection(null);
     setScreen('editor');
-    // P1-54: the restored project never went through loadProjectFile — check
-    // its media the same way a file open does.
-    promptMissingFor(note.project);
   };
   const discardUnsaved = () => {
     autosave.current.pendingRestore = false;
@@ -2665,7 +2284,7 @@ export default function App() {
     setTime(0);
     setScreen('editor');
     setFileNote(t('app.restoredVersion', { when: new Date(versionEntry.savedAt).toLocaleString(NUM_LOCALES[getLanguage()] || 'en-US', { dateStyle: 'medium', timeStyle: 'short' }) }));
-    if (res.missing?.length) { dispatch({ type: 'setMediaMissing', ids: res.missing.map((m) => m.id) }); setRelinkAsk({ items: relinkItemsFor(vp, res.missing) }); }
+    if (res.missing?.length) { dispatch({ type: 'setMediaMissing', ids: res.missing.map((m) => m.id) }); setRelinkAsk({ items: res.missing }); }
   };
 
   // Closing the window: write the project's file, or ask about a project that never had one.
@@ -2703,45 +2322,13 @@ export default function App() {
   // stored export settings) — and that same resolved object is stamped onto the project the pipeline
   // receives, so the summary IS the export configuration, not a description of it.
   const startExport = async () => {
-    // The export encodes the FLATTENED active sequence: nested sequence
-    // clips expand to their source clips (same path the preview renders).
-    const project = flattenProject(renderable(projectRef.current));
+    const project = renderable(projectRef.current);
     if (!project.videoClips.length) return alert(t('app.needMediaToExport'));
     if (await guardMissingForExport(project, { kind: 'export' })) return;
     setPlaying(false);
     let caps = { libx265: true };
     try { caps = await window.api.exportCaps(); } catch { /* the bundled build has libx265 */ }
     setExporting({ ready: true, eff: resolveExport(project, caps), project, caps, target: null, name: (project.name || 'export').replace(/[\\/:*?"<>|]+/g, '_'), queueAhead: jobsAhead([...exportJobMap.current.values()]) });
-  };
-  // Batch export (P2-26): one dialog, one job per selected variant, the same quality
-  // preset throughout. Each variant exports its own reframed project copy through
-  // the same serial queue as a single export; the jobs settle in order and the
-  // returned promise resolves when every variant has settled.
-  const startBatchExport = async (project, variantIds) => {
-    const flat = flattenProject(renderable(project));
-    if (!flat.videoClips.length) { alert(t('app.needMediaToExport')); return { error: 'needMedia' }; }
-    if (await guardMissingForExport(flat, { kind: 'export' })) return { error: 'missingMedia' };
-    const variants = (variantIds || []).map(variantById).filter(Boolean);
-    if (!variants.length) return { error: 'noVariants' };
-    setPlaying(false);
-    let caps = { libx265: true };
-    try { caps = await window.api.exportCaps(); } catch { /* the bundled build has libx265 */ }
-    const eff0 = resolveExport(flat, caps);
-    const base = (flat.name || 'export').replace(/[\\/:*?"<>|]+/g, '_');
-    const stems = variants.map((v) => `${base}_${v.suffix}`);
-    const picked = await window.api.exportBeginBatch(stems, eff0.format);
-    if (picked.canceled) return { canceled: true };
-    const jobs = variants.map((v, i) => {
-      const vp = buildVariantProject(flat, v);
-      return runExportFlow(vp, resolveExport(vp, caps), picked.targets[i], stems[i]);
-    });
-    return Promise.all(jobs);
-  };
-  const confirmExportVariants = async (ids) => {
-    if (!exporting) return { error: 'noDialog' };
-    const { project } = exporting;
-    setExporting(null);
-    return startBatchExport(project, ids);
   };
   // Export = enqueue (R4): the destination is settled FIRST, while the user is
   // still at the dialog (cancelling the save dialog keeps the form open, as
@@ -2827,35 +2414,21 @@ export default function App() {
     if (job.settled) return;
     job.settled = true;
     exportActiveId.current = null;
-    // P1-52: the job settled (done, error or cancel) — a pause must not leak
-    // into the next job. The main process also clears it when the encode
-    // settles, but a job that failed in a renderer phase never reached one.
-    if (job.paused) window.api.exportResume?.();
     if (patch) updateExportJob(job, patch);
     else { exportJobMap.current.delete(job.id); syncExportJobs(); }
-    // The export-finished chime: successful video/audio exports only — never on
-    // failure or cancel (those settle with no patch or an error patch), and never
-    // for AI-enhance jobs, which are not exports. Fire-and-forget: the sound
-    // never blocks settlement, and playExportDoneSound swallows its own errors.
-    if (patch?.status === 'done' && job.kind !== 'enhance') playExportDoneSound();
     job.settle?.(result);
     pumpExportJobs();
   };
   const enqueueExportJob = (job) => new Promise((resolve) => {
     job.settle = resolve;
     job.settled = false;
-    // P1-52: every job starts unpaused with its first attempt counted.
-    job.paused = false;
-    job.attempts = 1;
     exportJobMap.current.set(job.id, job);
     syncExportJobs();
     pumpExportJobs();
   });
   const pumpExportJobs = () => {
     if (exportActiveId.current) return;
-    // P1-52: the next job is the first queued AND not paused — a paused job
-    // holds its place and the queue runs what is behind it.
-    const next = pickNextJob([...exportJobMap.current.values()]);
+    const next = [...exportJobMap.current.values()].find((j) => j.status === 'queued');
     if (!next) return;
     exportActiveId.current = next.id;
     updateExportJob(next, { status: 'running' });
@@ -2882,70 +2455,6 @@ export default function App() {
   };
   const dismissExportJob = (id) => { exportJobMap.current.delete(id); syncExportJobs(); };
 
-  // P1-52 — pause / resume / retry. Pause is per-job, never global.
-  // Queued jobs of any kind pause in the queue (the pump skips them).
-  // A RUNNING video/audio job also stops its ffmpeg children in the main
-  // process (SIGSTOP) and its renderer frame loops wait — see canPauseRunning.
-  // A running enhance/zip job has no safe stop point, so it can only be
-  // paused while queued, and otherwise only cancelled.
-  const pauseExportJob = (id) => {
-    const job = exportJobMap.current.get(id);
-    if (!job || job.paused || (job.status !== 'queued' && job.status !== 'running')) return;
-    updateExportJob(job, { paused: true });
-    if (job.status === 'running' && canPauseRunning(job)) window.api.exportPause?.();
-  };
-  const resumeExportJob = (id) => {
-    const job = exportJobMap.current.get(id);
-    if (!job || !job.paused) return;
-    updateExportJob(job, { paused: false });
-    if (job.status === 'running' && canPauseRunning(job)) window.api.exportResume?.();
-    pumpExportJobs(); // a queued job resumes into an idle queue
-  };
-  // A failed export runs again with the same snapshot and target — no new
-  // job, no re-picking of settings. The attempt count is on the error card.
-  // Deliberately MANUAL: a failed export never re-runs by itself (it could
-  // re-spend minutes of encode on a failure the user has not seen).
-  const retryExportJob = (id) => {
-    const job = exportJobMap.current.get(id);
-    if (!job || job.status !== 'error') return Promise.resolve({ ok: false });
-    return new Promise((resolve) => {
-      job.settle = resolve;
-      updateExportJob(job, retryPatch(job));
-      pumpExportJobs();
-    });
-  };
-
-  // P1-52 — the tray's Background section: proxy / visuals work is background
-  // work too, and it must not run silently. Derived from the project media
-  // (the same flags the Library tiles read): items still optimizing, and
-  // items whose preview copy failed. The media-cache size comes from a
-  // proxy:status poll that only runs while the tray is visible.
-  const proxyActivity = useMemo(() => ({
-    optimizing: project.media.filter((m) => m.optimizing),
-    failed: project.media.filter((m) => m.proxyFailed || levelCopyState(m, quality) === 'failed'),
-  }), [project.media, quality]);
-  const [proxyCache, setProxyCache] = useState(null);
-  // FB-30: the system snapshot + live job progress (models, caches, every
-  // async job). The tray opens whenever a system job is active, so no
-  // async job runs without visible status.
-  const system = useSystemStatus(true);
-  const trayVisible = exportJobs.length > 0 || proxyActivity.optimizing.length > 0 || proxyActivity.failed.length > 0
-    || system.jobs.length > 0 || audioPreview.rendering > 0 || audioPreview.pending > 0;
-  useEffect(() => {
-    if (!trayVisible) return undefined;
-    let dead = false;
-    const poll = () => window.api.proxyStatus?.().then((st) => { if (!dead) setProxyCache(st.mediaCache || null); }).catch(() => {});
-    poll();
-    const id = setInterval(poll, 5000);
-    return () => { dead = true; clearInterval(id); };
-  }, [trayVisible]);
-  // Retry every failed preview copy (force: true — the same call the Library
-  // tile's Retry button makes, for all failed items at once).
-  const retryFailedProxies = () => {
-    if (!proxyActivity.failed.length) return;
-    window.api.ensureVisuals(proxyActivity.failed.map(({ path, type, duration, hasAudio, width, height, proxy, lightProxy, proxies, remux, container, vcodec, pixFmt, hdr, colorSpace, colorPrimaries, colorTransfer, colorRange }) => ({ path, type, duration, hasAudio, width, height, proxy, lightProxy, proxies, remux, container, vcodec, pixFmt, hdr, colorSpace, colorPrimaries, colorTransfer, colorRange })), { force: true });
-  };
-
   const runVideoJob = async (job) => {
     const { project, eff, target } = job;
     // Displayed progress is monotonic across phases: a phase callback can only
@@ -2965,7 +2474,7 @@ export default function App() {
     let textFrames = 0;
     try {
       textFrames = await renderTextFrames(project, target.frameDir,
-        (p) => setProg(p * textShare), () => job.cancelled.current, () => job.paused);
+        (p) => setProg(p * textShare), () => job.cancelled.current);
     } catch (e) {
       await window.api.exportAbort(target.frameDir);
       return finishExportJob(job, { status: 'error', error: `Text rendering failed: ${e.message}`, progress: job.prog.max }, { ok: false, error: e.message });
@@ -2977,15 +2486,6 @@ export default function App() {
     await loadProjectLuts(project);
     // Animated effects and transitions are drawn with the preview's WebGL shaders, frame by frame.
     let toExport = { ...project, export: eff, maskImages: maskImages(project), decoImages: decoImages(project), customMaskImages: customMaskImages(project), motion: motionDataPinned(project) };
-    // P1-57: the expectations for the automatic export quality check — the
-    // main process verifies the finished file against these, plus the font
-    // ids this PC does not have (they render in Arial). Transient fields on
-    // the export copy only; never saved with the project.
-    toExport.qcExpected = {
-      width: eff.outW, height: eff.outH, fps: eff.outFps,
-      duration: exportDuration(project), hasAudio: projectHasAudio(project),
-    };
-    toExport.qcMissingFonts = missingFontsOf(project);
     // Soft subtitle track (MP4/MOV): serialize the caption clips with the SRT writer and
     // hand the text to the main process, which stages it for the mov_text mux. The same
     // captions are still burned in by the text pass — the track is an addition, and its
@@ -3000,7 +2500,7 @@ export default function App() {
     }
     if (fxShare) {
       try {
-        toExport = await renderFxPass(toExport, (p) => setProg(textShare + p * fxShare), () => job.cancelled.current, () => job.paused);
+        toExport = await renderFxPass(toExport, (p) => setProg(textShare + p * fxShare), () => job.cancelled.current);
       } catch (e) {
         await window.api.fxClear();
         await window.api.exportAbort(target.frameDir);
@@ -3034,15 +2534,10 @@ export default function App() {
       r.enc = p;
       setProg(base + p * (1 - base));
     });
-    // The main process announces the post-encode master stage; the tray flips
-    // to the 'loudness' phase while the bar sits at 95% — and to the 'qc'
-    // phase while the automatic quality check runs (P1-57).
-    const offPhase = window.api.onExportPhase?.((phase) => { if (phase === 'loudness' || phase === 'qc') updateExportJob(job, { phase }); });
     const res = await window.api.exportRun(toExport, target, textFrames);
     off();
-    offPhase?.();
     if (res.canceled) return finishExportJob(job, null, { canceled: true });
-    if (!res.ok) return finishExportJob(job, { status: 'error', error: res.error, errorCode: res.errorCode, errorClip: res.errorClip, errorRaw: res.errorRaw, progress: job.prog.max }, { ok: false, error: res.error });
+    if (!res.ok) return finishExportJob(job, { status: 'error', error: res.error, progress: job.prog.max }, { ok: false, error: res.error });
     // Poster cover: when the user picked a cover frame, embed it as the file's attached picture.
     // Best-effort by design — a failed embed never fails the export; the done card says so.
     // Attached pictures exist in MP4/MOV only: WebM and GIF exports skip the embed, and the
@@ -3067,49 +2562,18 @@ export default function App() {
         }
       } catch { coverNote = 'The cover picture could not be embedded — the video itself is complete.'; }
     }
-    return finishExportJob(job, { status: 'done', file: res.file, size, cover, coverNote, duration: exportDuration(project), progress: 1,
-      // P2-36: per-job cost (main process measured wall time + peak app RAM);
-      // speed is the timeline duration over the wall time (× realtime).
-      cost: res.cost ? { ...res.cost, speed: res.cost.wallMs > 0 ? exportDuration(project) / (res.cost.wallMs / 1000) : null } : null,
-      // P1-14: the loudness report for the done card (null when mastering is
-      // off or the timeline has no sound).
-      loudness: res.loudness || null,
-      // P1-57: the automatic quality-check report for the done card (null
-      // when the check itself failed — the export still stands).
-      qc: res.qc || null,
-      // P0-01 (#16): clips skipped for missing files, listed on the done card
-      // like the ZIP export's missing files.
-      note: res.skipped?.length ? t('tray.exportMissing', { count: res.skipped.length, names: res.skipped.slice(0, 3).map((s) => s.name).join(', ') + (res.skipped.length > 3 ? '…' : '') }) : undefined,
-    }, { ok: true, file: res.file });
+    return finishExportJob(job, { status: 'done', file: res.file, size, cover, coverNote, duration: exportDuration(project), progress: 1 }, { ok: true, file: res.file });
   };
 
   const runAudioJob = async (job) => {
     const off = window.api.onExportProgress((pr) => {
       updateExportJob(job, { progress: pr, phase: audioPhaseId(pr) });
     });
-    // P1-57: the main process announces the quality check after the encode;
-    // the tray flips to the 'qc' phase for it (no more progress events
-    // arrive after the encode, so the phase sticks until the job finishes).
-    const offPhase = window.api.onExportPhase?.((phase) => { if (phase === 'qc') updateExportJob(job, { phase: 'qc' }); });
-    // The QC expectations travel on a copy — the live project object is
-    // never mutated with transient export fields.
-    const res = await window.api.exportAudio(
-      { ...job.project, qcExpected: { duration: exportDuration(job.project), hasAudio: projectHasAudio(job.project) } },
-      job.audioFormat, job.name);
+    const res = await window.api.exportAudio(job.project, job.audioFormat, job.name);
     off();
-    offPhase?.();
     if (res.canceled) return finishExportJob(job, null, { canceled: true });
-    if (!res.ok) return finishExportJob(job, { status: 'error', error: res.error, errorCode: res.errorCode, errorClip: res.errorClip, errorRaw: res.errorRaw, progress: job.progress }, { ok: false, error: res.error });
-    return finishExportJob(job, { status: 'done', file: res.file, progress: 1,
-      // P2-36: per-job cost (wall time + peak app RAM; speed = timeline duration over wall time).
-      cost: res.cost ? { ...res.cost, speed: res.cost.wallMs > 0 ? exportDuration(job.project) / (res.cost.wallMs / 1000) : null } : null,
-      // P1-14: the loudness report for the done card.
-      loudness: res.loudness || null,
-      // P1-57: the automatic quality-check report for the done card.
-      qc: res.qc || null,
-      // P0-01 (#16): same skipped-files note as the video export.
-      note: res.skipped?.length ? t('tray.exportMissing', { count: res.skipped.length, names: res.skipped.slice(0, 3).map((s) => s.name).join(', ') + (res.skipped.length > 3 ? '…' : '') }) : undefined,
-    }, { ok: true, file: res.file });
+    if (!res.ok) return finishExportJob(job, { status: 'error', error: res.error, progress: job.progress }, { ok: false, error: res.error });
+    return finishExportJob(job, { status: 'done', file: res.file, progress: 1 }, { ok: true, file: res.file });
   };
 
   // AI Enhance job: the main process runs the Real-ESRGAN pipeline
@@ -3189,11 +2653,6 @@ export default function App() {
   // The target is resolved by the caller when the user is present (the dialog)
   // or here for headless callers (the smoke hook's exportNow).
   const runExportFlow = async (project, eff, presetTarget, name) => {
-    // Nested sequence clips expand here too, so every video-export entry
-    // (dialog confirm AND the __fve.exportNow smoke hook) encodes the same
-    // flattened timeline the preview renders. Flattening is idempotent, so
-    // a project startExport already flattened passes through unchanged.
-    project = flattenProject(project);
     const target = presetTarget || await window.api.exportBegin(name, eff?.format);
     if (target.canceled) return { canceled: true }; // nothing was started
     return enqueueExportJob({
@@ -3218,17 +2677,10 @@ export default function App() {
       },
       // Test hook: exports immediately (no summary gate), resolving settings the same way.
       exportNow: () => { const p = renderable(projectRef.current); return runExportFlow(p, resolveExport(p)); },
-      // Test hook: open the Resources monitor (P2-36).
-      resources: () => setResourcesOpen(true),
-      // Test hook: batch-export the given variants (default: all three).
-      exportVariantsNow: (ids) => startBatchExport(renderable(projectRef.current),
-        (Array.isArray(ids) && ids.length ? ids : EXPORT_VARIANTS.map((v) => v.id))),
       fxSelfTest: async () => (await import('./fx/selftest.js')).fxSelfTest(),
       duration: () => projectDuration(projectRef.current),
       // Test helper: give clips that name a template the template's full style (clip values win).
-      // The catalog loads on demand — it is not part of the startup bundle.
-      applyTemplates: async () => {
-        const { TEXT_TEMPLATES } = await import('./text/catalog.js');
+      applyTemplates: () => {
         const p = projectRef.current;
         const textClips = p.textClips.map((c) => {
           const t = TEXT_TEMPLATES.find((x) => x.id === c.template);
@@ -3253,10 +2705,6 @@ export default function App() {
   };
   const projectRef = useRef(project);
   projectRef.current = project;
-  // The playhead, mirrored for background work: the AudioFx audition slice is
-  // rendered from wherever the playhead sits when a preset changes.
-  const timeRef = useRef(time);
-  timeRef.current = time;
   const historyRef = useRef(state);
   historyRef.current = state;
 
@@ -3286,39 +2734,8 @@ export default function App() {
   // > Keyboard; src/keymap.js resolves the stored overrides over the
   // shipped defaults) — this handler only dispatches the resolved action,
   // so a remapped key fires here exactly as its default did, everywhere.
-  // Keyframe shortcuts (CC-04): act on the targeted picture clip (selection
-  // first, else the clip under the playhead) at the playhead's local time.
-  // Returns { track, clip, start, len, lt } or null when there is no picture
-  // clip under the playhead.
-  const kfTarget = () => {
-    if (!target || !target.clip) return null;
-    const track = target.track || 'video';
-    if (track !== 'video' && track !== 'overlay') return null;
-    const start = target.start || 0;
-    const len = Math.max(0.01, (target.end ?? start) - start);
-    return { track, clip: target.clip, start, len, lt: Math.min(len, Math.max(0, time - start)) };
-  };
-  const kfHasKeyAt = (k) => keyTimes(k.clip).some((t) => Math.abs(t - k.lt) <= 0.5 / (project.fps || 30) + 1e-4);
-  const kfAdd = () => {
-    const k = kfTarget(); if (!k) return;
-    dispatch({ type: 'update', track: k.track, id: k.clip.id, patch: addKeys(k.clip, KEY_PROPS, k.lt) });
-  };
-  const kfDelete = () => {
-    const k = kfTarget(); if (!k || !kfHasKeyAt(k)) return;
-    dispatch({ type: 'update', track: k.track, id: k.clip.id, patch: removeKeys(k.clip, KEY_PROPS, k.lt) });
-  };
-  const kfJump = (dir) => {
-    const k = kfTarget(); if (!k) return;
-    const t = dir < 0 ? prevKeyTime(k.clip, k.lt, project.fps || 30) : nextKeyTime(k.clip, k.lt, project.fps || 30);
-    if (t !== null && t !== undefined) seek(k.start + t);
-  };
-  const kfNudge = (dir) => {
-    const k = kfTarget(); if (!k || !kfHasKeyAt(k)) return;
-    const to = Math.min(k.len, Math.max(0, k.lt + (dir * 1) / (project.fps || 30)));
-    dispatch({ type: 'update', track: k.track, id: k.clip.id, patch: moveKeys(k.clip, k.lt, to, project.fps || 30) });
-  };
   const keys = useRef({});
-  keys.current = { togglePlay, split, remove, duplicate, seek, time, trimSide, toggleMarker, setTool, copy, cut, paste, extractAudio: detachAudio, jCutToPlayhead: () => jlCutToPlayhead('j'), lCutToPlayhead: () => jlCutToPlayhead('l'), save, togglePanel, shuttleFwd, shuttleStop, shuttleBack, markerSeek, toggleRipple, toggleSelectedLayer, openTab, toggleFlowAI: () => setPilotOpen((o) => !o), removeSilences, selection, fps: project.fps, kfAdd, kfDelete, kfPrev: () => kfJump(-1), kfNext: () => kfJump(1), kfNudgeBack: () => kfNudge(-1), kfNudgeFwd: () => kfNudge(1) };
+  keys.current = { togglePlay, split, remove, duplicate, seek, time, trimSide, toggleMarker, setTool, copy, cut, paste, extractAudio: detachAudio, save, togglePanel };
   useEffect(() => {
     const onKey = (e) => {
       if (isKeyCaptureActive()) return; // Settings is capturing this key for a rebind
@@ -3335,47 +2752,18 @@ export default function App() {
         case 'split': e.preventDefault(); k.split(); break;
         case 'duplicate': e.preventDefault(); k.duplicate(); break;
         case 'extractAudio': e.preventDefault(); k.extractAudio(); break;
-        case 'jCutToPlayhead': e.preventDefault(); k.jCutToPlayhead(); break;
-        case 'lCutToPlayhead': e.preventDefault(); k.lCutToPlayhead(); break;
         case 'copy': k.copy(); break;
         case 'cut': k.cut(); break;
         case 'paste': k.paste(); break;
         case 'remove': k.remove(); break;
         case 'undo': dispatch({ type: 'undo' }); break;
         case 'redo': dispatch({ type: 'redo' }); break;
-        case 'seekBack': k.seek(k.time - (e.shiftKey ? 1 : 1 / (k.fps || 30))); break;
-        case 'seekFwd': k.seek(k.time + (e.shiftKey ? 1 : 1 / (k.fps || 30))); break;
-        // Frame step (P1-04): exactly one frame at the project rate. The
-        // old 1/30 hard-code stepped 1.25 frames at 24 fps and half a frame
-        // at 60 fps; seek() quantizes, but the STEP itself must be 1/fps
-        // (at 60 fps a 1/30 step is two frames even after quantizing).
-        case 'frameStepBack': k.seek(k.time - 1 / (k.fps || 30)); break;
-        case 'frameStepFwd': k.seek(k.time + 1 / (k.fps || 30)); break;
+        case 'seekBack': k.seek(k.time - (e.shiftKey ? 1 : 1 / 30)); break;
+        case 'seekFwd': k.seek(k.time + (e.shiftKey ? 1 : 1 / 30)); break;
         case 'seekStart': k.seek(0); break;
         case 'trimLeft': k.trimSide('left'); break;
         case 'trimRight': k.trimSide('right'); break;
         case 'marker': k.toggleMarker(); break;
-        case 'markerPrev': k.markerSeek(-1); break;
-        case 'markerNext': k.markerSeek(1); break;
-        case 'toggleRipple': k.toggleRipple(); break;
-        case 'lockLayer': k.toggleSelectedLayer('locked'); break;
-        case 'hideLayer': k.toggleSelectedLayer('hidden'); break;
-        case 'shuttleBack': k.shuttleBack(); break;
-        case 'shuttleStop': k.shuttleStop(); break;
-        case 'shuttleFwd': k.shuttleFwd(); break;
-        case 'zoomIn': timelineApi.current.zoomIn?.(); break;
-        case 'zoomOut': timelineApi.current.zoomOut?.(); break;
-        case 'zoomFit': timelineApi.current.zoomFit?.(); break;
-        case 'openCaptions': k.openTab('captions'); break;
-        case 'openAudio': k.openTab('audio'); break;
-        case 'toggleFlowAI': k.toggleFlowAI(); break;
-        case 'removeSilence': k.removeSilences(k.selection); break;
-        case 'kfAdd': e.preventDefault(); k.kfAdd(); break;
-        case 'kfDelete': e.preventDefault(); k.kfDelete(); break;
-        case 'kfPrev': e.preventDefault(); k.kfPrev(); break;
-        case 'kfNext': e.preventDefault(); k.kfNext(); break;
-        case 'kfNudgeBack': e.preventDefault(); k.kfNudgeBack(); break;
-        case 'kfNudgeFwd': e.preventDefault(); k.kfNudgeFwd(); break;
         case 'toolRazor': k.setTool('razor'); break;
         case 'toolSelect': k.setTool('select'); break;
         case 'toggleDock': e.preventDefault(); k.togglePanel('left'); break;
@@ -3387,25 +2775,6 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  // The relink dialog renders on BOTH screens: a mid-session loss can be
-  // raised while the app sits on Home (P1-28), and the Home return below
-  // exits before the editor JSX — without this the prompt would stay
-  // invisible until the user re-entered the editor.
-  // P1-54 — closing the relink dialog without relinking leaves a persistent
-  // report: the file note names how many files are still missing and how to
-  // reopen the flow (right-click a missing clip or media card). Applying
-  // sets its own note in applyRelink and never passes through here.
-  const closeRelink = () => {
-    const n = relinkAsk?.items?.length || 0;
-    setRelinkAsk(null);
-    if (n) setFileNote(t(n === 1 ? 'app.stillMissingOne' : 'app.stillMissingOther', { n }));
-  };
-  const relinkDialog = relinkAsk && (
-    <Suspense fallback={null}>
-      <RelinkDialog items={relinkAsk.items} onApply={applyRelink} onClose={closeRelink} totalMedia={relinkAsk.totalMedia}
-        context={relinkAsk.after ? 'export' : relinkAsk.context} closeLabel={relinkAsk.after ? 'Cancel export' : undefined} />
-    </Suspense>
-  );
   if (screen === 'home') {
     return (
       <div className="app home-app">
@@ -3420,22 +2789,19 @@ export default function App() {
           onRestoreUnsaved={restoreUnsaved}
           onDiscardUnsaved={discardUnsaved} />
         {homeHistory && (
-          <Suspense fallback={null}>
-            <HistoryDialog projectId={homeHistory.slotId} projectName={homeHistory.name}
-              onRestore={restoreVersionFromHome} onClose={() => setHomeHistory(null)} />
-          </Suspense>
+          <HistoryDialog projectId={homeHistory.slotId} projectName={homeHistory.name}
+            onRestore={restoreVersionFromHome} onClose={() => setHomeHistory(null)} />
         )}
-        {settingsOpen && <Suspense fallback={null}><SettingsDialog onClose={() => { setSettingsOpen(false); setSettingsVersion((v) => v + 1); }}
+        {settingsOpen && <SettingsDialog onClose={() => { setSettingsOpen(false); setSettingsVersion((v) => v + 1); }}
           onProxiesCleared={(deleted) => projectRef.current.media.forEach((m) => {
             if (m.lightProxy && deleted.includes(m.lightProxy)) dispatch({ type: 'mediaVisuals', path: m.path, patch: { lightProxy: null } });
             if (m.proxies) {
               const proxies = Object.fromEntries(Object.entries(m.proxies).map(([k, v]) => [k, deleted.includes(v) ? null : v]));
               if (JSON.stringify(proxies) !== JSON.stringify(m.proxies)) dispatch({ type: 'mediaVisuals', path: m.path, patch: { proxies } });
             }
-          })} /></Suspense>}
-        {closeAsk && <Suspense fallback={null}><CloseDialog name={closeAsk.name} onChoice={closeAsk.resolve} /></Suspense>}
+          })} />}
+        {closeAsk && <CloseDialog name={closeAsk.name} onChoice={closeAsk.resolve} />}
         {keystrokesOn && <KeystrokesOverlay />}
-        {relinkDialog}
       </div>
     );
   }
@@ -3445,8 +2811,7 @@ export default function App() {
       onDragOver={(e) => { e.preventDefault(); if (isFiles(e) && !isInternal(e)) setDragOver(true); }}
       onDragLeave={(e) => { if (e.target === e.currentTarget) setDragOver(false); }}
       onDrop={onDrop}>
-      <TopBar project={project} dispatch={dispatch} onOpen={open} onSave={save} saveState={saveState} onHistory={() => setHistoryOpen(true)} onBridge={bridgeInfo.enabled ? () => setBridgeOpen(true) : null} bridgePending={bridgeInfo.pending} onExport={startExport} onExportAudio={(f) => exportAudio(f)} onExportProjectZip={exportProjectZip} onReframe={() => setReframeOpen(true)} onSettings={() => setSettingsOpen(true)} onPacks={() => setPacksOpen(true)} onResources={() => setResourcesOpen(true)}
-        workspace={workspace} onWorkspaceChange={onWorkspaceChange} onWorkspaceReset={onWorkspaceReset}
+      <TopBar project={project} dispatch={dispatch} onOpen={open} onSave={save} saveState={saveState} onHistory={() => setHistoryOpen(true)} onBridge={bridgeInfo.enabled ? () => setBridgeOpen(true) : null} bridgePending={bridgeInfo.pending} onExport={startExport} onExportAudio={(f) => exportAudio(f)} onExportProjectZip={exportProjectZip} onReframe={startReframe} onSettings={() => setSettingsOpen(true)}
         onHome={async () => { await flushAutosave(); refreshSlots(); setScreen('home'); }}
         onAbout={() => setAboutOpen(true)} updateReady={!!update?.newer} />
 
@@ -3458,35 +2823,27 @@ export default function App() {
             title={`${t('app.showLeft')}${firstBinding(getCurrentKeymap(), 'toggleDock') ? ` (${firstBinding(getCurrentKeymap(), 'toggleDock')})` : ''}`}
             onClick={() => togglePanel('left')}><ChevronRight size={15} /><span>{t('app.panels')}</span></button>
         ) : (
-        <LeftPanel tab={tab} setTab={setTab} media={project.media} project={project} dispatch={dispatch} time={time}
+        <LeftPanel tab={tab} setTab={setTab} media={project.media} dispatch={dispatch} time={time}
           onRelink={reopenRelink}
-          selection={selection}
-          onImport={importMedia} onAdd={addToTimeline} onAddRange={addToTimelineRange} onAddAsOverlay={addAsOverlay} onLibraryAdd={libraryAdd} onStockAdd={stockAdd} onAddFile={addFile} stockKey={stockKey} onTtsAdd={ttsAdd} selectedText={selectedText} onOpenSettings={() => setSettingsOpen(true)}
+          onImport={importMedia} onAdd={addToTimeline} onAddAsOverlay={addAsOverlay} onLibraryAdd={libraryAdd} onStockAdd={stockAdd} onAddFile={addFile} stockKey={stockKey} onTtsAdd={ttsAdd} selectedText={selectedText} onOpenSettings={() => setSettingsOpen(true)}
           onNewBlackVideo={() => createMatte('#000000')} onNewMatte={() => setMatteDlg({ color: '#e5484d' })}
           onOpenSettings={() => setSettingsOpen(true)} onRemoveMedia={removeMedia} onRenameMedia={renameMedia} onDuplicateMedia={duplicateMedia} onRemoveMediaMany={removeMediaMany} onPeek={peek} peekId={peekId} onPeekAsset={peekAsset}
-          recorder={recorder} onStartRecord={() => recorder.start(time)} onAddText={addText} onAddTextOver={addTextOver} onAddGraphic={addGraphic}
+          recorder={recorder} onStartRecord={() => recorder.start(time)} onAddText={addText} onAddTextOver={addTextOver}
           onRecordScreen={() => { setPlaying(false); setScreenOpen(true); }}
           target={target} updateTarget={updateTarget} selectedCount={selectedPictures(project, selection).length}
-          selection={selection}
           onSeek={seek} onSelect={select}
           onApplyLookToAll={(clip) => dispatch({ type: 'updateMany', updates: [
             ...project.videoClips.filter((c) => !c.gap).map((c) => ({ track: 'video', id: c.id, patch: { grade: { ...(clip.grade || {}) }, adjust: { ...(clip.adjust || {}) } } })),
             ...(project.overlayClips || []).map((c) => ({ track: 'overlay', id: c.id, patch: { grade: { ...(clip.grade || {}) }, adjust: { ...(clip.adjust || {}) } } })),
           ] })}
-          // FB-28: a multi-selection of pictures is also a clip selection —
-          // selectedPictures() resolves it and target is the first picture,
-          // so the Effects tab's apply-to-all checkbox and clip targeting
-          // must not depend on the single-selection `track` field alone.
-          clipSelected={selection?.track === 'video' || selection?.track === 'overlay' || selectedPictures(project, selection).length > 0}
+          clipSelected={selection?.track === 'video' || selection?.track === 'overlay'}
           onAddFreeEffect={(fx) => { const clipId = uid(); dispatch({ type: 'addEffectClip', clipId, fx, at: time }); setSelection({ track: 'effect', id: clipId }); }}
-          onAddGradeLayer={() => { const clipId = uid(); dispatch({ type: 'addEffectClip', clipId, kind: 'grade', at: time }); setSelection({ track: 'effect', id: clipId }); }}
           project={project} captions={{ ...captions, run: runCaptions }} />
         )}
         </div>
-        <Preview project={cropPreviewProject} editProject={project} selection={selection} onSelect={select} dispatch={dispatch} time={time} seekVer={seekVer} playing={playing} duration={duration} shuttleRate={shuttleRate}
+        <Preview project={cropPreviewProject} editProject={project} selection={selection} onSelect={select} dispatch={dispatch} time={time} seekVer={seekVer} playing={playing} duration={duration}
           onTime={setTime} onEnd={() => setPlaying(false)} onTogglePlay={togglePlay} onSeek={seek} onDropItem={dropOnPreview}
           onMatchSequence={matchSequenceToClip}
-          audioPreview={audioPreview}
           peek={project.media.find((m) => m.id === peekId) || assetPeek} onClosePeek={() => { setPeekId(null); setAssetPeek(null); }}
           onAddPeek={(m) => { setPeekId(null); setAssetPeek(null); if (m && m.assetPath) addFile(m.assetPath, m.assetWhere || 'main'); else if (m) addToTimeline(m.id); }}
           quality={quality} onQualityChange={async (q) => { const st = await window.api.qualitySet(q); setPlaybackQuality(st.quality); setQuality(st.quality); }}
@@ -3520,7 +2877,7 @@ export default function App() {
             onClick={() => togglePanel('right')}><ChevronLeft size={15} /><span>{t('app.properties')}</span></button>
         ) : (
         <Inspector project={project} selection={selection} dispatch={dispatch} duration={duration} time={time} onSeek={seek}
-          onAddTextOver={addTextOver} onSelect={select}
+          onAddTextOver={addTextOver}
           onEnhance={(strength) => selection && enhanceClip({ track: selection.track, id: selection.id }, strength)}
           onTrackPick={(sel) => startTrackPick(sel)} onCropEdit={(sel) => startCropEdit(sel)} onColorPick={(sel) => startColorPick(sel)} />
         )}
@@ -3539,7 +2896,7 @@ export default function App() {
       </div>
       <Splitter which="bottom" style={{ bottom: panes.bottom + 6 }} onStart={startResize} onReset={resetSize} onNudge={nudgeSize} label={t('layout.resizeTimeline')} />
 
-      <Timeline project={project} time={time} duration={duration} selection={selection} clockRef={clockRef} playing={playing} apiRef={timelineApi}
+      <Timeline project={project} time={time} duration={duration} selection={selection} clockRef={clockRef} playing={playing}
         onSelect={select} onSeek={seek} dispatch={dispatch}
         onDetach={() => detachAudio()} detachOk={detachOk} linkMode={linkMode}
         onLinkToggle={() => (linkMode === 'unlink' ? unlinkClip() : linkPair())}
@@ -3547,7 +2904,7 @@ export default function App() {
         onDetectBeats={startBeatDetect} onSplitBeats={splitAtBeats}
         silenceMarks={silenceAsk ? { id: silenceAsk.id, ranges: silenceAsk.ranges } : null}
         tool={tool} setTool={setTool} onTrimSide={trimSide} onMarker={toggleMarker} recorder={recorder} onToggleRecord={toggleRecording}
-        onDropItem={dropItem} onDropFiles={dropFiles} canUndo={!!state.past.length} canRedo={!!state.future.length} onOpenUndoHistory={() => setUndoHistoryOpen(true)} onOpenLoudness={() => setLoudnessOpen(true)} onClipMenu={openClipMenu} onAddText={addText}
+        onDropItem={dropItem} onDropFiles={dropFiles} canUndo={!!state.past.length} canRedo={!!state.future.length} onClipMenu={openClipMenu} onAddText={addText}
         onScrubStart={() => setPlaying(false)} />
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems(menu)} onClose={() => setMenu(null)} />}
       {speedAsk && (() => {
@@ -3555,13 +2912,13 @@ export default function App() {
         if (!c) return null;
         const m = c.mediaId && project.media.find((x) => x.id === c.mediaId);
         return (
-          <Suspense fallback={null}><SpeedDialog clip={c} name={m?.name || 'Clip'} onClose={() => setSpeedAsk(null)}
-            onApply={(speed) => dispatch({ type: 'update', track: speedAsk.track, id: speedAsk.id, patch: { speed } })} /></Suspense>
+          <SpeedDialog clip={c} name={m?.name || 'Clip'} onClose={() => setSpeedAsk(null)}
+            onApply={(speed) => dispatch({ type: 'update', track: speedAsk.track, id: speedAsk.id, patch: { speed } })} />
         );
       })()}
 
-      {(screenOpen || screenRec.active || screenRec.notice) && <Suspense fallback={null}><ScreenRecordDialog rec={screenRec} at={time} onClose={() => setScreenOpen(false)} /></Suspense>}
-      {enhanceDlg && <Suspense fallback={null}><EnhanceDialog name={enhanceDlg.media?.name} onStart={startEnhance} onClose={() => setEnhanceDlg(null)} /></Suspense>}
+      {(screenOpen || screenRec.active || screenRec.notice) && <ScreenRecordDialog rec={screenRec} at={time} onClose={() => setScreenOpen(false)} />}
+      {enhanceDlg && <EnhanceDialog name={enhanceDlg.media?.name} onStart={startEnhance} onClose={() => setEnhanceDlg(null)} />}
       {recoveredNote && (
         <div className="recovered-note" role="status">
           <b>{t('app.crashNote')}</b>{t('app.crashNote2')}
@@ -3575,29 +2932,17 @@ export default function App() {
           <button className="icon-btn" aria-label={t('common.close')} onClick={() => setFileNote(null)}>×</button>
         </div>
       )}
-      {relinkDialog}
+      {relinkAsk && (
+        <RelinkDialog items={relinkAsk.items} onApply={applyRelink} onClose={() => setRelinkAsk(null)}
+          context={relinkAsk.after ? 'export' : undefined} closeLabel={relinkAsk.after ? 'Cancel export' : undefined} />
+      )}
       {historyOpen && project?.id && (
-        <Suspense fallback={null}>
-          <HistoryDialog projectId={project.id} projectName={project.name} currentProject={project}
-            onRestore={restoreVersion} onRestorePartial={restoreVersionPartial} onCreateNamed={createNamedVersion}
-            onClose={() => setHistoryOpen(false)} />
-        </Suspense>
-      )}
-      {undoHistoryOpen && (
-        <Suspense fallback={null}>
-          <UndoHistoryPanel history={state} dispatch={dispatch} onClose={() => setUndoHistoryOpen(false)} />
-        </Suspense>
-      )}
-      {loudnessOpen && (
-        <Suspense fallback={null}>
-          <LoudnessPanel project={renderable(project)} time={time} duration={duration} targetI={resolveExport(project).loudnessTargetI} onSeek={seek} onClose={() => setLoudnessOpen(false)} />
-        </Suspense>
+        <HistoryDialog projectId={project.id} projectName={project.name}
+          onRestore={restoreVersion} onClose={() => setHistoryOpen(false)} />
       )}
       {bridgeOpen && project?.id && (
-        <Suspense fallback={null}>
-          <BridgeDialog projectId={project.id} projectName={project.name}
-            onAccept={acceptBridgeDraft} onDiscard={discardBridgeDraft} onClose={() => setBridgeOpen(false)} />
-        </Suspense>
+        <BridgeDialog projectId={project.id} projectName={project.name}
+          onAccept={acceptBridgeDraft} onDiscard={discardBridgeDraft} onClose={() => setBridgeOpen(false)} />
       )}
       {unsavedNote && !recoveredNote && (
         <div className="recovered-note" role="status">
@@ -3609,29 +2954,23 @@ export default function App() {
             {!updateSeen && !aboutOpen && <UpdateNotice update={update} onDismiss={() => setUpdateSeen(true)} />}
       {aboutOpen && <AboutDialog update={update} onUpdate={setUpdate} onClose={() => { setAboutOpen(false); setUpdateSeen(true); }}
         onWelcome={() => { setAboutOpen(false); setWelcomeOpen(true); }} />}
-      {resourcesOpen && <Suspense fallback={null}><ResourceMonitor open={resourcesOpen} onClose={() => setResourcesOpen(false)} jobs={exportJobs} /></Suspense>}
-      {welcomeOpen && <Suspense fallback={null}><WelcomeCard onClose={closeWelcome} /></Suspense>}
-      {closeAsk && <Suspense fallback={null}><CloseDialog name={closeAsk.name} onChoice={closeAsk.resolve} /></Suspense>}
-      {seqAsk && <Suspense fallback={null}><SequenceDialog media={seqAsk.media} mismatch={seqAsk.mismatch}
-        onChangeSettings={() => resolveSeq(true)} onKeepSettings={() => resolveSeq(false)} /></Suspense>}
-      {matteDlg && <Suspense fallback={null}><ColorMatteDialog initialColor={matteDlg.color}
-        onConfirm={(color) => { setMatteDlg(null); createMatte(color); }} onCancel={() => setMatteDlg(null)} /></Suspense>}
-      {reframeOpen && <ReframeDialog
-        onConfirm={(prefs) => { setReframeOpen(false); startReframe(prefs); }} onClose={() => setReframeOpen(false)} />}
-      {settingsOpen && <Suspense fallback={null}><SettingsDialog onClose={() => { setSettingsOpen(false); setSettingsVersion((v) => v + 1); }}
+      {welcomeOpen && <WelcomeCard onClose={closeWelcome} />}
+      {closeAsk && <CloseDialog name={closeAsk.name} onChoice={closeAsk.resolve} />}
+      {seqAsk && <SequenceDialog media={seqAsk.media} mismatch={seqAsk.mismatch}
+        onChangeSettings={() => resolveSeq(true)} onKeepSettings={() => resolveSeq(false)} />}
+      {matteDlg && <ColorMatteDialog initialColor={matteDlg.color}
+        onConfirm={(color) => { setMatteDlg(null); createMatte(color); }} onCancel={() => setMatteDlg(null)} />}
+      {settingsOpen && <SettingsDialog onClose={() => { setSettingsOpen(false); setSettingsVersion((v) => v + 1); }}
         onProxiesCleared={(deleted) => projectRef.current.media.forEach((m) => {
           if (m.lightProxy && deleted.includes(m.lightProxy)) dispatch({ type: 'mediaVisuals', path: m.path, patch: { lightProxy: null } });
           if (m.proxies) {
             const proxies = Object.fromEntries(Object.entries(m.proxies).map(([k, v]) => [k, deleted.includes(v) ? null : v]));
             if (JSON.stringify(proxies) !== JSON.stringify(m.proxies)) dispatch({ type: 'mediaVisuals', path: m.path, patch: { proxies } });
           }
-        })} /></Suspense>}
-      {packsOpen && <Suspense fallback={null}><PackManagerDialog onClose={() => setPacksOpen(false)} dispatch={dispatch} selection={selection} project={project} /></Suspense>}
-      <Suspense fallback={<button className="pilot-fab" onClick={() => setPilotOpen(true)} aria-label={t('ai.assistant')}><span className="pilot-fab-icon"><Zap size={17} /></span><span>FlowAI</span></button>}>
-        <CraftAI getProject={() => projectRef.current} getHistoryLength={() => historyRef.current.past.length}
-          dispatch={dispatch} settle={settle} onOpenSettings={() => setSettingsOpen(true)} settingsVersion={settingsVersion}
-          app={pilotApp} open={pilotOpen} onToggle={setPilotOpen} />
-      </Suspense>
+        })} />}
+      <CraftAI getProject={() => projectRef.current} getHistoryLength={() => historyRef.current.past.length}
+        dispatch={dispatch} settle={settle} onOpenSettings={() => setSettingsOpen(true)} settingsVersion={settingsVersion}
+        app={pilotApp} open={pilotOpen} onToggle={setPilotOpen} />
       {dragOver && <div className="drop-overlay"><div>{t('app.dropFiles')}</div></div>}
       {renderJob && (
         <div className="render-job" role="status">
@@ -3657,14 +2996,9 @@ export default function App() {
         <div className="render-job" role="status">
           <AudioLines size={15} />
           <span>{silenceAsk.ranges.length} silence{silenceAsk.ranges.length === 1 ? '' : 's'} found ({silenceAsk.totalSec.toFixed(1)} s) — shown shaded on the clip. Remove {silenceAsk.ranges.length === 1 ? 'it' : 'them'} and close the gaps?</span>
-          <button className="btn btn-sm" onClick={() => setSilenceReview({ cuts: scoreSilenceRanges(silenceAsk.ranges, { minDur: 0.6 }) })}>{t('app.removeSilences')}</button>
+          <button className="btn btn-sm" onClick={confirmSilenceRemoval}>{t('app.removeSilences')}</button>
           <button className="btn btn-sm btn-ghost" onClick={() => setSilenceAsk(null)}>{t('common.cancel')}</button>
         </div>
-      )}
-      {silenceReview && silenceAsk && (
-        <CutReviewDialog title={t('cuts.reviewTitleSilences')} cuts={silenceReview.cuts}
-          onCancel={() => setSilenceReview(null)}
-          onApply={(ranges) => confirmSilenceRemoval(ranges)} />
       )}
       {cropEdit && (() => {
         const c = findClip(project, cropEdit);
@@ -3700,15 +3034,11 @@ export default function App() {
           <button className="btn btn-sm btn-ghost" onClick={() => setColorPick(null)}>{t('common.cancel')}</button>
         </div>
       )}
-      {exporting && <Suspense fallback={null}><ExportDialog state={exporting} onStart={confirmExport} onStartBatch={confirmExportVariants}
+      {exporting && <ExportDialog state={exporting} onStart={confirmExport}
         onClose={() => setExporting(null)} onPickTarget={pickExportTarget}
         onRename={renameExport} onSettings={changeExportSettings} onResolution={changeExportResolution}
-        onPosterAt={changePosterAt} /></Suspense>}
+        onPosterAt={changePosterAt} />}
       <ExportJobsTray jobs={exportJobs} onCancelJob={cancelExportJob} onDismissJob={dismissExportJob}
-        onPauseJob={pauseExportJob} onResumeJob={resumeExportJob} onRetryJob={retryExportJob}
-        proxy={{ optimizing: proxyActivity.optimizing, failed: proxyActivity.failed, cache: proxyCache }}
-        onRetryProxies={retryFailedProxies}
-        system={system} audioPreview={audioPreview} onRetryModel={system.retryModel}
         onShow={(file) => window.api.showInFolder(file)} onOpen={(file) => window.api.openFile(file)} />
       {jobToast && <div className="app-toast" role="status">{jobToast}</div>}
       {keystrokesOn && <KeystrokesOverlay />}

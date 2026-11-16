@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { tr } from '../i18n/index.jsx';
 import { libName, slugifyPhrase } from '../i18n/libNames.js';
 import { ChevronDown, Loader2, Plus, Search, Star, X } from '../icons.jsx';
-import { CUSTOM_GROUP, allFonts, fontById, ensureFontsForList, importFonts, onFontsChanged, removeFont } from '../fonts.js';
+import { CUSTOM_GROUP, allFonts, fontById, fontsReady, importFonts, onFontsChanged, removeFont } from '../fonts.js';
 
 const FAV_KEY = 'clipcraft.favoriteFonts';
 function loadFavs() {
@@ -28,16 +28,7 @@ export default function FontPicker({ value, onChange }) {
   const [, setTick] = useState(0);
   const listRef = useRef(null);
   useEffect(() => {
-    // FB-33: load only the faces this list shows (both weights, so each
-    // name renders in its own face) — when the picker opens or its filter
-    // changes, never at startup.
-    if (!open) return undefined;
-    let live = true;
-    ensureFontsForList(shown.map((f) => f.id)).then(() => { if (live) setTick((n) => n + 1); });
-    return () => { live = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, q, group, favs]);
-  useEffect(() => {
+    fontsReady().then(() => setTick((n) => n + 1));
     return onFontsChanged(() => setTick((n) => n + 1));
   }, []);
   // Scroll the chosen font into view when the list opens.

@@ -19,16 +19,12 @@ import {
   GIF_FPS_CHOICES, GIF_SIZES, estimateExport, settingsPatch, storedExportSettings, summaryRows,
 } from '../exportQuality.js';
 import { GIF_MAX_SECONDS, gifLimitMessage } from '../exportJobs.js';
-import { EXPORT_VARIANTS, checkBatchSafeArea } from '../exportVariants.js';
-import { fpsLabel } from '../frames.js';
 import { exportDuration, toFileUrl } from '../store.js';
-import { sizeFor } from '../effects.js';
 import { coverTargetFor, posterFracAt, posterSourceFor, spriteFrameStyle } from '../recents.js';
 import Dropdown from './Dropdown.jsx';
 import Slider from './Slider.jsx';
 import NumBox from './NumBox.jsx';
 import Toggle from '../ui/Toggle.jsx';
-import { projectToFcpxml } from '../fcpxml.js';
 import { useT } from '../i18n/index.jsx';
 import { libName } from '../i18n/libNames.js';
 
@@ -113,32 +109,11 @@ function Group({ title, children }) {
   );
 }
 
-export default function ExportDialog({ state, onClose, onStart, onStartBatch, onPickTarget, onRename, onSettings, onResolution, onPosterAt }) {
+export default function ExportDialog({ state, onClose, onStart, onPickTarget, onRename, onSettings, onResolution, onPosterAt }) {
   const t = useT();
   const [choosing, setChoosing] = useState(false);
   const [details, setDetails] = useState(false);
-  const [fcpxNote, setFcpxNote] = useState('');
-  // FCPXML export (spec matrix): Final Cut Pro XML 1.9 of the timeline —
-  // main-track clips, audio clips and caption titles. Effects, grades, LUTs,
-  // transitions and speed curves are NOT represented (see src/fcpxml.js).
-  const exportFcpxml = async () => {
-    const base = (project.name || 'project').replace(/[\\/:*?"<>|]+/g, '').trim() || 'project';
-    const res = await window.api.saveTextFile({
-      title: 'Export FCPXML',
-      defaultName: `${base}.fcpxml`,
-      content: projectToFcpxml(project),
-      filters: [{ name: 'Final Cut Pro XML (.fcpxml)', extensions: ['fcpxml'] }],
-    });
-    setFcpxNote(res?.ok ? `Saved to ${res.path}` : res?.error || '');
-  };
   const [coverT, setCoverT] = useState(() => (typeof state.project?.posterAt === 'number' ? state.project.posterAt : 0));
-  // Batch variants (P2-26): all three checked by default — one batch, every aspect.
-  const [selVariants, setSelVariants] = useState(() => EXPORT_VARIANTS.map((v) => v.id));
-  const safeArea = checkBatchSafeArea(state.project, EXPORT_VARIANTS.filter((v) => selVariants.includes(v.id)));
-  const clipName = (id, kind) => {
-    const c = (kind === 'sticker' ? state.project.stickerClips : state.project.textClips || []).find((x) => x.id === id);
-    return (c && (c.name || c.text)) || id;
-  };
 
   const { project, eff } = state;
   const stored = storedExportSettings(project);
@@ -257,7 +232,7 @@ export default function ExportDialog({ state, onClose, onStart, onStartBatch, on
                     </Row>
                     <Row label={t('exp.frameRate')}>
                       <Dropdown value={custom.fps} onChange={(v) => setCustom({ fps: v })} ariaLabel={t('exp.frameRate')}
-                        options={FPS_CHOICES.map((f) => ({ value: f, label: f === 0 ? t('exp.projectFps', { fps: fpsLabel(project.fps) }) : `${fpsLabel(f)} ${t('player.fpsUnit')}` }))} />
+                        options={FPS_CHOICES.map((f) => ({ value: f, label: f === 0 ? t('exp.projectFps', { fps: project.fps }) : `${f} ${t('player.fpsUnit')}` }))} />
                     </Row>
                     <Row label={t('exp.encoder')}>
                       <Dropdown value={custom.encoderPreset} onChange={(v) => setCustom({ encoderPreset: v })} ariaLabel={t('exp.encoderPreset')}
@@ -270,68 +245,8 @@ export default function ExportDialog({ state, onClose, onStart, onStartBatch, on
                   </div>
                 )}
                 <Row label={t('exp.estBitrate')}><span className="x-static">{est.exact ? `${est.videoMbps} Mbps` : `≈ ${est.videoMbps.toFixed(1)} Mbps`}</span></Row>
-                <Row label={t('exp.loudness')}>
-                  <Dropdown value={eff.loudness} ariaLabel={t('exp.loudness')}
-                    onChange={(v) => setFormatField({ loudness: v })}
-                    options={[
-                      { value: 'off', label: t('exp.loudnessOff') },
-                      { value: 'social', label: t('exp.loudnessSocial') },
-                      { value: 'podcast', label: t('exp.loudnessPodcast') },
-                      { value: 'broadcast', label: t('exp.loudnessBroadcast') },
-                      { value: 'custom', label: t('exp.loudnessCustom') },
-                    ]} />
-                </Row>
-                {eff.loudness === 'custom' && (
-                  <Row label={t('exp.loudnessTarget')}>
-                    <NumBox label="" value={eff.loudnessI} step={0.5} min={-30} max={-8} suffix="LUFS" ariaLabel={t('exp.loudnessTargetAria')}
-                      onChange={(v) => setFormatField({ loudnessI: v })} />
-                  </Row>
-                )}
-                {(eff.format === 'mp4' || eff.format === 'mov') && (
-                  <Row label={t('exp.hdr')}>
-                    <Dropdown value={eff.hdr} ariaLabel={t('exp.hdr')}
-                      onChange={(v) => setFormatField({ hdr: v })}
-                      options={[
-                        { value: 'off', label: t('exp.hdrOff') },
-                        { value: 'pq', label: 'PQ (HDR10)', disabled: state.caps && state.caps.libx265 === false },
-                        { value: 'hlg', label: 'HLG', disabled: state.caps && state.caps.libx265 === false },
-                      ]} />
-                  </Row>
-                )}
-                {eff.hdr !== 'off' && <p className="x-note">{t('exp.hdrNote')}</p>}
               </Group>
             )}
-            {eff.format !== 'gif' && (
-              <Group title={t('exp.variants')}>
-                <p className="x-note">{t('exp.variantsNote')}</p>
-                {EXPORT_VARIANTS.map((v) => {
-                  const s = sizeFor(v.ratio, project.resolution || 720);
-                  const warns = safeArea[v.id] || [];
-                  return (
-                    <div key={v.id}>
-                      <Row label={v.label}>
-                        <label className="x-check">
-                          <input type="checkbox" checked={selVariants.includes(v.id)}
-                            onChange={(e) => setSelVariants((s2) => (e.target.checked ? [...s2, v.id] : s2.filter((x) => x !== v.id)))} />
-                          <span className="x-static">{`${s.width}×${s.height}`}</span>
-                        </label>
-                      </Row>
-                      {warns.map((w, i) => (
-                        <p key={`${w.clipId}-${w.edge}-${i}`} className="x-note error" role="alert">
-                          {t('exp.safeArea', { name: clipName(w.clipId, w.kind), edge: t(`exp.safe-${w.edge}`), variant: v.label })}
-                        </p>
-                      ))}
-                    </div>
-                  );
-                })}
-              </Group>
-            )}
-            <Group title="Interchange">
-              <Row label="FCPXML">
-                <button type="button" className="btn btn-sm" onClick={exportFcpxml}>Export .fcpxml</button>
-              </Row>
-              <p className="x-note">Final Cut Pro XML of this timeline (clips, audio, captions). Effects, grades, LUTs, transitions and speed curves are not carried over. {fcpxNote}</p>
-            </Group>
             <button type="button" className="x-details-toggle" onClick={() => setDetails(!details)} aria-expanded={details}>
               <ChevronDown size={14} style={{ transform: details ? 'rotate(180deg)' : 'none' }} /> {t('exp.summary')}
             </button>
@@ -356,11 +271,6 @@ export default function ExportDialog({ state, onClose, onStart, onStartBatch, on
           </div>
           <div className="modal-actions">
             <button className="btn btn-ghost" onClick={onClose}>{t('common.cancel')}</button>
-            {eff.format !== 'gif' && (
-              <button className="btn" onClick={() => onStartBatch(selVariants)} disabled={gifOver || selVariants.length === 0}>
-                {t('exp.exportVariants', { count: selVariants.length })}
-              </button>
-            )}
             <button className="btn btn-primary" onClick={onStart} disabled={gifOver}>{t('exp.export')}</button>
           </div>
         </div>

@@ -2,8 +2,7 @@ import React, { useRef, useState } from 'react';
 import { useT } from '../i18n/index.jsx';
 import { RotateCw } from '../icons.jsx';
 import { clipLen, freeLen, videoLayout } from '../store.js';
-import { anchorOf, transformOf } from '../visual.js';
-import { aspectKey } from '../text/render.js';
+import { transformOf } from '../visual.js';
 import { pictureGeometry } from '../pictureGeometry.js';
 import { baseAt, editAt, hasMotion, stateAt } from '../anim.js';
 import { pinOffsetAt, stateAtPinned } from '../track.js';
@@ -127,13 +126,6 @@ export default function TransformBox({ project, time, selection, onSelect, dispa
       if (gx) x = c;
       if (gy) y = c;
       setGuides({ x: gx, y: gy });
-      // Responsive titles (P2-13): a text drag also records the position for
-      // this aspect, so the title keeps its place per aspect instead of
-      // following one global position across 16:9 / 9:16 / 1:1.
-      if (item.text) {
-        const aspect = aspectKey(project.width, project.height);
-        return { x, y, responsive: { ...(item.clip.responsive || {}), [aspect]: { x, y } } };
-      }
       return { x, y };
     });
   };
@@ -166,38 +158,6 @@ export default function TransformBox({ project, time, selection, onSelect, dispa
     });
   };
 
-  // Anchor point (P2-10): the crosshair inside the box is the rotation/scale
-  // pivot. Dragging it writes clip.transform.anchor (fractions of the
-  // picture); the preview (layerStyle transform-origin) and the export
-  // (electron/layers.cjs anchor correction) pivot around the same point.
-  // Anchor is static, never keyframed, so this writes a plain update.
-  const startAnchorDrag = (e, item) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const g0 = geo(item);
-    dispatch({ type: 'beginGesture' });
-    const move = (ev) => {
-      const p = local(ev);
-      const a = (-g0.rot * Math.PI) / 180;
-      const dx = p.x - g0.cx;
-      const dy = p.y - g0.cy;
-      const lx = dx * Math.cos(a) - dy * Math.sin(a);
-      const ly = dx * Math.sin(a) + dy * Math.cos(a);
-      const anchor = {
-        x: Math.min(1, Math.max(0, 0.5 + lx / (g0.w || 1))),
-        y: Math.min(1, Math.max(0, 0.5 + ly / (g0.h || 1))),
-      };
-      dispatch({ type: 'update', track: item.track, id: item.clip.id, patch: { transform: { ...transformOf(item.clip), anchor } } });
-    };
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      dispatch({ type: 'endGesture' });
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-  };
-
   // Click on the picture: select what is on top there and start moving it.
   const onDown = (e) => {
     if (e.button !== 0) return;
@@ -219,7 +179,6 @@ export default function TransformBox({ project, time, selection, onSelect, dispa
   };
 
   const g = sel && geo(sel);
-  const anchor = sel && !sel.text && !sel.sticker ? anchorOf(sel.clip) : null;
   return (
     <div className="tbox-layer" ref={layerRef} onPointerDown={onDown}>
       {guides.x && <div className="tbox-guide v" />}
@@ -233,12 +192,6 @@ export default function TransformBox({ project, time, selection, onSelect, dispa
           <span className="tbox-rotate" onPointerDown={(e) => e.button === 0 && startRotate(e, sel)} title={t('tbox.rotate')}>
             <RotateCw size={12} />
           </span>
-          {anchor && (
-            <span className="tbox-anchor" role="slider" aria-label={t('prim.anchorLabel')} aria-valuetext={`${Math.round(anchor.x * 100)}%, ${Math.round(anchor.y * 100)}%`}
-              style={{ left: `${anchor.x * 100}%`, top: `${anchor.y * 100}%` }}
-              title={t('prim.anchorTitle')}
-              onPointerDown={(e) => e.button === 0 && startAnchorDrag(e, sel)}>+</span>
-          )}
         </div>
       )}
     </div>
