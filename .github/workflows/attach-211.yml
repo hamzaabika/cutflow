@@ -20,8 +20,8 @@ jobs:
                     exp_sha = os.environ['EXPECTED_SHA']
                     exp_size = int(os.environ['EXPECTED_SIZE'])
                     headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120 Safari/537.36', 'Accept': 'text/html,application/json'}
-                    def get(url):
-                        req = urllib.request.Request(url, headers=headers)
+                    def get(url, data=None):
+                        req = urllib.request.Request(url, headers=headers, data=data)
                         try:
                             with urllib.request.urlopen(req, timeout=60) as r:
                                 return r.status, r.read()
@@ -30,36 +30,15 @@ jobs:
                         except Exception as e:
                             print('ERR', url, e)
                             return None, b''
-                    status, page = get(f'https://www.swisstransfer.com/dl/{uuid}')
-                    print('page status', status, 'len', len(page))
-                    text = page.decode('utf-8', 'ignore')
-                    hosts = sorted(set(re.findall(r'dl-[a-z0-9]+\.swisstransfer\.com', text)))
-                    uuids = sorted(set(re.findall(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', text)))
-                    print('hosts:', hosts)
-                    print('uuids:', uuids)
-                    print('api paths:', sorted(set(re.findall(r'/api/[A-Za-z0-9/_.-]+', text)))[:60])
-                    candidates = []
-                    for h in hosts:
-                        candidates.append(f'https://{h}/api/download/{uuid}')
-                        for u in uuids:
-                            if u != uuid:
-                                candidates.append(f'https://{h}/api/download/{uuid}/{u}')
-                                candidates.append(f'https://{h}/api/download/{u}')
-                    for base in ['https://www.swisstransfer.com']:
-                        for path in [f'/api/download/{uuid}']:
-                            s, b = get(base + path)
-                            print('try', base + path, s, b[:300])
-                    ok = False
-                    for url in candidates:
-                        print('trying download', url)
+                    def try_dl(url):
                         req = urllib.request.Request(url, headers=headers)
                         try:
                             with urllib.request.urlopen(req, timeout=120) as r:
-                                print('  status', r.status, 'len', r.headers.get('Content-Length'), 'type', r.headers.get('Content-Type'))
+                                print('  dl status', r.status, 'len', r.headers.get('Content-Length'), 'type', r.headers.get('Content-Type'))
                                 head = r.read(8)
                                 if head != b'!<arch>\n':
-                                    print('  not a deb, first bytes:', head)
-                                    continue
+                                    print('  not a deb, first bytes:', head[:100])
+                                    return False
                                 h = hashlib.sha256()
                                 h.update(head)
                                 size = len(head)
@@ -75,23 +54,61 @@ jobs:
                                 print('  downloaded size', size, 'sha256', h.hexdigest())
                                 if size == exp_size and h.hexdigest() == exp_sha:
                                     print('  VERIFIED')
-                                    ok = True
-                                    break
-                                else:
-                                    print('  mismatch, removing')
-                                    os.remove('cutflow_2.1.0_amd64.deb')
+                                    return True
+                                print('  mismatch, removing')
+                                os.remove('cutflow_2.1.0_amd64.deb')
+                                return False
                         except Exception as e:
                             print('  ERR', e)
+                            return False
+                    status, page = get('https://www.swisstransfer.com/dl/' + uuid)
+                    print('page status', status, 'len', len(page))
+                    text = page.decode('utf-8', 'ignore')
+                    print('script srcs:', re.findall(r'<script[^>]+src="([^"]+)"', text))
+                    for key in ['cutflow', 'downloadHost', 'api/1']:
+                        idx = text.find(key)
+                        while idx != -1:
+                            print('ctx', key, ':', text[max(0, idx-150):idx+250])
+                            idx = text.find(key, idx+1)
+                    pat = r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+                    uuids = sorted(set(re.findall(pat, text)))
+                    print('uuids:', uuids)
+                    print('api paths:', sorted(set(re.findall(r'/api/[A-Za-z0-9/_.-]+', text)))[:60])
+                    extra_hosts = []
+                    for path in ['/api/1/download/' + uuid, '/api/1/links/' + uuid, '/api/1/link/' + uuid]:
+                        s, b = get('https://www.swisstransfer.com' + path)
+                        print('try', path, s, b[:400])
+                        body = b.decode('utf-8', 'ignore')
+                        extra_hosts += re.findall(r'dl-[a-z0-9]+\.swisstransfer\.com', body)
+                    print('extra hosts:', sorted(set(extra_hosts)))
+                    cands = []
+                    for h in sorted(set(extra_hosts)):
+                        cands.append('https://' + h + '/api/1/download/' + uuid)
+                        for u in uuids:
+                            cands.append('https://' + h + '/api/1/download/' + uuid + '/' + u)
+                            cands.append('https://' + h + '/api/download/' + uuid + '/' + u)
+                    for u in uuids:
+                        cands.append('https://www.swisstransfer.com/api/1/download/' + uuid + '/' + u)
+                        cands.append('https://www.swisstransfer.com/api/1/download/' + u)
+                    cands.append('https://www.swisstransfer.com/api/1/download/' + uuid)
+                    ok = False
+                    for url in cands:
+                        print('trying download', url)
+                        if try_dl(url):
+                            ok = True
+                            break
                     if not ok:
                         print('DOWNLOAD FAILED')
                         raise SystemExit(1)
-                    print(subprocess.run(['gh', 'release', 'view', 'v2.1.1', '--json', 'tagName,name,isDraft,assets'], capture_output=True, text=True).stdout)
+                    v = subprocess.run(['gh', 'release', 'view', 'v2.1.1', '--json', 'tagName,name,isDraft,assets'], capture_output=True, text=True)
+                    print(v.stdout)
                     r = subprocess.run(['gh', 'release', 'upload', 'v2.1.1', 'cutflow_2.1.0_amd64.deb', '--clobber'], capture_output=True, text=True)
                     print('gh upload rc', r.returncode)
                     print(r.stdout)
                     print(r.stderr)
                     if r.returncode != 0:
                         raise SystemExit(1)
-                    print(subprocess.run(['gh', 'release', 'view', 'v2.1.1', '--json', 'assets'], capture_output=True, text=True).stdout)
+                    v = subprocess.run(['gh', 'release', 'view', 'v2.1.1', '--json', 'assets'], capture_output=True, text=True)
+                    print(v.stdout)
                     print('UPLOAD DONE')
                     PY
