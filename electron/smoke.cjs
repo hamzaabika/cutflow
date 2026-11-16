@@ -83,7 +83,7 @@ module.exports = async function smoke(win, app, dir) {
       }
       await wait(800);
       // Enter the editor (fresh profiles start on Home; the tour must be dismissed first).
-      await q(`(() => { const b = document.querySelector('.home-create'); if (b) b.click(); return !!b; })()`).catch(() => {});
+      await q(`(() => { const b = document.querySelector('button[aria-label="New 16:9 project"]'); if (b) b.click(); return !!b; })()`).catch(() => {});
       result.editorReady = await until(`!!document.querySelector('.play-btn')`, 15000);
       await q(`(() => { const b = document.querySelector('button[aria-label="Skip tour"]') || [...document.querySelectorAll('button')].find((x) => x.textContent.trim() === 'Start creating'); if (b) b.click(); return !!b; })()`).catch(() => {});
       await wait(600);
@@ -439,7 +439,7 @@ module.exports = async function smoke(win, app, dir) {
     })()`;
     try {
       await wait(800);
-      await q(`(() => { const b = document.querySelector('.home-create'); if (b) b.click(); return !!b; })()`).catch(() => {});
+      await q(`(() => { const b = document.querySelector('button[aria-label="New 16:9 project"]'); if (b) b.click(); return !!b; })()`).catch(() => {});
       result.editorReady = await until(`!!document.querySelector('.play-btn')`, 15000);
       await q(`(() => { const b = document.querySelector('button[aria-label="Skip tour"]') || [...document.querySelectorAll('button')].find((x) => /Start creating/.test(x.textContent)); if (b) b.click(); return !!b; })()`).catch(() => {});
       await wait(500);
@@ -520,7 +520,7 @@ module.exports = async function smoke(win, app, dir) {
       }
       const srcA = '/home/hatch/workspace/clipcraft-qa-2/fixtures/f01-h264.mp4';
       await wait(800);
-      await q(`(() => { const b = document.querySelector('.home-create'); if (b) b.click(); return !!b; })()`).catch(() => {});
+      await q(`(() => { const b = document.querySelector('button[aria-label="New 16:9 project"]'); if (b) b.click(); return !!b; })()`).catch(() => {});
       S.editorReady = await until(`!!document.querySelector('.play-btn')`, 15000);
       await dismiss();
       await wait(400);
@@ -692,7 +692,7 @@ module.exports = async function smoke(win, app, dir) {
     const mediaOf = (id) => `window.__fve.exportData().project.media.find((m) => m.id === '${id}')`;
     try {
       await wait(800);
-      await q(`(() => { const b = document.querySelector('.home-create'); if (b) b.click(); return !!b; })()`).catch(() => {});
+      await q(`(() => { const b = document.querySelector('button[aria-label="New 16:9 project"]'); if (b) b.click(); return !!b; })()`).catch(() => {});
       result.editorReady = await until(`!!document.querySelector('.play-btn')`, 15000);
       await q(`(() => { const b = document.querySelector('button[aria-label="Skip tour"]') || [...document.querySelectorAll('button')].find((x) => x.textContent.trim() === 'Start creating'); if (b) b.click(); return !!b; })()`).catch(() => {});
       await wait(500);
@@ -861,7 +861,7 @@ module.exports = async function smoke(win, app, dir) {
         overlayClips: [], audioClips: [], stickerClips: [], effectClips: [], textClips: [],
       };
       const dur = () => q(`window.__fve.exportData().project.videoClips.reduce((n, c) => n + (c.out - c.in) / (c.speed || 1), 0)`);
-      await q(`(() => { const b = document.querySelector('.home-create'); if (b) b.click(); return !!b; })()`).catch(() => {});
+      await q(`(() => { const b = document.querySelector('button[aria-label="New 16:9 project"]'); if (b) b.click(); return !!b; })()`).catch(() => {});
       result.editorReady = await until(`!!document.querySelector('.play-btn')`, 15000);
       await q(`(() => { const b = document.querySelector('button[aria-label="Skip tour"]') || [...document.querySelectorAll('button')].find((x) => x.textContent.trim() === 'Start creating'); if (b) b.click(); return !!b; })()`).catch(() => {});
       await wait(600);
@@ -946,7 +946,7 @@ module.exports = async function smoke(win, app, dir) {
         overlayClips: [], audioClips: [], stickerClips: [], effectClips: [], textClips: [],
       };
       const dur = () => q(`window.__fve.exportData().project.videoClips.reduce((n, c) => n + (c.out - c.in) / (c.speed || 1), 0)`);
-      await q(`(() => { const b = document.querySelector('.home-create'); if (b) b.click(); return !!b; })()`).catch(() => {});
+      await q(`(() => { const b = document.querySelector('button[aria-label="New 16:9 project"]'); if (b) b.click(); return !!b; })()`).catch(() => {});
       result.editorReady = await until(`!!document.querySelector('.play-btn')`, 15000);
       await q(`(() => { const b = document.querySelector('button[aria-label="Skip tour"]') || [...document.querySelectorAll('button')].find((x) => x.textContent.trim() === 'Start creating'); if (b) b.click(); return !!b; })()`).catch(() => {});
       await wait(600);
@@ -1055,7 +1055,7 @@ module.exports = async function smoke(win, app, dir) {
         videoClips: [{ id: 'v1', mediaId: 'm0', in: 0, out: 6, speed: 1, volume: 1, muted: false, filter: 'none', adjust: {}, effects: [], transition: null }],
         overlayClips: [], audioClips: [], stickerClips: [], effectClips: [], textClips: [],
       };
-      await q(`(() => { const b = document.querySelector('.home-create'); if (b) b.click(); return !!b; })()`).catch(() => {});
+      await q(`(() => { const b = document.querySelector('button[aria-label="New 16:9 project"]'); if (b) b.click(); return !!b; })()`).catch(() => {});
       result.editorReady = await until(`!!document.querySelector('.play-btn')`, 15000);
       await q(`(() => { const b = document.querySelector('button[aria-label="Skip tour"]') || [...document.querySelectorAll('button')].find((x) => x.textContent.trim() === 'Start creating'); if (b) b.click(); return !!b; })()`).catch(() => {});
       await wait(600);
@@ -1144,7 +1144,7 @@ module.exports = async function smoke(win, app, dir) {
         videoClips: [{ id: 'v1', mediaId: 'm0', in: 0, out: 12, speed: 1, volume: 1, muted: false, filter: 'none', adjust: {}, effects: [], transition: null }],
         overlayClips: [], audioClips: [], stickerClips: [], effectClips: [], textClips: [],
       };
-      await q(`(() => { const b = document.querySelector('.home-create'); if (b) b.click(); return !!b; })()`).catch(() => {});
+      await q(`(() => { const b = document.querySelector('button[aria-label="New 16:9 project"]'); if (b) b.click(); return !!b; })()`).catch(() => {});
       result.editorReady = await until(`!!document.querySelector('.play-btn')`, 15000);
       await q(`(() => { const b = document.querySelector('button[aria-label="Skip tour"]') || [...document.querySelectorAll('button')].find((x) => x.textContent.trim() === 'Start creating'); if (b) b.click(); return !!b; })()`).catch(() => {});
       await wait(600);
@@ -1215,7 +1215,7 @@ module.exports = async function smoke(win, app, dir) {
         videoClips: [{ id: 'v1', mediaId: 'm0', in: 0, out: 6, speed: 1, volume: 1, muted: false, filter: 'none', adjust: {}, effects: [], transition: null }],
         overlayClips: [], audioClips: [], stickerClips: [], effectClips: [], textClips: [],
       };
-      await q(`(() => { const b = document.querySelector('.home-create'); if (b) b.click(); return !!b; })()`).catch(() => {});
+      await q(`(() => { const b = document.querySelector('button[aria-label="New 16:9 project"]'); if (b) b.click(); return !!b; })()`).catch(() => {});
       result.editorReady = await until(`!!document.querySelector('.play-btn')`, 15000);
       await q(`(() => { const b = document.querySelector('button[aria-label="Skip tour"]') || [...document.querySelectorAll('button')].find((x) => x.textContent.trim() === 'Start creating'); if (b) b.click(); return !!b; })()`).catch(() => {});
       await wait(600);
@@ -1277,7 +1277,7 @@ module.exports = async function smoke(win, app, dir) {
           cap('c6', 75, 5, 'one last thing to remember always'),
         ],
       };
-      await q(`(() => { const b = document.querySelector('.home-create'); if (b) b.click(); return !!b; })()`).catch(() => {});
+      await q(`(() => { const b = document.querySelector('button[aria-label="New 16:9 project"]'); if (b) b.click(); return !!b; })()`).catch(() => {});
       result.editorReady = await until(`!!document.querySelector('.play-btn')`, 15000);
       await q(`(() => { const b = document.querySelector('button[aria-label="Skip tour"]') || [...document.querySelectorAll('button')].find((x) => x.textContent.trim() === 'Start creating'); if (b) b.click(); return !!b; })()`).catch(() => {});
       await wait(600);
@@ -1343,7 +1343,7 @@ module.exports = async function smoke(win, app, dir) {
           { ...capStyle, id: 'c3', text: 'Let us begin', start: 5.5, duration: 1.5 },
         ],
       };
-      await q(`(() => { const b = document.querySelector('.home-create'); if (b) b.click(); return !!b; })()`).catch(() => {});
+      await q(`(() => { const b = document.querySelector('button[aria-label="New 16:9 project"]'); if (b) b.click(); return !!b; })()`).catch(() => {});
       result.editorReady = await until(`!!document.querySelector('.play-btn')`, 15000);
       await q(`(() => { const b = document.querySelector('button[aria-label="Skip tour"]') || [...document.querySelectorAll('button')].find((x) => x.textContent.trim() === 'Start creating'); if (b) b.click(); return !!b; })()`).catch(() => {});
       await wait(600);
@@ -1427,7 +1427,7 @@ module.exports = async function smoke(win, app, dir) {
         ],
       };
       // Enter the editor first (fresh profiles start on Home; dismiss the tour).
-      await q(`(() => { const b = document.querySelector('.home-create'); if (b) b.click(); return !!b; })()`).catch(() => {});
+      await q(`(() => { const b = document.querySelector('button[aria-label="New 16:9 project"]'); if (b) b.click(); return !!b; })()`).catch(() => {});
       result.editorReady = await until(`!!document.querySelector('.play-btn')`, 15000);
       await q(`(() => { const b = document.querySelector('button[aria-label="Skip tour"]') || [...document.querySelectorAll('button')].find((x) => x.textContent.trim() === 'Start creating'); if (b) b.click(); return !!b; })()`).catch(() => {});
       await wait(600);
@@ -2009,6 +2009,24 @@ module.exports = async function smoke(win, app, dir) {
     fs.writeFileSync(path.join(dir, 'result.json'), JSON.stringify(result, null, 2));
     return app.quit();
   }
+  if (process.env.FVE_SMOKE_MODE === 'stats') {
+    // Anonymous statistics: asked once; "No thanks" is saved and the question never comes back.
+    await wait(4000);
+    result.promptShown = await run(`!!document.querySelector('.stats-note')`);
+    await shot('stats-prompt.png');
+    await run(`[...document.querySelectorAll('.stats-note button')].find((b) => b.textContent === 'No thanks').click()`);
+    await wait(500);
+    result.promptGone = await run(`!document.querySelector('.stats-note')`);
+    const file = path.join(dir, 'settings-test', 'telemetry.json');
+    const saved = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
+    result.savedConsent = saved.consent;
+    result.noId = !saved.installId;
+    wc.reload();
+    await wait(4000);
+    result.notAskedAgain = await run(`!document.querySelector('.stats-note')`);
+    fs.writeFileSync(path.join(dir, 'result.json'), JSON.stringify(result, null, 2));
+    return app.quit();
+  }
   if (process.env.FVE_SMOKE_MODE === 'filterchip') {
     // A clip's filter shows as a chip on the timeline; its × removes the filter (one undo step), the clip stays
     // selected as it was; the right-click menu can remove it too.
@@ -2306,24 +2324,6 @@ module.exports = async function smoke(win, app, dir) {
   if (process.env.FVE_SMOKE_MODE === 'textanimword') {
     try {
       await require('./smoke-textanimword.cjs')(win, dir, result);
-    } catch (e) {
-      result.error = e.message;
-    }
-    fs.writeFileSync(path.join(dir, 'result.json'), JSON.stringify(result, null, 2));
-    return app.quit();
-  }
-  if (process.env.FVE_SMOKE_MODE === 'golden') {
-    try {
-      await require('./smoke-golden.cjs')(win, dir, result);
-    } catch (e) {
-      result.error = e.message;
-    }
-    fs.writeFileSync(path.join(dir, 'result.json'), JSON.stringify(result, null, 2));
-    return app.quit();
-  }
-  if (process.env.FVE_SMOKE_MODE === 'gate') {
-    try {
-      await require('./smoke-gate.cjs')(win, dir, result);
     } catch (e) {
       result.error = e.message;
     }
@@ -2836,17 +2836,12 @@ module.exports = async function smoke(win, app, dir) {
     // Animated effects and transitions: GPU vs CPU reference, preview, and a full export through the effects pass.
     try {
       await wait(800);
-      // The app starts on the Home screen: enter the editor through a preset card first, then load.
-      // (Same entry step as smoke-textanim.cjs; without it __fve.load() leaves the app on Home.)
-      await run(`document.querySelector('.home-create')?.click()`);
-      await wait(600);
       await run(`window.__fve.load(${fs.readFileSync(path.join(dir, 'project.json'), 'utf8')})`);
       await wait(500);
       const q = (js) => run(js);
       const until = async (js, ms = 30000) => { for (let t = 0; t < ms; t += 250) { if (await q(js)) return true; await wait(250); } return false; };
       const self = await q('window.__fve.fxSelfTest()');
       result.selfTestFailed = self.failed;
-      result.selfTestRes = self.res; // full per-effect numbers (mean/far/avg) for diagnosis, not just the failed list
       result.selfTestWorst = Object.entries(self.res).sort((a, b) => b[1].mean - a[1].mean).slice(0, 3).map(([k, r]) => `${k} mean ${r.mean.toFixed(2)} avg ${r.avg.toFixed(2)}`);
       // c2: VHS, c3: Comic Cut in (0.5 s), c1: snow overlay; o1 (overlay): Striped Erosion.
       await q(`(() => {
@@ -2876,9 +2871,7 @@ module.exports = async function smoke(win, app, dir) {
       fs.rmSync(out, { force: true });
       const t0 = Date.now();
       await q('window.__fve.exportNow()');
-      // Export completion is signaled by the jobs tray (.xjob-ic.ok), not by a
-      // .modal-icon.ok element — no component renders that class anymore.
-      result.exportDone = await until(`!!document.querySelector('.xjob-ic.ok, .xjob-ic.error')`, 240000);
+      result.exportDone = await until(`!!document.querySelector('.modal-icon.ok, .modal-icon.error')`, 240000);
       result.exportSeconds = Math.round((Date.now() - t0) / 1000);
       result.exportResult = await q(`document.querySelector('#export-title')?.textContent + ' ' + (document.querySelector('.error-log')?.textContent || '')`);
       if (fs.existsSync(out)) result.exportInfo = await probe(out);
@@ -3625,7 +3618,7 @@ module.exports = async function smoke(win, app, dir) {
     // the default flow never did, so it loaded its project into the Home
     // screen and died on the transport timecode read (drift fix, 10/10
     // step 4 — the pattern is the mode flows' own, e.g. 'overlay' above).
-    await run(`(() => { const b = document.querySelector('.home-create'); if (b) b.click(); return !!b; })()`).catch(() => {});
+    await run(`(() => { const b = document.querySelector('button[aria-label="New 16:9 project"]'); if (b) b.click(); return !!b; })()`).catch(() => {});
     for (let t = 0; t < 15000 && !(await run(`!!document.querySelector('.play-btn')`).catch(() => false)); t += 250) await wait(250);
     const project = fs.readFileSync(path.join(dir, 'project.json'), 'utf8');
     await run(`window.__fve.load(${project});`);

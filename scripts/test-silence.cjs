@@ -125,9 +125,7 @@ function tone(samples, from, to, freq = 440, amp = 0.5) {
     const timeline = fs.readFileSync(path.join(repo, 'src', 'components', 'Timeline.jsx'), 'utf8');
     ok(main.includes("ipcMain.handle('silence:detect'") && main.includes("ipcMain.handle('silence:cancel'"), 'main exposes the silence detect/cancel IPC');
     ok(preload.includes('detectSilence') && preload.includes('silenceCancel'), 'preload bridges detectSilence / silenceCancel');
-    // The menu label moved into i18n (P0-07): t('menu.removeSilences'), en "Remove silences…".
-    const en = fs.readFileSync(path.join(repo, 'src', 'i18n', 'en.js'), 'utf8');
-    ok(app.includes("t('menu.removeSilences')") && en.includes('"menu.removeSilences": "Remove silences…') && app.includes('removeSilences') && app.includes("type: 'cutRanges', ranges: accepted, rippleText: true") && app.includes("type: 'cutFreeRanges'"), 'App: the menu entry, detection flow and both removal dispatches are wired');
+    ok(app.includes('Remove silences…') && app.includes('removeSilences') && app.includes("type: 'cutRanges', ranges: ask.ranges, rippleText: true") && app.includes("type: 'cutFreeRanges'"), 'App: the menu entry, detection flow and both removal dispatches are wired');
     ok(app.includes('silenceAsk') && app.includes('silenceMarks'), 'App: the confirm state feeds the Timeline marks');
     ok(app.includes('Split at beats') && app.includes('beatSplitTarget(project, time, sel)'), 'App: the clip menu carries Split at beats (row 14 beat half)');
     ok(timeline.includes('silence-range') && timeline.includes('marksFor'), 'Timeline renders the detected ranges on the clip');

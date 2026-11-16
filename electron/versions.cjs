@@ -27,17 +27,6 @@ const CAP = 10; // snapshots kept per project
 const MIN_INTERVAL = 5 * 60 * 1000; // background snapshots: at most one per 5 minutes
 const ID_OK = /^[A-Za-z0-9_-]{1,80}$/; // same sanitised id scheme as the autosave store
 const FILE_OK = /^\d+-[0-9a-f]{8}\.json$/;
-const NAME_MAX = 80;
-
-// P1-48: a named version is a snapshot with a human name. Names are validated
-// (trimmed, printable, capped) and live only in index.json — a torn index
-// rebuild loses names, never snapshots.
-function cleanName(name) {
-  if (typeof name !== 'string') return null;
-  const n = name.trim().replace(/\s+/g, ' ');
-  if (!n || /[\u0000-\u001f\u007f]/.test(n)) return null;
-  return n.slice(0, NAME_MAX);
-}
 
 const projectDir = (root, id) => (ID_OK.test(String(id || '')) ? path.join(root, String(id)) : null);
 const indexPath = (dir) => path.join(dir, 'index.json');
@@ -74,7 +63,6 @@ function rebuildIndex(dir) {
         boundFile: null,
         bytes: st.size,
         hash: name.split('-')[1].replace('.json', ''),
-        name: null,
       });
     } catch { /* a vanished file is skipped, never fatal */ }
   }
@@ -92,10 +80,7 @@ function listVersions(root, id) {
     }
   } catch { /* rebuilt below */ }
   if (!entries) entries = rebuildIndex(dir);
-  return entries
-    .sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0))
-    .slice(0, CAP)
-    .map((e) => ({ ...e, name: cleanName(e.name) }));
+  return entries.sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0)).slice(0, CAP);
 }
 
 // Record a snapshot of projectJson for project id. opts: { source, boundFile, force, now }.
@@ -122,7 +107,6 @@ function recordVersion(root, id, projectJson, opts = {}) {
     boundFile: opts.boundFile ? String(opts.boundFile) : null,
     bytes: Buffer.byteLength(json, 'utf8'),
     hash: hash.slice(0, 8),
-    name: cleanName(opts.name),
   };
   const kept = [entry, ...entries.filter((e) => e.file !== file)];
   for (const evicted of kept.splice(CAP)) {
@@ -145,152 +129,4 @@ function readVersion(root, id, file) {
   }
 }
 
-// P1-48: rename a snapshot. Returns the updated entry, or null when the file
-// is not one of this project's snapshots or the name is blank/invalid. The
-// snapshot file itself is untouched — only index.json changes.
-function renameVersion(root, id, file, name) {
-  const dir = projectDir(root, id);
-  const clean = cleanName(name);
-  if (!dir || !clean || !FILE_OK.test(String(file || ''))) return null;
-  const entries = listVersions(root, id);
-  const target = entries.find((e) => e.file === file);
-  if (!target || !fs.existsSync(path.join(dir, file))) return null;
-  const kept = entries.map((e) => (e.file === file ? { ...e, name: clean } : e));
-  writeJsonAtomic(indexPath(dir), JSON.stringify(kept));
-  return { ...target, name: clean };
-}
-
-// ---- P1-48: version comparison + selective restoration ----------------------
-// These are pure functions over project documents, so the dialog can compare
-// any two snapshots (or a snapshot against the live project) and restore only
-// chosen tracks/clips without touching the rest of the live project.
-
-const TRACK_KEYS = ['video', 'overlay', 'text', 'audio', 'sticker', 'effect'];
-const TRACK_LIST = {
-  video: 'videoClips', overlay: 'overlayClips', text: 'textClips',
-  audio: 'audioClips', sticker: 'stickerClips', effect: 'effectClips',
-};
-
-const mediaLabel = (p, mediaId) => {
-  const m = (p.media || []).find((x) => x.id === mediaId);
-  const n = m && (m.name || m.file || m.path || '');
-  return n ? String(n).split(/[\\/]/).pop() : (mediaId ? String(mediaId) : '');
-};
-
-function clipLabel(p, track, c) {
-  if (!c || typeof c !== 'object') return '';
-  if (c.gap) return 'gap';
-  if (track === 'text') return String(c.text || c.caption || 'Text').slice(0, 40) || 'Text';
-  if (track === 'effect') return c.kind === 'grade' ? 'Grade layer' : `Effect ${c.fx || ''}`.trim();
-  if (track === 'sticker') return String(c.name || c.src || 'Sticker').split(/[\\/]/).pop();
-  return mediaLabel(p, c.mediaId) || String(c.id || 'Clip');
-}
-
-function clipLen(c) {
-  if (typeof c.out === 'number' && typeof c.in === 'number') return Math.max(0, c.out - c.in);
-  return Number(c.duration) || 0;
-}
-
-// Readable shape of one project: title, duration, and per-track clip counts
-// with a short label per clip (used for the compare panel and the selective
-// restore checklist). Duration mirrors the store's projectDuration shape
-// (video laid out end-to-end, other tracks by end time) closely enough for a
-// summary; it is never used for export timing.
-function summarizeProject(p) {
-  const proj = p && typeof p === 'object' ? p : {};
-  let videoEnd = 0;
-  const tracks = {};
-  for (const key of TRACK_KEYS) {
-    const list = Array.isArray(proj[TRACK_LIST[key]]) ? proj[TRACK_LIST[key]] : [];
-    const clips = list.map((c) => ({
-      id: c && c.id != null ? String(c.id) : '',
-      label: clipLabel(proj, key, c),
-      start: Number(c && c.start) || 0,
-      duration: clipLen(c || {}),
-      mediaId: c && c.mediaId ? String(c.mediaId) : null,
-    }));
-    if (key === 'video') videoEnd = clips.reduce((end, c) => end + c.duration, 0);
-    tracks[key] = { count: clips.length, clips };
-  }
-  const ends = [videoEnd];
-  for (const key of ['overlay', 'text', 'audio', 'sticker', 'effect']) {
-    for (const c of tracks[key].clips) ends.push(c.start + c.duration);
-  }
-  return {
-    title: typeof proj.name === 'string' ? proj.name : '',
-    duration: Math.max(0, ...ends),
-    tracks,
-    media: (proj.media || []).map((m) => mediaLabel(proj, m.id)).filter(Boolean),
-  };
-}
-
-// Textual diff between two project documents: title, duration, per-track clip
-// counts with added/removed clip labels, and media added/removed by name.
-function diffProjects(a, b) {
-  const sa = summarizeProject(a);
-  const sb = summarizeProject(b);
-  const tracks = {};
-  for (const key of TRACK_KEYS) {
-    const la = sa.tracks[key].clips.map((c) => c.label);
-    const lb = sb.tracks[key].clips.map((c) => c.label);
-    const added = lb.filter((l) => !la.includes(l));
-    const removed = la.filter((l) => !lb.includes(l));
-    tracks[key] = { before: sa.tracks[key].count, after: sb.tracks[key].count, added, removed };
-  }
-  return {
-    title: sa.title === sb.title ? null : { from: sa.title, to: sb.title },
-    duration: { from: sa.duration, to: sb.duration, delta: sb.duration - sa.duration },
-    tracks,
-    mediaAdded: sb.media.filter((m) => !sa.media.includes(m)),
-    mediaRemoved: sa.media.filter((m) => !sb.media.includes(m)),
-  };
-}
-
-// Selective restoration: merge chosen parts of a snapshot into the live
-// project and return the merged document (the caller loads it like any
-// project). selection: { tracks: ['text', ...], clips: [{ track, id }, ...] }.
-// A whole track replaces the live track; a single clip replaces the live clip
-// with the same id, or is appended when the live project has no such clip.
-// Media entries the restored clips reference are copied over when missing, so
-// a restored clip never points at media the project does not know.
-function selectiveRestore(current, snapshot, selection) {
-  const cur = current && typeof current === 'object' ? current : {};
-  const snap = snapshot && typeof snapshot === 'object' ? snapshot : {};
-  const sel = selection && typeof selection === 'object' ? selection : {};
-  const merged = { ...cur };
-  const trackSet = new Set(Array.isArray(sel.tracks) ? sel.tracks.filter((k) => TRACK_KEYS.includes(k)) : []);
-  const clipSel = (Array.isArray(sel.clips) ? sel.clips : [])
-    .filter((c) => c && TRACK_KEYS.includes(c.track) && c.id != null)
-    .map((c) => ({ track: c.track, id: String(c.id) }));
-  const neededMedia = new Set();
-  const collectMedia = (clips) => { for (const c of clips || []) if (c && c.mediaId) neededMedia.add(String(c.mediaId)); };
-  for (const key of trackSet) {
-    const list = Array.isArray(snap[TRACK_LIST[key]]) ? snap[TRACK_LIST[key]] : [];
-    merged[TRACK_LIST[key]] = JSON.parse(JSON.stringify(list));
-    collectMedia(list);
-  }
-  for (const { track, id } of clipSel) {
-    if (trackSet.has(track)) continue; // the whole track already came over
-    const snapList = Array.isArray(snap[TRACK_LIST[track]]) ? snap[TRACK_LIST[track]] : [];
-    const clip = snapList.find((c) => c && String(c.id) === id);
-    if (!clip) continue;
-    const liveList = Array.isArray(merged[TRACK_LIST[track]]) ? [...merged[TRACK_LIST[track]]] : [];
-    const at = liveList.findIndex((c) => c && String(c.id) === id);
-    const copy = JSON.parse(JSON.stringify(clip));
-    if (at >= 0) liveList[at] = copy; else liveList.push(copy);
-    merged[TRACK_LIST[track]] = liveList;
-    collectMedia([clip]);
-  }
-  if (neededMedia.size) {
-    const liveMedia = Array.isArray(merged.media) ? [...merged.media] : [];
-    const have = new Set(liveMedia.map((m) => m && String(m.id)));
-    for (const mid of neededMedia) {
-      const m = (snap.media || []).find((x) => x && String(x.id) === mid);
-      if (m && !have.has(mid)) liveMedia.push(JSON.parse(JSON.stringify(m)));
-    }
-    merged.media = liveMedia;
-  }
-  return merged;
-}
-
-module.exports = { CAP, MIN_INTERVAL, listVersions, recordVersion, readVersion, renameVersion, cleanName, summarizeProject, diffProjects, selectiveRestore, TRACK_KEYS };
+module.exports = { CAP, MIN_INTERVAL, listVersions, recordVersion, readVersion };

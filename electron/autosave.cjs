@@ -19,14 +19,9 @@
 //
 // Hygiene: the store keeps at most CAP live projects; writing beyond the cap evicts the
 // OLDEST live slots (never the one just written, never a trashed one — trash is bounded
-// by the purge, not the cap). Eviction of a slot BOUND to a .clipcraft file deletes the
-// slot file, as before — the file on disk still holds the project. Eviction of an
-// UNBOUND slot (file: null, never saved) must never do that: the slot is the project's
-// ONLY copy, so it is moved to the trash instead (trashedAt set on the slot file and
-// the index entry, recoverable for 30 days like a manual trash) and reported in the
-// returned `evicted` list so the UI can warn. All writes are tmp-file + rename, so a
-// crash mid-write never leaves a torn slot. Ids are sanitized to a safe filename
-// alphabet — a hostile or corrupt id can never escape the store directory.
+// by the purge, not the cap). All writes are tmp-file + rename, so a crash mid-write
+// never leaves a torn slot. Ids are sanitized to a safe filename alphabet — a hostile
+// or corrupt id can never escape the store directory.
 //
 // Plain-Node friendly (no Electron imports) so scripts/test-autosave.cjs can drive it.
 
@@ -118,30 +113,16 @@ function listTrashed(root) {
 
 function prune(root, entries, keepId) {
   // The CAP bounds LIVE slots only; trashed entries ride along untouched (the purge
-  // bounds them). Returns { entries, evicted }: evicted lists the unbound slots
-  // moved to the trash (see below), so the caller can warn the user.
+  // bounds them). Eviction deletes the evicted slot's file, as before.
   const kept = [];
   const trashed = [];
-  const evicted = [];
   for (const e of entries) {
     if (e.trashedAt) { trashed.push(e); continue; }
     if (kept.length < CAP || e.id === keepId) { kept.push(e); continue; }
-    // P0-04: an unbound slot (file: null) lives ONLY here — deleting its slot
-    // file would destroy the project's only copy with no warning. Move it to
-    // the trash instead: trashedAt on the slot file (so an index rebuild keeps
-    // it trashed) and on the index entry, recoverable for 30 days.
-    if (!e.file) {
-      const now = Date.now();
-      const slot = readSlot(root, e.id);
-      if (slot) { try { writeJsonAtomic(slotPath(root, e.id), { ...slot, trashedAt: now }); } catch { /* index rebuilds on next read */ } }
-      trashed.push({ ...e, trashedAt: now });
-      evicted.push({ id: e.id, title: e.title || 'Untitled', file: null });
-      continue;
-    }
     const f = slotPath(root, e.id);
     if (f) { try { fs.unlinkSync(f); } catch { /* already gone */ } }
   }
-  return { entries: [...kept, ...trashed], evicted };
+  return [...kept, ...trashed];
 }
 
 // record: { id, title, file, ratio, thumb, updatedAt, projectJson } — projectJson is the
@@ -176,12 +157,8 @@ function writeSlot(root, record) {
     writeJsonAtomic(file, slot);
     const entry = { id: slot.id, title: slot.title, file: slot.file, ratio: slot.ratio, thumb: slot.thumb, duration: slot.duration, updatedAt: slot.updatedAt, trashedAt: slot.trashedAt };
     const rest = priorEntries.filter((e) => e.id !== slot.id);
-    // P0-04: prune reports unbound slots moved to the trash; the evicted list
-    // rides on the returned entry (after the index write, so the index JSON
-    // never carries it) for the UI warning.
-    const { entries, evicted } = prune(root, [entry, ...rest], slot.id);
+    const entries = prune(root, [entry, ...rest], slot.id);
     writeJsonAtomic(indexPath(root), entries);
-    if (evicted.length) entry.evicted = evicted;
     return entry;
   } catch {
     return null;

@@ -132,15 +132,10 @@ try {
   ok(sanitizeMcpServer({ name: 'x', command: 'c', env: { GOOD: 'v', BAD: 42 } }).env.BAD === undefined, 'settings: non-string env values are dropped');
 }
 
-// Wiring: the Settings surface offers both new fields. The labels moved into
-// i18n (P0-07): the form renders t('set.urlLabel') / t('set.envLabel') /
-// t('set.headersLabel'). Assert the wiring AND the resolved English text.
+// Wiring: the Settings surface offers both new fields.
 {
   const dialog = fs.readFileSync(path.join(here, '..', 'src', 'components', 'SettingsDialog.jsx'), 'utf8');
-  const en = fs.readFileSync(path.join(here, '..', 'src', 'i18n', 'en.js'), 'utf8');
-  const enVal = (k) => { const m = new RegExp(`"${k.replace(/\./g, '\\.')}": "((?:[^"\\\\]|\\\\.)*)"`).exec(en); return m ? m[1] : null; };
-  ok(dialog.includes("t('set.urlLabel')") && dialog.includes("t('set.envLabel')") && dialog.includes("t('set.headersLabel')"), 'settings UI: URL, env and header fields are offered');
-  ok((enVal('set.urlLabel') || '').includes('URL (remote server') && (enVal('set.envLabel') || '').includes('Environment variables') && (enVal('set.headersLabel') || '').includes('HTTP headers'), 'the resolved English labels read URL / Environment variables / HTTP headers');
+  ok(dialog.includes('URL (remote server') && dialog.includes('Environment variables') && dialog.includes('HTTP headers'), 'settings UI: URL, env and header fields are offered');
 }
 
 console.log(failures ? `MCP HTTP FAIL — ${failures} assertion(s)` : 'MCP HTTP OK — HTTP transport (JSON + SSE + session), header expansion, stdio env, sanitize, registry');

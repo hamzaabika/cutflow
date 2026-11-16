@@ -24,11 +24,9 @@ const ev = (key, mods = {}) => ({ key, code: mods.code || '', ctrlKey: !!mods.ct
 
 // --- Catalogue -----------------------------------------------------------------
 {
-  // 47 on the merged tree: 39 base + 6 CC-04 keyframe actions
-  // (kfAdd/kfDelete/kfPrev/kfNext/kfNudgeBack/kfNudgeFwd) + 2 F1 frame-step
-  // actions (frameStepBack/frameStepFwd) — the pin moves WITH the growth,
-  // as it exists to catch LOSS.
-  ok(KEY_ACTIONS.length === 47, `catalogue: 47 remappable actions (got ${KEY_ACTIONS.length})`);
+  // 22 since 10/10 step 4: toggleDock / toggleInspector (panel collapse) joined
+  // the catalogue — the pin moves WITH the growth, as it exists to catch LOSS.
+  ok(KEY_ACTIONS.length === 22, `catalogue: 22 remappable actions (got ${KEY_ACTIONS.length})`);
   ok(KEY_ACTIONS.every((a) => a.defaults.length >= 1), 'catalogue: every action ships at least one default binding');
   const seen = new Map();
   let dup = null;
@@ -85,11 +83,6 @@ const ev = (key, mods = {}) => ({ key, code: mods.code || '', ctrlKey: !!mods.ct
   ok(actionForEvent(map, ev('s', { ctrl: true, alt: true })) === 'save', 'match: Ctrl+Alt+S is the Save-as binding of the same action');
   ok(actionForEvent(map, ev('s', { ctrl: true, shift: true })) === 'extractAudio', 'match: exact Ctrl+Shift+S wins over the strip-Shift fallback');
   ok(actionForEvent(map, ev(' ', { code: 'Space' })) === 'play', 'match: Space plays');
-  // Frame step (P1-04): , / . resolve to the frame-step actions, and the
-  // defaults do not collide with anything else (pinned by the no-duplicate
-  // assertion above).
-  ok(actionForEvent(map, ev(',')) === 'frameStepBack', 'match: , steps back one frame');
-  ok(actionForEvent(map, ev('.')) === 'frameStepFwd', 'match: . steps forward one frame');
   ok(actionForEvent(map, ev('S', { shift: true })) === 'split', 'match: Shift+S still splits (Shift is a parameter, not a new key)');
   ok(actionForEvent(map, ev('s', { alt: true })) === 'split', 'match: Alt+S still splits (legacy fallthrough kept)');
   ok(actionForEvent(map, ev('z', { ctrl: true })) === 'undo' && actionForEvent(map, ev('z', { ctrl: true, shift: true })) === 'redo' && actionForEvent(map, ev('y', { ctrl: true })) === 'redo',
@@ -97,39 +90,6 @@ const ev = (key, mods = {}) => ({ key, code: mods.code || '', ctrlKey: !!mods.ct
   ok(actionForEvent(map, ev('q', { ctrl: true })) === null, 'match: Ctrl is never stripped (Ctrl+Q is not Q)');
   ok(actionForEvent(map, ev('ArrowLeft', { shift: true })) === 'seekBack', 'match: Shift+Arrow still seeks (the handler reads Shift for the coarse step)');
   ok(actionForEvent(map, ev('f')) === 'fullscreen', 'match: F is the full-screen action the preview resolves');
-}
-
-// --- P2-35: the expanded catalogue ---------------------------------------------
-{
-  const map = resolveKeymap(null);
-  // J/K/L shuttle.
-  ok(actionForEvent(map, ev('j')) === 'shuttleBack', 'p2-35: J shuttles back');
-  ok(actionForEvent(map, ev('k')) === 'shuttleStop', 'p2-35: K stops the shuttle');
-  ok(actionForEvent(map, ev('l')) === 'shuttleFwd', 'p2-35: L shuttles forward');
-  // Timeline zoom.
-  ok(actionForEvent(map, ev('=')) === 'zoomIn', 'p2-35: = zooms the timeline in');
-  ok(actionForEvent(map, ev('-')) === 'zoomOut', 'p2-35: - zooms the timeline out');
-  ok(actionForEvent(map, ev('0')) === 'zoomFit', 'p2-35: 0 fits the timeline');
-  // Marker navigation.
-  ok(actionForEvent(map, ev('ArrowLeft', { ctrl: true })) === 'markerPrev', 'p2-35: Ctrl+Left goes to the previous marker');
-  ok(actionForEvent(map, ev('ArrowRight', { ctrl: true })) === 'markerNext', 'p2-35: Ctrl+Right goes to the next marker');
-  // Ripple, layer lock/hide, panels, FlowAI, silence.
-  ok(actionForEvent(map, ev('r')) === 'toggleRipple', 'p2-35: R toggles ripple (magnet)');
-  ok(actionForEvent(map, ev('l', { ctrl: true })) === 'lockLayer', 'p2-35: Ctrl+L locks the selected layer');
-  ok(actionForEvent(map, ev('h', { ctrl: true })) === 'hideLayer', 'p2-35: Ctrl+H hides the selected layer');
-  ok(actionForEvent(map, ev('c')) === 'openCaptions', 'p2-35: C opens the Captions panel');
-  ok(actionForEvent(map, ev('a')) === 'openAudio', 'p2-35: A opens the Audio panel');
-  ok(actionForEvent(map, ev(' ', { code: 'Space', ctrl: true })) === 'toggleFlowAI', 'p2-35: Ctrl+Space toggles FlowAI');
-  ok(actionForEvent(map, ev('Delete', { shift: true })) === 'removeSilence', 'p2-35: Shift+Delete removes silence');
-  // No rebind collision: an explicit binding always beats the Shift/Alt
-  // fallback — the new chords do NOT fall through to the base action.
-  ok(actionForEvent(map, ev('Delete', { shift: true })) !== 'remove', 'p2-35: Shift+Delete is silence removal, not Delete');
-  ok(actionForEvent(map, ev(' ', { code: 'Space', ctrl: true })) !== 'play', 'p2-35: Ctrl+Space is FlowAI, not play');
-  ok(actionForEvent(map, ev('ArrowLeft', { ctrl: true })) !== 'seekBack', 'p2-35: Ctrl+Left is marker nav, not seek');
-  // And the reverse: a rebind of a new action wins over the fallback too.
-  const rebound = resolveKeymap({ removeSilence: ['Ctrl+U'] });
-  ok(actionForEvent(rebound, ev('u', { ctrl: true })) === 'removeSilence', 'p2-35: a rebind of a new action fires');
-  ok(actionForEvent(rebound, ev('Delete', { shift: true })) === 'remove', 'p2-35: the old chord falls back to Delete once the action is rebound away (the pinned parameter rule)');
 }
 
 // --- Hint rendering ----------------------------------------------------------------

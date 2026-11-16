@@ -89,10 +89,7 @@ class FrameReader {
 // frames changes meaning: the encoder below, the export splice, the effect expressions or the
 // bundled LUTs. Cache entries from older recipes then miss instead of being reused wrongly
 // (the proxy makers in ffmpeg.cjs use the same convention: 'proxy1', 'lproxy1', ...).
-// fxseg3: P1-53 LUT dedupe — a clip with the same LUT in the filter slot and the grade slot
-// now renders one LUT pass instead of two, so a segment baked under fxseg2 for such a clip
-// (double LUT) must not be reused.
-const SEGMENT_RECIPE = 'fxseg3-lutdedupe';
+const SEGMENT_RECIPE = 'fxseg2-bt709';
 
 // The one place the segment encode recipe lives; the parity suites import it so the artefact
 // they measure is the artefact the app writes (they used to copy the args inline and could
@@ -185,22 +182,7 @@ class FxJobs {
     this.n = 0;
     this.cacheDirFn = cacheDirFn;
     this.cacheCapFn = cacheCapFn;
-    // FB-15 (P1-20): per-stage timing log. Each finished job appends one
-    // record { kind, cached, frames, beginMs, decodeMs, writeMs, flushMs,
-    // totalMs } — begin = spawn/setup, decode = time blocked waiting for the
-    // next decoded frame out of the decoder pipe (decode + IPC), write =
-    // time feeding painted frames into the segment encoder (encode ingest),
-    // flush = encoder drain at end(). Paint time itself lives with the
-    // caller (the renderer/WebGL painter or a profiler's stand-in) and is
-    // NOT folded into these numbers: decodeMs + writeMs + flushMs is the
-    // pipeline's own cost. The log is observation only — recording it
-    // changes no render behaviour.
-    this.timingLog = [];
   }
-
-  // The finished-job stage timings, in completion order. A shallow copy: the
-  // caller's summary cannot mutate the log.
-  timings() { return this.timingLog.map((t) => ({ ...t })); }
 
   cacheDir() {
     if (!this.cacheDirFn) return null;
@@ -370,10 +352,6 @@ class FxJobs {
     return hashKey({
       r: SEGMENT_RECIPE, kind: 'transition', W, H, fps, bg: project.background || null,
       a: clipForKey(a), b: clipForKey(b), ma: mediaForKey(mediaA), mb: mediaForKey(mediaB),
-      // P2-16 — the transition's two pictures are graded by the layers over them
-      // (the clip key already carries effectClips; the transition key did not, so
-      // editing a grade layer could reuse a stale transition segment).
-      fx: project.effectClips || [],
       motionA: (project.motion || {})[a.id] ?? null, motionB: (project.motion || {})[b.id] ?? null,
       maskA: (project.maskImages || {})[a.id] || null, maskB: (project.maskImages || {})[b.id] || null,
       cmaskA: (project.customMaskImages || {})[a.id] || null, cmaskB: (project.customMaskImages || {})[b.id] || null,
@@ -402,8 +380,6 @@ class FxJobs {
 
   // spec: { kind: 'clip', track: 'video' | 'overlay', clipId } or { kind: 'transition', clipId } (the incoming clip).
   begin(projectIn, spec) {
-    const tBegin0 = process.hrtime.bigint();
-    const beginMs = () => Number(process.hrtime.bigint() - tBegin0) / 1e6;
     let project = this.resolve(projectIn);
     // Masks travel as data URLs (like for the export); transitions need them as files.
     if (project.maskImages && !project.maskFiles) {
@@ -441,7 +417,6 @@ class FxJobs {
       const hit = this.cacheHit(key);
       if (hit) {
         this.jobs.set(id, { kind: 'clip', file: hit, cached: true, key, frames });
-        const hitMs = beginMs(); this.timingLog.push({ kind: 'clip', cached: true, frames, beginMs: hitMs, decodeMs: 0, writeMs: 0, flushMs: 0, totalMs: hitMs });
         return { id, width: fw, height: fh, frames, fps, len, cached: true };
       }
       const input = m.type === 'image'
@@ -454,7 +429,7 @@ class FxJobs {
         `[0:v]${pre},fps=${fps},scale=${fw}:${fh},setsar=1,format=rgba[o]`, '-map', '[o]', '-t', num(len),
         '-f', 'rawvideo', '-pix_fmt', 'rgba', 'pipe:1']);
       const enc = encoder(out, fw, fh, fps);
-      this.jobs.set(id, { kind: 'clip', readers: [new FrameReader(dec, fw * fh * 4)], decs: [dec], enc, out, frames, written: 0, key, timing: { kind: 'clip', cached: false, frames, beginMs: beginMs(), decodeMs: 0, writeMs: 0, flushMs: 0, totalMs: 0 } });
+      this.jobs.set(id, { kind: 'clip', readers: [new FrameReader(dec, fw * fh * 4)], decs: [dec], enc, out, frames, written: 0, key });
       return { id, width: fw, height: fh, frames, fps, len };
     }
 
@@ -477,13 +452,12 @@ class FxJobs {
     const hit = this.cacheHit(key);
     if (hit) {
       this.jobs.set(id, { kind: 'transition', file: hit, cached: true, key, frames });
-      const hitMs = beginMs(); this.timingLog.push({ kind: 'transition', cached: true, frames, beginMs: hitMs, decodeMs: 0, writeMs: 0, flushMs: 0, totalMs: hitMs });
       return { id, width: W, height: H, frames, fps, len: td, cached: true };
     }
     const decs = [[narrowClip(A, mediaById[A.mediaId], lenA - td, lenA), lenA - td], [narrowClip(B, mediaById[B.mediaId], 0, td), 0]]
       .map(([c, from]) => decoder(graphFile(buildExportArgs(mini(c, from), null, { raw: true }).args)));
     const enc = encoder(out, W, H, fps);
-    this.jobs.set(id, { kind: 'transition', readers: decs.map((d) => new FrameReader(d, W * H * 4)), decs, enc, out, frames, written: 0, key, timing: { kind: 'transition', cached: false, frames, beginMs: beginMs(), decodeMs: 0, writeMs: 0, flushMs: 0, totalMs: 0 } });
+    this.jobs.set(id, { kind: 'transition', readers: decs.map((d) => new FrameReader(d, W * H * 4)), decs, enc, out, frames, written: 0, key });
     return { id, width: W, height: H, frames, fps, len: td };
   }
 
@@ -491,11 +465,7 @@ class FxJobs {
     const j = this.jobs.get(id);
     if (!j) throw new Error('Unknown effect render');
     if (j.cached) return null; // nothing to paint: the file already holds every frame
-    // FB-15: the wait inside next() is the decode+IPC stage — the decoder
-    // process producing the frame and the pipe delivering it.
-    const t0 = process.hrtime.bigint();
     const frames = await Promise.all(j.readers.map((r) => r.next()));
-    if (j.timing) j.timing.decodeMs += Number(process.hrtime.bigint() - t0) / 1e6;
     if (frames.some((f) => !f)) {
       const err = j.readers.map((r) => r.err).find(Boolean);
       if (err && j.written === 0) throw new Error(err);
@@ -504,37 +474,12 @@ class FxJobs {
     return frames.length === 1 ? frames[0] : { a: frames[0], b: frames[1] };
   }
 
-  // B-F07 — batched round trips: one IPC call carries up to n frames
-  // instead of one call per frame. The frames still cross IPC (the bytes
-  // are the bytes), but the per-call overhead — a full main<->renderer
-  // round trip per frame, ~9 ms of structured-clone work per 720p frame
-  // measured in node — drops by the batch factor. readMany stops at the
-  // first missing frame, like read() returning null; writeMany writes in
-  // order, so a batch lands in the encoder exactly as single writes would.
-  async readMany(id, n) {
-    const out = [];
-    for (let i = 0; i < Math.max(1, Math.min(16, n || 1)); i++) {
-      const f = await this.read(id);
-      if (!f) break;
-      out.push(f);
-    }
-    return out;
-  }
-
-  async writeMany(id, frames) {
-    for (const bytes of frames || []) await this.write(id, bytes);
-  }
-
   async write(id, bytes) {
     const j = this.jobs.get(id);
     if (!j) throw new Error('Unknown effect render');
     if (j.cached) return; // the segment is already rendered; see read()
     j.written++;
-    // FB-15: feeding the painted frame into the segment encoder's stdin
-    // (encode ingest, including backpressure drain waits).
-    const t0 = process.hrtime.bigint();
     if (!j.enc.p.stdin.write(Buffer.from(bytes))) await new Promise((r) => j.enc.p.stdin.once('drain', r));
-    if (j.timing) j.timing.writeMs += Number(process.hrtime.bigint() - t0) / 1e6;
   }
 
   async end(id) {
@@ -543,15 +488,7 @@ class FxJobs {
     if (j.cached) return { ok: true, frames: j.frames };
     j.decs.forEach((d) => d.kill());
     j.enc.p.stdin.end();
-    // FB-15: the encoder drain — the segment file is not finished until done
-    // resolves, and that wait is the encode-finalise stage.
-    const t0 = process.hrtime.bigint();
     j.file = await j.enc.done;
-    if (j.timing) {
-      j.timing.flushMs = Number(process.hrtime.bigint() - t0) / 1e6;
-      j.timing.totalMs = j.timing.beginMs + j.timing.decodeMs + j.timing.writeMs + j.timing.flushMs;
-      this.timingLog.push({ ...j.timing });
-    }
     this.publish(j);
     return { ok: true, frames: j.written };
   }

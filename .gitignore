@@ -8,5 +8,3 @@ release/
 .env
 .env.*
 !.env.example
-public/fonts/
-tmp/

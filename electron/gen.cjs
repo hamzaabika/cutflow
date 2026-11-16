@@ -3,7 +3,6 @@
 // be added next to it later. Pure module: the caller passes `fetch` and the output folder.
 // Models and their options follow https://elevenlabs.io/docs/api-reference/flows (video/create, image/create).
 const fs = require('fs');
-const { redactSecrets } = require('./redact.cjs');
 const path = require('path');
 
 const EL = 'https://api.elevenlabs.io/v1';
@@ -73,7 +72,7 @@ async function elError(res) {
   }
   const detail = d && d.detail;
   const code = detail && (detail.code || detail.status);
-  const msg = redactSecrets(Array.isArray(detail) ? detail.map((x) => x.msg).join('; ') : (detail && (detail.message || detail.status)) || '');
+  const msg = Array.isArray(detail) ? detail.map((x) => x.msg).join('; ') : (detail && (detail.message || detail.status)) || '';
   if (res.status === 402 || code === 'paid_plan_required') {
     return new GenError('Video and photo generation needs an ElevenLabs Pro plan or higher.', 'pro_required');
   }
@@ -226,7 +225,7 @@ async function run(fetchImpl, key, outDir, kind, opts, { onStatus, signal, pollM
     }
     if (d.status === 'failed') {
       if (d.failure_reason === 'moderated') throw new GenError('ElevenLabs declined this request. Try rewording it or another photo. Failed generations are not charged.');
-      throw new GenError(`The generation failed${d.error_message ? `: ${redactSecrets(String(d.error_message).slice(0, 200))}` : ''}. Failed generations are not charged.`);
+      throw new GenError(`The generation failed${d.error_message ? `: ${String(d.error_message).slice(0, 200)}` : ''}. Failed generations are not charged.`);
     }
     onStatus?.(d.status === 'generating' ? 'generating' : 'pending');
     if (flow !== 'video' && pollMs == null) wait = Math.min(wait * 2, 10000);

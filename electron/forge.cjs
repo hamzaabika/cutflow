@@ -11,29 +11,19 @@
 // Pure module: the caller passes `fetch`, the output dir, and a key getter.
 const fs = require('fs');
 const path = require('path');
-const { redactSecrets } = require('./redact.cjs');
 
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com';
 const POLLINATIONS_BASE = 'https://image.pollinations.ai';
 
 const PHOTO_MODELS = [
-  { id: 'pollinations', name: 'Pollinations — free, no key', provider: 'pollinations', needsKey: false, estimate: { amount: 0, unit: 'image', label: 'Free' } },
-  // Gemini image rates are per generated image (1024px class), checked
-  // 2026-11-15 against Google's published Gemini API pricing: 2.5 Flash
-  // Image $0.039/image; 3.1 Flash Image (Nano Banana 2) ~$0.034/image.
-  { id: 'gemini-2.5-flash-image', name: 'Nano Banana (Gemini)', provider: 'gemini', needsKey: true, estimate: { amount: 0.039, unit: 'image', label: '≈ $0.04 per image' } },
-  { id: 'gemini-3.1-flash-image', name: 'Nano Banana 2 (Gemini)', provider: 'gemini', needsKey: true, estimate: { amount: 0.034, unit: 'image', label: '≈ $0.03 per image' } },
+  { id: 'pollinations', name: 'Pollinations — free, no key', provider: 'pollinations', needsKey: false },
+  { id: 'gemini-2.5-flash-image', name: 'Nano Banana (Gemini)', provider: 'gemini', needsKey: true },
+  { id: 'gemini-3.1-flash-image', name: 'Nano Banana 2 (Gemini)', provider: 'gemini', needsKey: true },
 ];
 const VIDEO_MODELS = [
-  // Veo bills per second of finished video, 720p (the default here):
-  // Fast $0.10/s, Standard $0.40/s — Google's published Gemini API rates,
-  // checked 2026-11-15; 1080p/4K cost more and the provider's pricing page
-  // is the authority. Google listed these Veo 3.1 preview IDs for possible
-  // retirement from 22 Oct 2026, so availability needs a check too.
-  { id: 'veo-3.1-fast-generate-001', name: 'Veo 3.1 Fast (Gemini)', provider: 'gemini', needsKey: true, estimate: { amount: 0.10, unit: 'second', label: '≈ $0.10 per second' } },
-  { id: 'veo-3.1-generate-001', name: 'Veo 3.1 (Gemini)', provider: 'gemini', needsKey: true, estimate: { amount: 0.40, unit: 'second', label: '≈ $0.40 per second' } },
+  { id: 'veo-3.1-fast-generate-001', name: 'Veo 3.1 Fast (Gemini)', provider: 'gemini', needsKey: true },
+  { id: 'veo-3.1-generate-001', name: 'Veo 3.1 (Gemini)', provider: 'gemini', needsKey: true },
 ];
-const COST_CHECKED = '2026-11-15';
 const PHOTO_RATIOS = ['9:16', '16:9', '1:1'];
 const VIDEO_RATIOS = ['9:16', '16:9'];
 const VIDEO_DURATIONS = [5, 8];
@@ -41,19 +31,7 @@ const PHOTO_SIZES = { '9:16': [768, 1344], '16:9': [1344, 768], '1:1': [1024, 10
 
 const NO_KEY_MESSAGE = 'No Gemini key saved. Add your Gemini key in Settings → AI assistant — Forge uses the same key as FlowAI. (Photos still work without a key via the free Pollinations provider.)';
 
-const catalog = () => ({ photoModels: PHOTO_MODELS, videoModels: VIDEO_MODELS, photoRatios: PHOTO_RATIOS, videoRatios: VIDEO_RATIOS, videoDurations: VIDEO_DURATIONS, costChecked: COST_CHECKED });
-
-// Estimated provider cost for one generation, in USD, from the catalog's
-// own rates — shown in the panel BEFORE the user generates (FB-23).
-// Photo: the per-image rate. Video: the per-second rate times the chosen
-// duration. Returns null for an unknown model; 0 is a real answer (free).
-function estimateFor({ kind, modelId, duration }) {
-  const models = kind === 'video' ? VIDEO_MODELS : PHOTO_MODELS;
-  const model = models.find((m) => m.id === modelId);
-  if (!model || !model.estimate) return null;
-  const seconds = kind === 'video' ? (Number(duration) || 0) : 1;
-  return { amount: model.estimate.amount * seconds, unit: model.estimate.unit, label: model.estimate.label, costChecked: COST_CHECKED };
-}
+const catalog = () => ({ photoModels: PHOTO_MODELS, videoModels: VIDEO_MODELS, photoRatios: PHOTO_RATIOS, videoRatios: VIDEO_RATIOS, videoDurations: VIDEO_DURATIONS });
 
 // ---- Library (forge-library.json in the forge dir) ----
 const libFile = (dir) => path.join(dir, 'forge-library.json');
@@ -124,7 +102,7 @@ async function providerError(res) {
     }
     if (j) detail = j?.error?.message || (typeof j?.error === 'string' ? j.error : '') || j?.message || detail;
   } catch { /* unreadable error body */ }
-  return new Error(detail ? `Provider answered ${res.status}: ${redactSecrets(detail)}` : `Provider answered ${res.status}.`);
+  return new Error(detail ? `Provider answered ${res.status}: ${detail}` : `Provider answered ${res.status}.`);
 }
 
 // ---- Resilient fetch for the free provider ----
@@ -292,4 +270,4 @@ function cancel(id) {
   return true;
 }
 
-module.exports = { catalog, estimateFor, COST_CHECKED, list, remove, start, cancel, listJobs, buildPhotoRequest, buildVideoRequest, operationUrl, PHOTO_MODELS, VIDEO_MODELS, NO_KEY_MESSAGE };
+module.exports = { catalog, list, remove, start, cancel, listJobs, buildPhotoRequest, buildVideoRequest, operationUrl, PHOTO_MODELS, VIDEO_MODELS, NO_KEY_MESSAGE };

@@ -9,11 +9,6 @@ contextBridge.exposeInMainWorld('api', {
   probePaths: (paths) => ipcRenderer.invoke('media:probe', paths),
   favoritesList: () => ipcRenderer.invoke('favorites:list'),
   favoritesToggle: (entry) => ipcRenderer.invoke('favorites:toggle', entry),
-  packsList: () => ipcRenderer.invoke('packs:list'),
-  packsImport: () => ipcRenderer.invoke('packs:import'),
-  packsExport: (manifest) => ipcRenderer.invoke('packs:export', manifest),
-  packsRemove: (id) => ipcRenderer.invoke('packs:remove', id),
-  packsRepair: (id, name) => ipcRenderer.invoke('packs:repair', id, name),
   probeFiles: (files) => ipcRenderer.invoke('media:probe', files.map((f) => webUtils.getPathForFile(f))),
   saveRecording: (bytes) => ipcRenderer.invoke('media:saveRecording', bytes),
   screenSources: () => ipcRenderer.invoke('screen:sources'),
@@ -65,7 +60,6 @@ contextBridge.exposeInMainWorld('api', {
   enhanceCancel: () => ipcRenderer.invoke('enhance:cancel'),
   audioFxRender: (req) => ipcRenderer.invoke('audiofx:render', req),
   audioFxCancel: () => ipcRenderer.invoke('audiofx:cancel'),
-  smoothCutCheck: (req) => ipcRenderer.invoke('smoothcut:check', req),
   onAudioFxProgress: (handler) => {
     const h = (_e, payload) => handler(payload);
     ipcRenderer.on('audiofx:progress', h);
@@ -101,17 +95,12 @@ contextBridge.exposeInMainWorld('api', {
     return () => ipcRenderer.removeListener('track:progress', handler);
   },
   proxyStatus: () => ipcRenderer.invoke('proxy:status'),
-  // System status (FB-30): one snapshot for the tray's System section.
-  systemStatus: () => ipcRenderer.invoke('system:status'),
-  modelsInstall: (id) => ipcRenderer.invoke('models:install', id),
   proxySet: (on) => ipcRenderer.invoke('proxy:set', on === true),
   qualitySet: (q) => ipcRenderer.invoke('proxy:setQuality', q),
   perfGetMode: () => ipcRenderer.invoke('perf:getMode'),
   perfSetMode: (m) => ipcRenderer.invoke('perf:setMode', m),
   proxyClear: () => ipcRenderer.invoke('proxy:clear'),
   proxySetFxCacheCap: (mb) => ipcRenderer.invoke('proxy:setFxCacheCap', mb),
-  proxySetMediaCacheCap: (mb) => ipcRenderer.invoke('proxy:setMediaCacheCap', mb),
-  proxyClearMediaCache: () => ipcRenderer.invoke('proxy:clearMediaCache'),
   onMediaVisuals: (cb) => {
     const handler = (_e, v) => cb(v);
     ipcRenderer.on('media:visuals', handler);
@@ -152,11 +141,6 @@ contextBridge.exposeInMainWorld('api', {
   versionsList: (id) => ipcRenderer.invoke('versions:list', id),
   versionsRead: (id, file) => ipcRenderer.invoke('versions:read', id, file),
   versionsRecord: (id, json, boundFile) => ipcRenderer.invoke('versions:record', id, json, boundFile),
-  versionsCreateNamed: (id, json, name, boundFile) => ipcRenderer.invoke('versions:createNamed', id, json, name, boundFile),
-  versionsRename: (id, file, name) => ipcRenderer.invoke('versions:rename', id, file, name),
-  versionsSummary: (id, file, liveJson) => ipcRenderer.invoke('versions:summary', id, file, liveJson),
-  versionsDiff: (id, fileA, fileB, liveJson) => ipcRenderer.invoke('versions:diff', id, fileA, fileB, liveJson),
-  versionsSelective: (id, file, currentJson, selection) => ipcRenderer.invoke('versions:selective', id, file, currentJson, selection),
   versionsAutoBackup: (id, json, boundFile) => ipcRenderer.invoke('versions:autoBackup', id, json, boundFile),
   // Media relink: locate one missing file, or scan a folder for all of them.
   relinkPickFile: (item) => ipcRenderer.invoke('relink:pickFile', item),
@@ -176,7 +160,6 @@ contextBridge.exposeInMainWorld('api', {
     return () => ipcRenderer.removeListener('bridge:shadowsChanged', h);
   },
   exportBegin: (suggested, format) => ipcRenderer.invoke('export:begin', suggested, format),
-  exportBeginBatch: (names, format) => ipcRenderer.invoke('export:beginBatch', names, format),
   exportCover: (file, mediaPath, at) => ipcRenderer.invoke('export:cover', file, mediaPath, at),
   frameGrab: (mediaPath, at) => ipcRenderer.invoke('media:frame', mediaPath, at),
   exportCaps: () => ipcRenderer.invoke('export:caps'),
@@ -187,36 +170,23 @@ contextBridge.exposeInMainWorld('api', {
   exportAbort: (dir) => ipcRenderer.invoke('export:abort', dir),
   exportRun: (project, target, textFrames) => ipcRenderer.invoke('export:run', project, target, textFrames),
   cancelExport: () => ipcRenderer.invoke('export:cancel'),
-  // P1-52: pause / resume the running export (no-op when nothing runs).
-  exportPause: () => ipcRenderer.invoke('export:pause'),
-  exportResume: () => ipcRenderer.invoke('export:resume'),
   fxBegin: (project, spec) => ipcRenderer.invoke('fx:begin', project, spec),
   fxRead: (id) => ipcRenderer.invoke('fx:read', id),
   fxWrite: (id, bytes) => ipcRenderer.invoke('fx:write', id, bytes),
-  fxReadMany: (id, n) => ipcRenderer.invoke('fx:readMany', id, n),
-  fxWriteMany: (id, frames) => ipcRenderer.invoke('fx:writeMany', id, frames),
   fxEnd: (id) => ipcRenderer.invoke('fx:end', id),
   fxClear: () => ipcRenderer.invoke('fx:clear'),
   exportAudio: (project, format, name) => ipcRenderer.invoke('export:audio', project, format, name),
-  systemMetrics: () => ipcRenderer.invoke('system:metrics'),
   showInFolder: (file) => ipcRenderer.invoke('shell:show', file),
   openFile: (file) => ipcRenderer.invoke('shell:open', file),
   openHelp: (url) => ipcRenderer.invoke('app:openHelp', url),
   agentStep: (req) => ipcRenderer.invoke('agent:step', req),
   agentSilences: (project, opts) => ipcRenderer.invoke('agent:silences', project, opts),
-  loudnessCurve: (project) => ipcRenderer.invoke('audio:loudnessCurve', project),
   settingsGet: () => ipcRenderer.invoke('settings:get'),
   settingsSetLanguage: (lang) => ipcRenderer.invoke('settings:setLanguage', lang),
   settingsSetRecorderPrefs: (patch) => ipcRenderer.invoke('settings:setRecorderPrefs', patch),
   appLocale: () => ipcRenderer.invoke('app:locale'),
   settingsSetKeymap: (map) => ipcRenderer.invoke('settings:setKeymap', map),
   settingsSetKeystrokes: (on) => ipcRenderer.invoke('settings:setKeystrokes', on),
-  settingsSetExportSound: (on) => ipcRenderer.invoke('settings:setExportSound', on),
-  settingsSetReduceMotion: (on) => ipcRenderer.invoke('settings:setReduceMotion', on),
-  settingsSetReduceFlashing: (on) => ipcRenderer.invoke('settings:setReduceFlashing', on),
-  settingsSetVideoDecode: (m) => ipcRenderer.invoke('settings:setVideoDecode', m),
-  settingsSetSafeMode: (on) => ipcRenderer.invoke('settings:setSafeMode', on),
-  decodeDecision: () => ipcRenderer.invoke('app:decodeDecision'),
   settingsSetMcpServers: (list) => ipcRenderer.invoke('settings:setMcpServers', list),
   mcpTools: () => ipcRenderer.invoke('mcp:tools'),
   mcpCall: (req) => ipcRenderer.invoke('mcp:call', req),
@@ -227,10 +197,12 @@ contextBridge.exposeInMainWorld('api', {
   settingsClearServiceKey: (name) => ipcRenderer.invoke('settings:clearServiceKey', name),
   appVersion: () => ipcRenderer.invoke('app:version'),
   updatesCheck: (auto = false) => ipcRenderer.invoke('updates:check', auto === true),
-  updatesDownload: (allowUnverified = false) => ipcRenderer.invoke('updates:download', allowUnverified === true),
+  updatesDownload: () => ipcRenderer.invoke('updates:download'),
   updatesOpenInstaller: () => ipcRenderer.invoke('updates:openInstaller'),
-  updatesInstall: (allowUnverified = false) => ipcRenderer.invoke('updates:install', allowUnverified === true),
+  updatesInstall: () => ipcRenderer.invoke('updates:install'),
   onUpdateProgress: (cb) => { const h = (_e, p) => cb(p); ipcRenderer.on('updates:progress', h); return () => ipcRenderer.removeListener('updates:progress', h); },
+  telemetryStatus: () => ipcRenderer.invoke('telemetry:status'),
+  telemetrySetConsent: (on) => ipcRenderer.invoke('telemetry:setConsent', on),
   stockTest: (key) => ipcRenderer.invoke('stock:test', key),
   ttsStatus: () => ipcRenderer.invoke('tts:status'),
   ttsElevenVoices: () => ipcRenderer.invoke('tts:elevenVoices'),
@@ -325,14 +297,6 @@ contextBridge.exposeInMainWorld('api', {
   },
   aiTest: (draft) => ipcRenderer.invoke('ai:test', draft),
   aiModels: (draft) => ipcRenderer.invoke('ai:models', draft),
-  ollamaStatus: (draft) => ipcRenderer.invoke('ai:ollamaStatus', draft),
-  ollamaPull: (model) => ipcRenderer.invoke('ai:ollamaPull', model),
-  ollamaPullCancel: () => ipcRenderer.invoke('ai:ollamaPullCancel'),
-  onOllamaPullProgress: (cb) => {
-    const handler = (_e, p) => cb(p);
-    ipcRenderer.on('ai:ollamaPullProgress', handler);
-    return () => ipcRenderer.removeListener('ai:ollamaPullProgress', handler);
-  },
   captionsStatus: () => ipcRenderer.invoke('captions:status'),
   runCaptions: (project, opts) => ipcRenderer.invoke('captions:run', project, opts),
   runCaptionsCloud: (project, opts) => ipcRenderer.invoke('captions:runCloud', project, opts),
@@ -346,12 +310,5 @@ contextBridge.exposeInMainWorld('api', {
     const handler = (_e, p) => cb(p);
     ipcRenderer.on('export:progress', handler);
     return () => ipcRenderer.removeListener('export:progress', handler);
-  },
-  // The main process announces the post-encode master-loudness stage ('loudness');
-  // the tray flips to that phase while the encode bar sits at 95%.
-  onExportPhase: (cb) => {
-    const handler = (_e, phase) => cb(phase);
-    ipcRenderer.on('export:phase', handler);
-    return () => ipcRenderer.removeListener('export:phase', handler);
   },
 });

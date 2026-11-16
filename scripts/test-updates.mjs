@@ -1,7 +1,6 @@
 // ClipCraft update check: semver compare + the manual feed check (updates.cjs), driven with
 // stub fetch implementations so no network is involved. Run: node scripts/test-updates.mjs
 import { createRequire } from 'node:module';
-import crypto from 'node:crypto';
 const require = createRequire(import.meta.url);
 const { check, compare, downloadInstaller, installCommand, installDownloaded, lastDownload } = require('../electron/updates.cjs');
 
@@ -67,7 +66,6 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 const payload = Buffer.alloc(100000, 7);
-const payloadSha = crypto.createHash('sha256').update(payload).digest('hex'); // crypto import below is hoisted
 const streamFetch = (chunks, status = 200) => async () => ({
   ok: status >= 200 && status < 300, status,
   headers: { get: () => String(payload.length) },
@@ -75,7 +73,7 @@ const streamFetch = (chunks, status = 200) => async () => ({
 });
 const destDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-dl-'));
 let prog = null;
-let d = await downloadInstaller('https://hamzaabika.com/clipcraft/ClipCraft-1.1.0-amd64.deb', { fetchImpl: streamFetch([payload.subarray(0, 40000), payload.subarray(40000)]), destDir, onProgress: (p) => { prog = p; }, expectedSha256: payloadSha });
+let d = await downloadInstaller('https://hamzaabika.com/clipcraft/ClipCraft-1.1.0-amd64.deb', { fetchImpl: streamFetch([payload.subarray(0, 40000), payload.subarray(40000)]), destDir, onProgress: (p) => { prog = p; } });
 eq(d.fileName, 'ClipCraft-1.1.0-amd64.deb', 'download filename from URL');
 eq(d.size, payload.length, 'download size matches payload');
 eq(fs.readFileSync(d.path).equals(payload), true, 'downloaded bytes are exact');
@@ -85,7 +83,7 @@ d = await downloadInstaller('https://evil.example/payload.deb', { fetchImpl: str
 eq(/allowed host/.test(d.error || ''), true, 'download refuses untrusted host');
 d = await downloadInstaller('http://127.0.0.1:8901/x.deb', { fetchImpl: streamFetch([]), destDir });
 eq(/allowed host/.test(d.error || ''), true, 'plain-http localhost refused without the dev override');
-d = await downloadInstaller('https://hamzaabika.com/x.deb', { fetchImpl: streamFetch([], 500), destDir, expectedSha256: payloadSha });
+d = await downloadInstaller('https://hamzaabika.com/x.deb', { fetchImpl: streamFetch([], 500), destDir });
 eq(/answered 500/.test(d.error || ''), true, 'download surfaces server error');
 // One-click install: the command is a per-platform argv array (never a shell string, so the
 // path is passed exactly), and installDownloaded only ever runs against the file this app
@@ -103,7 +101,7 @@ argvEq(c.args, ['/i', '/home/u/Downloads/ClipCraft-1.1.3.msi', '/quiet', '/nores
 eq(installCommand('/home/u/Downloads/ClipCraft-1.1.3.dmg', 'darwin'), null, 'mac dmg has no silent install (opened instead)');
 eq(installCommand('/home/u/Downloads/ClipCraft-1.1.3.AppImage', 'linux'), null, 'linux non-deb has no install command');
 
-let dl2 = await downloadInstaller('https://hamzaabika.com/clipcraft/ClipCraft-9.9.9.deb', { fetchImpl: streamFetch([payload]), destDir, expectedSha256: payloadSha });
+let dl2 = await downloadInstaller('https://hamzaabika.com/clipcraft/ClipCraft-9.9.9.deb', { fetchImpl: streamFetch([payload]), destDir });
 eq(!!dl2.path, true, 'second download lands for the install tests');
 const spawnCalls = [];
 const stubSpawn = (code, err) => (file, args) => { spawnCalls.push([file, ...args]); return { on: (ev, cb) => { if (ev === 'error' && err) cb(err); if (ev === 'close' && !err) cb(code); } }; };
@@ -126,26 +124,15 @@ eq(/no longer there/.test(ir.error || ''), true, 'a file outside the downloads f
 // malformed one; the download is hashed as it streams; a mismatch deletes the
 // file and is never recorded as installable; install re-hashes, so a file
 // tampered with AFTER a verified download is refused before any installer runs.
-// A-F8: a missing checksum is a hard stop, not a pre-gate fallback. The check
-// flags a newer version with no published hash, the download is refused before
-// any byte is fetched, and nothing lands on disk as an installable file.
+import crypto from 'node:crypto';
 const { lastDownloadSha256 } = require('../electron/updates.cjs');
+const payloadSha = crypto.createHash('sha256').update(payload).digest('hex');
 r = await check(feed({ version: '1.1.0', download_url: 'https://hamzaabika.com/x.deb', sha256: payloadSha.toUpperCase() }));
 eq(r.sha256, payloadSha, 'check surfaces the feed sha256 (lowercased)');
-eq(r.hashMissing, false, 'a feed with a hash is not hash-missing');
 r = await check(feed({ version: '1.1.0', download_url: 'https://hamzaabika.com/x.deb', sha256: 'not-a-hash' }));
 eq(r.sha256, '', 'a malformed feed sha256 is dropped, not enforced');
-eq(r.hashMissing, true, 'a malformed feed sha256 counts as missing for a newer version');
 r = await check(feed({ version: '1.1.0', download_url: 'https://hamzaabika.com/x.deb' }));
-eq(r.sha256, '', 'a feed without sha256 still checks as empty — the refusal happens at download, not at check (FB-21)');
-eq(r.sha256, '', 'a feed without sha256 carries no hash');
-eq(r.hashMissing, true, 'a newer version without a published hash is held, not offered');
-r = await check(feed({ version: '1.0.0', download_url: 'https://hamzaabika.com/x.deb' }));
-eq(r.hashMissing, false, 'no newer version, nothing held');
-let dNoHash = await downloadInstaller('https://hamzaabika.com/clipcraft/ClipCraft-nohash.deb', { fetchImpl: streamFetch([payload]), destDir });
-eq(dNoHash.hashMissing, true, 'a download with no expected hash is refused as hash-missing');
-eq(/did not publish a checksum/.test(dNoHash.error || ''), true, 'the refusal names the missing checksum');
-eq(fs.existsSync(path.join(destDir, 'ClipCraft-nohash.deb')), false, 'a hash-missing download leaves no file on disk');
+eq(r.sha256, '', 'a feed without sha256 checks as before (nothing promised)');
 
 let dv = await downloadInstaller('https://hamzaabika.com/clipcraft/ClipCraft-9.9.9.deb', { fetchImpl: streamFetch([payload]), destDir, expectedSha256: payloadSha });
 eq(dv.verified, true, 'a matching download reports verified');
@@ -172,32 +159,6 @@ ir = await installDownloaded({ destDir, spawnImpl: stubSpawn(0), platform: 'linu
 eq(ir.checksumMismatch, true, 'a file tampered after download is refused at install time');
 eq(/no longer matches/.test(ir.error || ''), true, 'the install refusal names the changed hash');
 eq(spawnCalls.length, spawnsBefore + 1, 'the tampered install never spawned an installer');
-
-// ---- FB-21 (P1-36): a feed WITHOUT a checksum is refused by default ----
-// No hash promised -> no download, no file on disk, unless the caller passes
-// the explicit user override (allowUnverified). An override download is
-// labelled unverified, and the install gate refuses it too unless the
-// override is repeated there.
-const noHashDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-dl-nohash-'));
-const lastBeforeRefusal = lastDownload();
-let dn = await downloadInstaller('https://hamzaabika.com/clipcraft/ClipCraft-9.9.9.deb', { fetchImpl: streamFetch([payload]), destDir: noHashDir });
-eq(dn.missingChecksum, true, 'a download with no feed checksum is refused by default');
-eq(/did not publish a checksum/.test(dn.error || ''), true, 'the refusal says the feed published no checksum');
-eq(fs.readdirSync(noHashDir).length, 0, 'a refused download writes no file');
-eq(lastDownload(), lastBeforeRefusal, 'a refused download does not replace the recorded session download');
-dn = await downloadInstaller('https://hamzaabika.com/clipcraft/ClipCraft-9.9.9.deb', { fetchImpl: streamFetch([payload]), destDir: noHashDir, allowUnverified: true });
-eq(!!dn.path, true, 'an explicit override downloads');
-eq(dn.verified, false, 'an override download is not verified');
-eq(dn.unverified, true, 'an override download is labelled unverified');
-eq(lastDownloadSha256(), '', 'an override download records no hash for the install gate');
-const spawnsBeforeUnverified = spawnCalls.length;
-ir = await installDownloaded({ destDir: noHashDir, spawnImpl: stubSpawn(0), platform: 'linux' });
-eq(ir.missingChecksum, true, 'installing an unverified download is refused without the override');
-eq(spawnCalls.length, spawnsBeforeUnverified, 'the refused install never spawned an installer');
-ir = await installDownloaded({ destDir: noHashDir, spawnImpl: stubSpawn(0), platform: 'linux', allowUnverified: true });
-eq(ir.ok, true, 'the same override at install time installs');
-eq(spawnCalls.length, spawnsBeforeUnverified + 1, 'the override install spawned the installer once');
-fs.rmSync(noHashDir, { recursive: true, force: true });
 
 fs.rmSync(destDir, { recursive: true, force: true });
 

@@ -1,12 +1,9 @@
 // Screen recording, main process side.
 // - sources(): screens and windows with thumbnails for the picker.
-// - choose(): the source the next getDisplayMedia() call of the interface gets (with system sound).
+// - choose(): the source the next getDisplayMedia() call of the interface gets (with Windows system sound).
 // - begin / chunk / finish: the interface streams the WebM recording here; finish() converts it to MP4 in the
 //   user's Videos\Cutflow folder.
-// - A small "Stop" bar stays on top while recording. On Windows/macOS it is hidden from screen capture
-//   (setContentProtection), so it never shows in videos. Linux has no such exclusion: setContentProtection is a
-//   no-op there, so the bar is simply not shown for screen recordings (window recordings still get it — the bar
-//   is a separate window a window capture never sees). The renderer tells the user how to stop instead.
+// - A small "Stop" bar stays on top while recording. It is hidden from screen capture, so it never shows in videos.
 const { BrowserWindow, desktopCapturer, ipcMain, screen, session } = require('electron');
 const fs = require('fs');
 const path = require('path');
@@ -45,22 +42,8 @@ async function flagIfSilent(item, file, expectAudio) {
   return item;
 }
 
-// Linux cannot hide a window from screen capture: setContentProtection is a
-// Windows/macOS-only API and a no-op there, so a Stop bar shown during a
-// screen recording would be burned into the video (verified live: the bar
-// region of the captured frame changes the moment the bar appears). Window
-// recordings are unaffected — the bar is a separate window a window capture
-// never sees — and an unknown source kind keeps the old behaviour (show it).
-// Pure, so the recorder tests can pin the rule without a window.
-function barVisibleOn(platform, sourceId) {
-  if (platform === 'linux' && typeof sourceId === 'string' && sourceId.startsWith('screen:')) return false;
-  return true;
-}
-
-// Windows/macOS can hide a window from screen capture (setContentProtection); the Stop bar is an opaque window
-// cut to its shape with setShape (a stack of 1-pixel rows). The camera bubble is a transparent preview window
-// instead: it stays visible in screen recordings (the Record window says so), and the camera clip is placed
-// over it at the same spot.
+// Windows can hide a window from screen capture (setContentProtection) but not a transparent one, so the Stop bar
+// and the camera bubble are opaque windows cut to their shape with setShape (a stack of 1-pixel rows).
 function roundedRows(w, h, r) {
   const rows = [];
   for (let y = 0; y < h; y++) {
@@ -209,16 +192,13 @@ function install({ app, getWin, ffmpegPath, probeAll }) {
   });
 
   // The floating bar: timer + Stop, top center of the screen being recorded (or the main one).
-  // Returns whether a bar is now showing: on Linux a screen recording gets no bar (see barVisibleOn) and the
-  // renderer tells the user how to stop instead.
   ipcMain.handle('screen:bar', (_e, show, sourceId) => {
     if (!show) {
       if (bar && !bar.isDestroyed()) bar.close();
       bar = null;
-      return { shown: false };
+      return;
     }
-    if (bar && !bar.isDestroyed()) return { shown: true };
-    if (!barVisibleOn(process.platform, sourceId)) return { shown: false, reason: 'linux-screen' };
+    if (bar && !bar.isDestroyed()) return;
     const displays = screen.getAllDisplays();
     const m = /^screen:(\d+)/.exec(sourceId || '');
     const d = (m && displays.find((x) => String(x.id) === m[1])) || screen.getPrimaryDisplay();
@@ -237,7 +217,6 @@ function install({ app, getWin, ffmpegPath, probeAll }) {
     // Set once more after showing: Windows ignores the capture exclusion for a window that was never shown.
     bar.once('ready-to-show', () => { if (!bar) return; bar.showInactive(); bar.setContentProtection(true); });
     bar.on('closed', () => { bar = null; });
-    return { shown: true };
   });
   ipcMain.on('recbar:stop', () => {
     const w = getWin();
@@ -266,9 +245,8 @@ function install({ app, getWin, ffmpegPath, probeAll }) {
   ipcMain.handle('screen:barState', (_e, state) => {
     if (bar && !bar.isDestroyed()) bar.webContents.send('recbar:state', state);
   });
-  // Camera bubble: shown while the Camera option is on (before and during the recording). The bubble is a
-  // preview of where the camera will sit: on a screen recording it stays visible in the video (the Record
-  // window says so), and the camera clip is placed over it at the same spot, so the two agree.
+  // Camera bubble: shown while the Camera option is on (before and during the recording). It is not hidden from
+  // capture: a screen recording shows it.
   // The bubble is a transparent window a little larger than the camera shape (BUBBLE_ROOM on each side), so the
   // shape is drawn smooth (anti-aliased, not cut in pixel rows) and its glow shines outside it, as in the video.
   const sendCam = () => {
@@ -298,8 +276,7 @@ function install({ app, getWin, ffmpegPath, probeAll }) {
       webPreferences: { preload: path.join(__dirname, 'cambubble-preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true },
     });
     bubble.setAlwaysOnTop(true, 'screen-saver');
-    // On Windows/macOS the exclusion keeps the bubble out of window captures; on a screen recording it stays
-    // visible (see above) — the call is harmless everywhere.
+    // Like the Stop bar, the bubble stays out of the screen video: the camera is recorded as its own clip.
     bubble.setContentProtection(true);
     bubble.loadFile(path.join(__dirname, 'cambubble.html'));
     bubble.webContents.once('did-finish-load', sendCam);
@@ -347,4 +324,4 @@ function install({ app, getWin, ffmpegPath, probeAll }) {
   });
 }
 
-module.exports = { install, withTimeout, SOURCES_TIMEOUT_MS, barVisibleOn };
+module.exports = { install, withTimeout, SOURCES_TIMEOUT_MS };

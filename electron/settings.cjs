@@ -55,53 +55,7 @@ function getPublic() {
     bridgeEnabled: getBridgeEnabled(),
     keymap: getKeymap(),
     keystrokes: getKeystrokes(),
-    exportSound: getExportSound(),
-    reduceMotion: getReduceMotion(),
-    reduceFlashing: getReduceFlashing(),
-    videoDecode: getVideoDecode(),
-    safeMode: getSafeMode(),
   };
-}
-
-// ---- Video decoding (FB-17 / P1-22): 'auto' (default — hardware only when
-// the device is known-good and an accelerator exists), 'cpu', or
-// 'hardware'. Applies on next launch: the decode switch must be set before
-// the first window's GPU process starts (electron/main.cjs). safeMode is
-// the explicit escape hatch — when on, hardware decode is off regardless
-// of the videoDecode choice or the FVE_GPU_VIDEO env override.
-const VIDEO_DECODE_MODES = ['auto', 'cpu', 'hardware'];
-const getVideoDecode = () => { const m = read().videoDecode; return VIDEO_DECODE_MODES.includes(m) ? m : 'auto'; };
-function setVideoDecode(m) {
-  const data = read();
-  data.videoDecode = VIDEO_DECODE_MODES.includes(m) ? m : 'auto';
-  write(data);
-  return getPublic();
-}
-const getSafeMode = () => read().safeMode === true;
-function setSafeMode(on) {
-  const data = read();
-  data.safeMode = on === true;
-  write(data);
-  return getPublic();
-}
-
-// ---- GPU fingerprint cache (FB-17 / P1-22): the renderer string from the
-// last launch's getGPUInfo('complete'), so the decode decision at startup
-// (which must run BEFORE the first window's GPU process starts, i.e. before
-// getGPUInfo can answer) can use the real device instead of guessing.
-// First launch has no fingerprint: auto resolves to CPU, the safe default.
-// The fingerprint is a device NAME, never a secret; a stale one only ever
-// errs toward CPU, because 'auto' with an unknown/denied renderer is CPU.
-const getGpuFingerprint = () => {
-  const f = read().gpuFingerprint;
-  return f && typeof f.renderer === 'string' ? { renderer: f.renderer, at: f.at || 0 } : null;
-};
-function setGpuFingerprint(renderer) {
-  if (typeof renderer !== 'string' || !renderer.trim()) return null;
-  const data = read();
-  data.gpuFingerprint = { renderer: renderer.trim().slice(0, 200), at: Date.now() };
-  write(data);
-  return data.gpuFingerprint;
 }
 
 // ---- Agent bridge (electron/bridge.cjs): a local, token-gated door for
@@ -144,38 +98,6 @@ const getKeystrokes = () => read().keystrokes === true;
 function setKeystrokes(on) {
   const data = read();
   data.keystrokes = on === true;
-  write(data);
-  return getPublic();
-}
-
-// ---- Export-finished sound: a short chime when a video or audio export completes
-// (src/exportDoneSound.js). Default ON — an unset key means on, so existing installs
-// get the sound without a migration; storing false turns it off. ----
-const getExportSound = () => read().exportSound !== false;
-function setExportSound(on) {
-  const data = read();
-  data.exportSound = on === true;
-  write(data);
-  return getPublic();
-}
-
-// ---- Accessibility (P2-39, UX-07): Reduce Motion + Reduce Flashing.
-// Tri-state: true/false stored; null (unset) means "follow the OS
-// prefers-reduced-motion setting" — the renderer resolves the default, the
-// main process only stores an explicit choice. Reduce Motion stills UI
-// animation and degrades flicker/glitch text motion to fades; Reduce
-// Flashing additionally hides the transition flash overlay.
-const getReduceMotion = () => { const v = read().reduceMotion; return v === true ? true : v === false ? false : null; };
-function setReduceMotion(v) {
-  const data = read();
-  if (v === true || v === false) data.reduceMotion = v; else delete data.reduceMotion;
-  write(data);
-  return getPublic();
-}
-const getReduceFlashing = () => { const v = read().reduceFlashing; return v === true ? true : v === false ? false : null; };
-function setReduceFlashing(v) {
-  const data = read();
-  if (v === true || v === false) data.reduceFlashing = v; else delete data.reduceFlashing;
   write(data);
   return getPublic();
 }
@@ -375,23 +297,6 @@ function setFxCacheCapMB(mb) {
   return data.fxCacheCapMB;
 }
 
-// ---- Media cache cap (P1-26): the size bound for the media-cache folder
-// (electron/mediacache.cjs eviction). Stored in MB for a sane Settings
-// control; the engine reads bytes. Default 4096 MB; a corrupt value resolves
-// to the default. ----
-const MEDIA_CACHE_CAP_DEFAULT_MB = 4096;
-const getMediaCacheCapMB = () => {
-  const v = Number(read().mediaCacheCapMB);
-  return Number.isFinite(v) && v >= 256 && v <= 65536 ? Math.round(v) : MEDIA_CACHE_CAP_DEFAULT_MB;
-};
-function setMediaCacheCapMB(mb) {
-  const data = read();
-  const v = Number(mb);
-  data.mediaCacheCapMB = Number.isFinite(v) ? Math.min(65536, Math.max(256, Math.round(v))) : MEDIA_CACHE_CAP_DEFAULT_MB;
-  write(data);
-  return data.mediaCacheCapMB;
-}
-
 // ---- Interface language (i18n): 'en' | 'fr' | 'ar'. null = never chosen —
 // on first start the renderer falls back to the OS language (app.getLocale()
 // via the app:locale channel), so no value is written until the user picks
@@ -443,4 +348,4 @@ function setFirstRun(patch) {
   return getFirstRun();
 }
 
-module.exports = { getProxy, setProxy, getQuality, setQuality, ensureQualityDefault, getPerfMode, setPerfMode, PERF_MODES, getPublic, getActive, save, clearKey, getServiceKey, saveServiceKey, clearServiceKey, getMcpServers, setMcpServers, sanitizeMcpServer, getFirstRun, setFirstRun, getBridgeEnabled, setBridgeEnabled, getKeymap, setKeymap, getKeystrokes, setKeystrokes, getExportSound, setExportSound, getReduceMotion, setReduceMotion, getReduceFlashing, setReduceFlashing, getVideoDecode, setVideoDecode, VIDEO_DECODE_MODES, getSafeMode, setSafeMode, getGpuFingerprint, setGpuFingerprint, getFxCacheCapMB, setFxCacheCapMB, getMediaCacheCapMB, setMediaCacheCapMB, getLanguage, setLanguage, LANGUAGES, getRecorderPrefs, setRecorderPrefs, PROVIDERS, DEFAULT_MODELS };
+module.exports = { getProxy, setProxy, getQuality, setQuality, ensureQualityDefault, getPerfMode, setPerfMode, PERF_MODES, getPublic, getActive, save, clearKey, getServiceKey, saveServiceKey, clearServiceKey, getMcpServers, setMcpServers, sanitizeMcpServer, getFirstRun, setFirstRun, getBridgeEnabled, setBridgeEnabled, getKeymap, setKeymap, getKeystrokes, setKeystrokes, getFxCacheCapMB, setFxCacheCapMB, getLanguage, setLanguage, LANGUAGES, getRecorderPrefs, setRecorderPrefs, PROVIDERS, DEFAULT_MODELS };

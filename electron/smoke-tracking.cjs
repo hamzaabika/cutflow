@@ -29,9 +29,9 @@ module.exports = async function trackingSmoke(win, dir, result) {
     if (start) { start.click(); return 'welcome'; }
     return null;
   })()`);
-  await until(`!!document.querySelector('.home-create')`, 60, 500);
+  await until(`!!document.querySelector('[aria-label="New 16:9 project"]')`, 60, 500);
   await dismissFirstRun();
-  await q(`document.querySelector('.home-create').click()`);
+  await q(`document.querySelector('[aria-label="New 16:9 project"]').click()`);
   await until(`!!document.querySelector('aside.inspector')`, 60, 500);
   await dismissFirstRun();
   await q(`window.__fve.load(${fs.readFileSync(path.join(dir, 'project.json'), 'utf8')})`);
@@ -40,13 +40,8 @@ module.exports = async function trackingSmoke(win, dir, result) {
 
   // 1) Track: select the video clip, open the pick mode from its inspector.
   await q(`window.__fve.select({ track: 'video', id: 'v1' })`);
-  // FB-29 (CC) moved MotionTracking behind the Advanced inspector level
-  // (the default is Basic); switch first. .ci-levels only exists with a
-  // clip selected, so this must come after the select (same staleness as
-  // test-p2b-live.mjs's Advanced switch).
-  await q(`(() => { const b = [...document.querySelectorAll('.ci-levels button')].find((x) => x.textContent.trim() === 'Advanced'); if (b) b.click(); return !!b; })()`);
   result.trackButton = await until(`[...document.querySelectorAll('aside.inspector button')].some((b) => b.textContent.trim().startsWith('Track motion'))`, 30, 300);
-  await q(`[...document.querySelectorAll('aside.inspector button')].find((b) => b.textContent.trim().startsWith('Track motion'))?.click()`);
+  await q(`[...document.querySelectorAll('aside.inspector button')].find((b) => b.textContent.trim().startsWith('Track motion')).click()`);
   result.pickMode = await until(`!!document.querySelector('.track-pick')`, 20, 250);
 
   // The Welcome card can mount a moment after the editor settles, and its modal backdrop

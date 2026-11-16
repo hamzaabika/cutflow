@@ -1,32 +1,11 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, net } = require('electron');
 
 app.setName('ClipCraft');
-// FB-17 (P1-22) — adaptive hardware video decode. The decode switch must be
-// set before the first window's GPU process starts, so the decision runs
-// here, at startup, from (in order) the safe-mode + videoDecode settings,
-// the FVE_GPU_VIDEO env override, the GPU fingerprint cached from the last
-// launch, and this FFmpeg build's accelerator list — see
-// electron/hwdecode.cjs. First launch has no fingerprint: 'auto' resolves
-// to CPU, the safe default, exactly like the old unconditional disable.
 // Videos are decoded on the CPU, not the graphics chip. On some PCs (seen with an Intel HD 530 and its 2022
 // driver) the graphics process crashed again and again while playing, and the player went black for a moment
 // each time. The player only plays H.264 / VP9 / AV1 up to 1080p (heavier files get a light preview copy), which
-// any CPU decodes easily. That HD 530 workaround is NOT removed: the denylist in hwdecode.cjs keeps
-// Skylake HD 510/520/530 on CPU decode until it is verified fixed on real hardware.
-let decodeDecision = { mode: 'cpu', reason: 'Startup decision not yet resolved.', deniedBy: null, hwaccel: null, renderer: '' };
-try {
-  const hw = require('./hwdecode.cjs');
-  const st = require('./settings.cjs');
-  const fp = st.getGpuFingerprint();
-  const gpuInfo = fp ? { gpuDevice: [{ active: true, deviceName: fp.renderer }] } : null;
-  decodeDecision = hw.resolveDecodeMode({
-    env: process.env,
-    settings: { videoDecode: st.getVideoDecode(), safeMode: st.getSafeMode() },
-    gpuInfo,
-    hwaccels: hw.probeHwaccels(require('./ffmpeg.cjs').ffmpegPath),
-  });
-} catch (e) { decodeDecision = { mode: 'cpu', reason: `Decode decision failed (${e.message}) — CPU decode kept.`, deniedBy: null, hwaccel: null, renderer: '' }; }
-if (decodeDecision.mode !== 'hardware') app.commandLine.appendSwitch('disable-accelerated-video-decode');
+// any CPU decodes easily. FVE_GPU_VIDEO=1 turns hardware decoding back on.
+if (process.env.FVE_GPU_VIDEO !== '1') app.commandLine.appendSwitch('disable-accelerated-video-decode');
 // Inside the Snap (and other confined runtimes) Chromium cannot create shared
 // memory in /dev/shm and the app traps on launch — seen on the Snap Store build
 // 2026-11-09: 'Creating shared memory in /dev/shm ... Permission denied (13)'
@@ -42,7 +21,6 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { FxJobs } = require('./fxjobs.cjs');
-const { mediaCacheStats, evictMediaCache, clearMediaCache } = require('./mediacache.cjs');
 const { probe, runExport, runAudioExport, toM4a, renderTimelineAudio, detectSilences, makeVisuals, needsProxy, usableCopyFile, makeProxy, makeLightProxy, makeQualityProxy, hasLibx265, hasVp9, pickEncoder } = require('./ffmpeg.cjs');
 const { remuxDecision, isFaststart, makeRemux } = require('./remux.cjs');
 const { qualityTargetSize, pruneDeadCopies } = require('./quality.cjs');
@@ -158,19 +136,9 @@ function logCrash(what, details) {
 }
 // Graphics chip and driver, written with graphics process crashes.
 let gpuName = '';
-app.whenReady().then(() => app.getGPUInfo('complete')).then((info) => {
+app.whenReady().then(() => app.getGPUInfo('basic')).then((info) => {
   const g = (info.gpuDevice || []).find((x) => x.active) || (info.gpuDevice || [])[0];
-  // P2-36: a software renderer reports vendor/device 0 and no name at all
-  // (verified on this VM) — "0:0 driver ?" is not a name, so say so plainly.
-  // 'complete' (one-time, cached) carries auxAttributes; 'basic' does not.
-  if (g) {
-    gpuName = g.deviceName || info.auxAttributes?.gl_renderer
-      || ((g.vendorId === 0 && g.deviceId === 0) ? 'Software rendering (no GPU reported)'
-        : `${Number(g.vendorId).toString(16)}:${Number(g.deviceId).toString(16)} driver ${g.driverVersion || '?'}`);
-    // FB-17: cache this launch's renderer for the NEXT launch's startup
-    // decode decision (the switch must be set before getGPUInfo can answer).
-    try { require('./settings.cjs').setGpuFingerprint(gpuName); } catch { /* fingerprint is best-effort */ }
-  }
+  if (g) gpuName = `${Number(g.vendorId).toString(16)}:${Number(g.deviceId).toString(16)} driver ${g.driverVersion || '?'}`;
 }).catch(() => {});
 app.on('child-process-gone', (_e, d) => {
   if (d.reason === 'clean-exit') return;
@@ -238,33 +206,8 @@ function mediaCacheDir() {
         try { fs.renameSync(path.join(old, f), path.join(dir, f)); } catch { /* in use or already there */ }
       }
     } catch { /* no old folder */ }
-    // First use of the folder in this session: bound what an earlier session
-    // left behind (eviction is best-effort — a folder that cannot evict just
-    // stays over the cap, never an error at startup).
-    try { evictMediaCache(dir, settings.getMediaCacheCapMB(), protectedCacheFiles()); } catch { /* eviction never fails startup */ }
   }
   return dir;
-}
-
-// Files the media-cache eviction must never delete: every generated copy the
-// open project points at (proxies, light/quality copies, remux twins,
-// thumbnails, waveforms, posters) plus any file a live fx job is reading.
-// Everything else in the folder is regenerable — checkGenerated drops the
-// pointer on the next load and pruneDeadCopies does the same mid-session,
-// so the copy is simply made again when needed.
-function protectedCacheFiles() {
-  const out = [];
-  try {
-    for (const j of fxJobs.inUseFiles()) out.push(j);
-  } catch { /* fx jobs not up yet */ }
-  const p = liveProjectDoc;
-  if (p) {
-    for (const m of p.media || []) {
-      for (const f of [m.proxy, m.lightProxy, m.remux, m.thumb, m.wave, m.poster]) if (typeof f === 'string' && f) out.push(f);
-      if (m.proxies && typeof m.proxies === 'object') for (const f of Object.values(m.proxies)) if (typeof f === 'string' && f) out.push(f);
-    }
-  }
-  return out;
 }
 
 function pumpVisuals() {
@@ -273,15 +216,7 @@ function pumpVisuals() {
     visualsActive++;
     processVisualItem(visualsQueue.shift())
       .catch(() => {})
-      .finally(() => {
-        visualsActive--;
-        pumpVisuals();
-        // The queue just drained: bound the media cache now, while nothing
-        // is writing into it (eviction is best-effort and never fails the app).
-        if (visualsActive === 0 && !visualsQueue.length) {
-          try { evictMediaCache(mediaCacheDir(), settings.getMediaCacheCapMB(), protectedCacheFiles()); } catch { /* eviction never fails playback */ }
-        }
-      });
+      .finally(() => { visualsActive--; pumpVisuals(); });
   }
 }
 
@@ -304,16 +239,13 @@ async function processVisualItem(it) {
     // the remux decision. Probed once here when the renderer's subset lacks
     // them, patched back so the renderer's own decodability judgement
     // (needsPreviewCopy) works on facts instead of guessing "unknown", and
-    // reused by every generation step below. The colour description rides
-    // along too (P1-53): the library badge and the Grade panel's source line
-    // read it, and an old project whose items predate those fields gets them
-    // from this one re-probe instead of showing the bare "HDR" fallback.
+    // reused by every generation step below.
     let info = it;
-    const lackedFacts = it.vcodec === undefined || it.pixFmt === undefined || it.hdr === undefined || it.container === undefined || it.colorSpace === undefined;
+    const lackedFacts = it.vcodec === undefined || it.pixFmt === undefined || it.hdr === undefined || it.container === undefined;
     if (lackedFacts) {
       info = { ...it, ...(await probe(it.path).catch(() => ({}))) };
       if (info.vcodec !== undefined) {
-        send({ vcodec: info.vcodec, pixFmt: info.pixFmt, profile: info.profile, hdr: info.hdr, acodec: info.acodec, channels: info.channels, fps: info.fps, fpsExact: info.fpsExact, fpsRational: info.fpsRational, rotation: info.rotation, container: info.container, colorSpace: info.colorSpace, colorPrimaries: info.colorPrimaries, colorTransfer: info.colorTransfer, colorRange: info.colorRange });
+        send({ vcodec: info.vcodec, pixFmt: info.pixFmt, profile: info.profile, hdr: info.hdr, acodec: info.acodec, channels: info.channels, fps: info.fps, rotation: info.rotation, container: info.container });
       }
     }
     // Auto-remux (electron/remux.cjs): a stream-copied fast-seek twin for
@@ -450,91 +382,12 @@ const proxyStatus = () => {
   const quality = settings.getQuality();
   const files = proxyFiles();
   const fxSeg = fxJobs.cacheStats();
-  const mc = mediaCacheStats(mediaCacheDir());
   return {
     on: quality !== 'full', quality, files: files.length, bytes: files.reduce((n, f) => n + fs.statSync(f).size, 0),
     fxSegments: { files: fxSeg.entries, bytes: fxSeg.bytes, capMB: settings.getFxCacheCapMB() },
-    mediaCache: { files: mc.files, bytes: mc.bytes, capMB: settings.getMediaCacheCapMB() },
   };
 };
 ipcMain.handle('proxy:status', () => proxyStatus());
-
-// System status (FB-30 / P1-45): one snapshot for the tray's System section,
-// so no async job runs without visible status. Proxy + fx/media cache come
-// from proxyStatus(); the AI model states are the same status() calls the
-// panels already use on demand (Whisper / matting / reframe / Piper —
-// installed, and which models/voices are downloaded); `active` is the set
-// of main-process jobs currently running, so the tray can show progress
-// (from the renderer's progress listeners) and offer cancel. Captions runs
-// through its own flag because captions:run has no job variable of its own.
-let captionsJob = null; // { model } while a captions run is in flight
-const systemStatus = () => {
-  let whisperSt = null;
-  let mattingSt = null;
-  let reframeSt = null;
-  let piperSt = null;
-  try { whisperSt = whisper.status(whisperDir()); } catch { /* status must never break the tray */ }
-  try { mattingSt = matting.status(mattingDir()); } catch { /* see above */ }
-  try { reframeSt = reframe.status(reframeDir()); } catch { /* see above */ }
-  try { piperSt = tts.piperStatus(ttsDir()); } catch { /* see above */ }
-  return {
-    proxy: proxyStatus(),
-    models: { whisper: whisperSt, matting: mattingSt, reframe: reframeSt, piper: piperSt },
-    fxCache: { ...fxJobs.cacheStats(), active: fxJobs.jobs.size },
-    active: {
-      matting: mattingJob ? { path: mattingJob.path } : null,
-      reframe: !!reframeJob,
-      enhance: !!enhanceJob,
-      audioFx: !!audioFxJob,
-      translate: !!translateJob,
-      captions: captionsJob ? { model: captionsJob.model } : null,
-      esrgan: !!esrganJob,
-      detach: !!detachJob,
-      reverse: !!revJob,
-      tts: !!ttsJob,
-    },
-  };
-};
-ipcMain.handle('system:status', () => systemStatus());
-
-// Retry a failed model download (FB-30): installs one model through the
-// same install path its panel uses on first run, reporting progress on the
-// same channel the tray already listens to. Ids: whisper-base /
-// whisper-turbo / whisper-darija, matting, reframe, piper (engine + the
-// first voice). Anything else is refused — the tray only ever offers the
-// models the status snapshot reports as missing.
-ipcMain.handle('models:install', async (_e, id) => {
-  const sendCap = (stage, progress) => { if (win && !win.isDestroyed()) win.webContents.send('captions:progress', { stage, progress }); };
-  const sendMat = (stage, fraction) => { if (win && !win.isDestroyed()) win.webContents.send('matting:progress', { path: '', stage, fraction }); };
-  const sendRef = (stage, fraction) => { if (win && !win.isDestroyed()) win.webContents.send('reframe:progress', { stage, fraction }); };
-  const sendTts = (stage, fraction) => { if (win && !win.isDestroyed()) win.webContents.send('tts:progress', { stage, fraction }); };
-  try {
-    if (id === 'matting') {
-      sendMat('download', 0);
-      await matting.install(mattingDir(), (f) => sendMat('download', f), net.fetch);
-      return { ok: true };
-    }
-    if (id === 'reframe') {
-      sendRef('download', 0);
-      await reframe.install(reframeDir(), (f) => sendRef('download', f), net.fetch);
-      return { ok: true };
-    }
-    if (id === 'piper') {
-      const voice = (tts.PIPER_VOICES || [])[0];
-      if (!voice) return { error: 'No Piper voice is available.' };
-      await tts.piperPrepare(net.fetch, ttsDir(), voice.id, sendTts);
-      return { ok: true };
-    }
-    const model = { 'whisper-base': 'base', 'whisper-turbo': 'turbo', 'whisper-darija': 'darija' }[id];
-    if (model) {
-      await whisper.install(whisperDir(), (what, f) => sendCap(`Downloading ${what}`, f), model);
-      return { ok: true };
-    }
-    return { error: `Unknown model: ${id}` };
-  } catch (e) {
-    return { error: e.message };
-  }
-});
 ipcMain.handle('proxy:set', (_e, on) => {
   settings.setProxy(on === true);
   return proxyStatus();
@@ -548,21 +401,6 @@ ipcMain.handle('proxy:setQuality', (_e, q) => {
 ipcMain.handle('proxy:setFxCacheCap', (_e, mb) => {
   settings.setFxCacheCapMB(mb);
   return proxyStatus();
-});
-// Media cache cap + clear (P1-26): changing the cap prunes immediately (the
-// fx cap applies to the next publish instead — the media cache is checked on
-// every visuals drain, so a smaller cap takes effect here, not on the next
-// import). Clearing mirrors proxy:clear — only at Full quality, so the
-// player is never left pointing at deleted copies.
-ipcMain.handle('proxy:setMediaCacheCap', (_e, mb) => {
-  settings.setMediaCacheCapMB(mb);
-  try { evictMediaCache(mediaCacheDir(), settings.getMediaCacheCapMB(), protectedCacheFiles()); } catch { /* eviction is best-effort */ }
-  return proxyStatus();
-});
-ipcMain.handle('proxy:clearMediaCache', () => {
-  if (settings.getQuality() !== 'full') return { ...proxyStatus(), deleted: [] };
-  const deleted = clearMediaCache(mediaCacheDir(), protectedCacheFiles());
-  return { ...proxyStatus(), deleted };
 });
 // Performance mode: a bundle applied on selection — Low-End defaults playback to the
 // Low tier, High-Performance to Full, Balanced leaves the user's tier alone. The other
@@ -681,40 +519,6 @@ ipcMain.handle('favorites:toggle', (_e, entry) => {
   } catch (e) {
     return { error: e.message };
   }
-});
-
-// ---- Creative packs (P2-14): versioned preset packs with an asset manifest.
-// The packs dir follows the FVE_SMOKE test override like fonts/favorites.
-const packs = require('./packs.cjs');
-const packsDir = () => (process.env.FVE_SMOKE ? path.join(process.env.FVE_SMOKE, 'packs-test') : path.join(app.getPath('userData'), 'packs'));
-ipcMain.handle('packs:list', async () => {
-  try { return { packs: packs.listPacks(packsDir()) }; } catch (e) { return { error: e.message }; }
-});
-ipcMain.handle('packs:import', async () => {
-  const res = await dialog.showOpenDialog(win, {
-    title: 'Import creative pack',
-    properties: ['openFile', 'openDirectory'],
-    filters: [{ name: 'Cutflow pack', extensions: ['cutflowpack'] }],
-  });
-  if (res.canceled || !res.filePaths[0]) return { ok: false, error: 'cancelled' };
-  try { return await packs.importPack(packsDir(), res.filePaths[0]); } catch (e) { return { ok: false, error: e.message }; }
-});
-ipcMain.handle('packs:export', async (_e, manifest) => {
-  const res = await dialog.showSaveDialog(win, {
-    title: 'Export creative pack',
-    defaultPath: `${packs.slug(manifest?.name || 'pack')}.cutflowpack`,
-    filters: [{ name: 'Cutflow pack', extensions: ['cutflowpack'] }],
-  });
-  if (res.canceled || !res.filePath) return { ok: false, error: 'cancelled' };
-  try { return await packs.exportPack(res.filePath, manifest); } catch (e) { return { ok: false, error: e.message }; }
-});
-ipcMain.handle('packs:remove', async (_e, id) => {
-  try { return packs.removePack(packsDir(), id); } catch (e) { return { ok: false, error: e.message }; }
-});
-ipcMain.handle('packs:repair', async (_e, id, name) => {
-  const res = await dialog.showOpenDialog(win, { title: `Locate ${name}`, properties: ['openFile'] });
-  if (res.canceled || !res.filePaths[0]) return { ok: false, error: 'cancelled' };
-  try { return await packs.repairAsset(packsDir(), id, name, res.filePaths[0]); } catch (e) { return { ok: false, error: e.message }; }
 });
 
 // ---- Audio library (Openverse / SFXMint / MyInstants + Soundza). Files live in <userData>/library. ----
@@ -879,7 +683,7 @@ ipcMain.handle('project:autosave', (_e, file, json) => {
 // a damaged file opens as its newest surviving state instead of an error, and the
 // result says where it came from (recoveredFrom) so the interface can tell the user.
 // Also reports the project's missing source media (the relink flow). Returns one of
-// { json, recoveredFrom, missing, packaged, totalMedia } | { missingFile: true } | { corrupt: true }.
+// { json, recoveredFrom, missing } | { missingFile: true } | { corrupt: true }.
 const loadProjectFile = async (file) => {
   const pf = require('./projectfile.cjs');
   const entry = autosaveStore.slotForFile(autosaveDir(), file);
@@ -891,17 +695,9 @@ const loadProjectFile = async (file) => {
   // A bundled project (a ZIP's <name>.clipcraft.json) writes its media
   // paths relative to the project file — resolve them against this file's
   // folder before anything probes or checks them (checklist #7).
-  const packaged = pf.isPackagedProject(r.json);
   const json = pf.resolveRelativeMedia(r.json, path.dirname(file));
-  // FB-19 (P1-27): old projects open under the current schema — migrate
-  // before anything probes or checks them, so a v0 shape can never crash
-  // the editor for a field it no longer writes.
-  const mig = pf.migrateProject(json);
-  const sized = await pf.refreshSizes(pf.checkGenerated(mig.json, mediaCacheDir()), probe);
-  let totalMedia = 0;
-  try { totalMedia = (JSON.parse(sized).media || []).length; } catch { totalMedia = 0; }
-  return { json: sized, recoveredFrom: r.recoveredFrom || null, missing: pf.findMissingMedia(sized), packaged, totalMedia,
-    migration: mig.migrated ? { from: mig.fromVersion, to: mig.toVersion, changes: mig.changes } : null };
+  const sized = await pf.refreshSizes(pf.checkGenerated(json, mediaCacheDir()), probe);
+  return { json: sized, recoveredFrom: r.recoveredFrom || null, missing: pf.findMissingMedia(sized) };
 };
 
 ipcMain.handle('project:open', async () => {
@@ -945,7 +741,7 @@ ipcMain.handle('project:readPath', async (_e, filePath) => {
     if (!filePath) return null;
     const loaded = await loadProjectFile(filePath);
     if (loaded.missingFile || loaded.corrupt) return null;
-    return { file: filePath, json: loaded.json, missing: loaded.missing, packaged: loaded.packaged, totalMedia: loaded.totalMedia };
+    return { file: filePath, json: loaded.json };
   } catch {
     return null;
   }
@@ -987,7 +783,7 @@ ipcMain.handle('versions:read', async (_e, id, file) => {
   const raw = versionsStore.readVersion(versionsDir(), id, file);
   if (!raw) return null;
   const pf = require('./projectfile.cjs');
-  const json = await pf.refreshSizes(pf.checkGenerated(pf.migrateProject(raw).json, mediaCacheDir()), probe);
+  const json = await pf.refreshSizes(pf.checkGenerated(raw, mediaCacheDir()), probe);
   return { json, missing: pf.findMissingMedia(json) };
 });
 ipcMain.handle('versions:record', (_e, id, json, boundFile) => {
@@ -996,57 +792,6 @@ ipcMain.handle('versions:record', (_e, id, json, boundFile) => {
   } catch {
     return null;
   }
-});
-// P1-48: named versions — record the live project as a snapshot with a name
-// (forced: naming is an explicit user act, like a save). Rename: only the
-// index entry changes. Summary/diff/selective: pure store functions over the
-// snapshot JSONs; '__current__' as a file means the live project JSON passed
-// alongside, so a version can be compared against what is on screen now.
-// Selective restore merges through the same hygiene as a project open and
-// reports missing media the same way versions:read does. The store's CAP
-// already bounds the count, so named snapshots cannot bloat the project.
-ipcMain.handle('versions:createNamed', (_e, id, json, name, boundFile) => {
-  try {
-    return versionsStore.recordVersion(versionsDir(), id, json, { source: 'snapshot', name, boundFile: boundFile || null, force: true });
-  } catch {
-    return null;
-  }
-});
-ipcMain.handle('versions:rename', (_e, id, file, name) => {
-  try {
-    return versionsStore.renameVersion(versionsDir(), id, file, name);
-  } catch {
-    return null;
-  }
-});
-const versionsDoc = (_e, id, file, liveJson) => {
-  if (file === '__current__') {
-    try { return liveJson ? JSON.parse(liveJson) : null; } catch { return null; }
-  }
-  const raw = versionsStore.readVersion(versionsDir(), id, file);
-  if (!raw) return null;
-  try { return JSON.parse(raw); } catch { return null; }
-};
-ipcMain.handle('versions:summary', (_e, id, file, liveJson) => {
-  const doc = versionsDoc(_e, id, file, liveJson);
-  return doc ? versionsStore.summarizeProject(doc) : null;
-});
-ipcMain.handle('versions:diff', (_e, id, fileA, fileB, liveJson) => {
-  const a = versionsDoc(_e, id, fileA, liveJson);
-  const b = versionsDoc(_e, id, fileB, liveJson);
-  if (!a || !b) return null;
-  return versionsStore.diffProjects(a, b);
-});
-ipcMain.handle('versions:selective', async (_e, id, file, currentJson, selection) => {
-  const raw = versionsStore.readVersion(versionsDir(), id, file);
-  if (!raw) return null;
-  let snap; let cur;
-  try { snap = JSON.parse(raw); cur = JSON.parse(currentJson); } catch { return null; }
-  if (!snap || !cur) return null;
-  const merged = versionsStore.selectiveRestore(cur, snap, selection);
-  const pf = require('./projectfile.cjs');
-  const json = await pf.refreshSizes(pf.checkGenerated(pf.migrateProject(JSON.stringify(merged)).json, mediaCacheDir()), probe);
-  return { json, missing: pf.findMissingMedia(json) };
 });
 // Timed auto-backup (10/10 step 4, Filmora merge row 10): the renderer calls
 // this on a cadence while a project is open; the STORE decides what lands —
@@ -1084,8 +829,7 @@ const writeBridgeDiscovery = () => {
 // bridge (bridgeNote below): the derivative surface reads it.
 let liveProjectDoc = null;
 const ffmpegCore = require('./ffmpeg.cjs');
-const { setExportPaused, clearExportPause } = require('./exportPause.cjs'); // P1-52
-const { hasAudioFx, hasCleanVoice, hasRepair } = require('./audiofx.cjs');
+const { hasAudioFx } = require('./audiofx.cjs');
 const findBridgeClip = (p, clipId) => {
   if (!p || !clipId) return null;
   for (const track of ['videoClips', 'overlayClips', 'audioClips']) {
@@ -1147,7 +891,7 @@ const derivativeRefresh = async (req) => {
     const found = findBridgeClip(p, req.clipId);
     if (!found) return { error: 'No such clip in the open project.', status: 404 };
     const { clip, media: m } = found;
-    if (!m || (!hasAudioFx(clip.audioFx) && !hasCleanVoice(clip.cleanVoice) && !hasRepair(clip.repair))) return { error: 'That clip has no audio effects to render.' };
+    if (!m || !hasAudioFx(clip.audioFx)) return { error: 'That clip has no audio effects to render.' };
     if (audioFxJob) return { busy: true };
     const srcPath = ffmpegCore.enhancePathOf(clip) || m.path;
     if (!srcPath || !fs.existsSync(srcPath)) return { error: 'The media file was not found.' };
@@ -1155,7 +899,7 @@ const derivativeRefresh = async (req) => {
     audioFxJob = job;
     try {
       const res = await renderAudioFx({
-        srcPath, from: clip.in || 0, to: clip.out ?? m.duration, fx: clip.audioFx, cleanVoice: clip.cleanVoice, repair: clip.repair, channels: m.channels,
+        srcPath, from: clip.in || 0, to: clip.out ?? m.duration, fx: clip.audioFx, channels: m.channels,
         cacheDir: mediaCacheDir(), ffmpegPath: ffmpegCore.ffmpegPath, isCanceled: () => job.canceled,
       });
       if (!res) return { error: 'No audio effects to render.' };
@@ -1266,7 +1010,7 @@ const relinkPatch = (p, info) => ({
   path: p,
   ...(info ? {
     type: info.type, duration: info.duration, width: info.width, height: info.height,
-    hasVideo: info.hasVideo, hasAudio: info.hasAudio, fps: info.fps, fpsExact: info.fpsExact, fpsRational: info.fpsRational,
+    hasVideo: info.hasVideo, hasAudio: info.hasAudio, fps: info.fps,
     rotation: info.rotation, hdr: info.hdr,
     colorSpace: info.colorSpace, colorPrimaries: info.colorPrimaries,
     colorTransfer: info.colorTransfer, colorRange: info.colorRange,
@@ -1363,9 +1107,8 @@ const closeNow = () => {
 ipcMain.handle('app:closeNow', () => closeNow());
 ipcMain.handle('app:closeCancel', () => clearTimeout(closeTimer));
 
-// Export happens in two steps: the UI draws the text layer and streams its raw RGBA pixels
-// (export:textBegin / export:textFrame — see electron/textstream.cjs), then FFmpeg composes
-// everything (export:run). Frame folders are only accepted if created by export:begin.
+// Export happens in two steps: the UI renders the text layer to PNG frames (export:frame / export:blanks),
+// then FFmpeg composes everything (export:run). Frame folders are only accepted if created by export:begin.
 const frameDirs = new Set();
 
 const EXPORT_FORMAT_DIALOG = {
@@ -1377,12 +1120,6 @@ const EXPORT_FORMAT_DIALOG = {
 ipcMain.handle('export:begin', async (_e, suggested, format) => {
   const fmt = EXPORT_FORMAT_DIALOG[format] ? format : 'mp4';
   let file = process.env.FVE_SMOKE ? path.join(process.env.FVE_SMOKE, `ui-export.${fmt}`) : null;
-  // Test-only hook (scripts/test-export-sound-live.mjs): a preset export target
-  // with NO native save dialog. window.api is frozen (contextBridge), so a test
-  // cannot stub exportBegin from the renderer — the stub silently never sticks
-  // and the real dialog hangs the export forever. This env var is the only
-  // dialog bypass; it is never set by the app itself.
-  if (!file && process.env.FVE_EXPORT_TARGET) file = path.join(process.env.FVE_EXPORT_TARGET, `ui-export.${fmt}`);
   if (!file) {
     const base = String(suggested || 'export').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80) || 'export';
     const res = await dialog.showSaveDialog(win, {
@@ -1396,39 +1133,6 @@ ipcMain.handle('export:begin', async (_e, suggested, format) => {
   const frameDir = fs.mkdtempSync(path.join(os.tmpdir(), 'clipcraft-text-'));
   frameDirs.add(frameDir);
   return { file, frameDir };
-});
-
-// Batch export (P2-26): one save dialog for the whole batch, then one target per
-// variant — sibling files in the same folder (name_16x9.mp4, name_9x16.mp4,
-// name_1x1.mp4), each with its own frame folder. The caller passes the already
-// sanitised file stems; the directory is the one the user just picked (or the
-// FVE_EXPORT_TARGET test dir, where the stems land as-is — one distinct file per
-// variant, so a batch never overwrites the single-export hook's ui-export file).
-ipcMain.handle('export:beginBatch', async (_e, names, format) => {
-  const fmt = EXPORT_FORMAT_DIALOG[format] ? format : 'mp4';
-  const list = (Array.isArray(names) ? names : []).map((n) => String(n || '').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80)).filter(Boolean);
-  if (!list.length) return { canceled: true };
-  let dir = process.env.FVE_SMOKE || process.env.FVE_EXPORT_TARGET || null;
-  if (!dir) {
-    const res = await dialog.showSaveDialog(win, {
-      title: EXPORT_FORMAT_DIALOG[fmt].title,
-      defaultPath: `${list[0]}.${fmt}`,
-      filters: [{ name: EXPORT_FORMAT_DIALOG[fmt].filter, extensions: [fmt] }],
-    });
-    if (res.canceled) return { canceled: true };
-    dir = path.dirname(res.filePath);
-    // The dialog's file name is the first variant's; the rest are siblings.
-    const picked = path.basename(res.filePath, `.${fmt}`);
-    list[0] = picked;
-  }
-  return {
-    canceled: false,
-    targets: list.map((name) => {
-      const frameDir = fs.mkdtempSync(path.join(os.tmpdir(), 'clipcraft-text-'));
-      frameDirs.add(frameDir);
-      return { file: path.join(dir, `${name}.${fmt}`), frameDir };
-    }),
-  };
 });
 
 // Text layer: raw frames from the interface, packed by FFmpeg into <frameDir>/text.mov as they come (textstream.cjs).
@@ -1477,8 +1181,6 @@ const fxCall = (fn) => async (...args) => {
 ipcMain.handle('fx:begin', fxCall((_e, project, spec) => fxJobs.begin(project, spec)));
 ipcMain.handle('fx:read', fxCall((_e, id) => fxJobs.read(id)));
 ipcMain.handle('fx:write', fxCall((_e, id, bytes) => fxJobs.write(id, bytes)));
-ipcMain.handle('fx:readMany', fxCall((_e, id, n) => fxJobs.readMany(id, n)));
-ipcMain.handle('fx:writeMany', fxCall((_e, id, frames) => fxJobs.writeMany(id, frames)));
 ipcMain.handle('fx:end', fxCall((_e, id) => fxJobs.end(id)));
 ipcMain.handle('fx:clear', () => fxJobs.clear());
 app.on('will-quit', () => fxJobs.clear());
@@ -1494,9 +1196,6 @@ ipcMain.handle('export:caps', async () => {
 });
 
 ipcMain.handle('export:run', async (_e, projectIn, target, textFrames) => {
-  // P2-36: per-job cost — wall time + peak app RAM while the encode runs.
-  const costT0 = Date.now();
-  const costSampler = require('./resourceMonitor.cjs').startPeakSampler(app);
   try {
     let project = fxJobs.resolve(projectIn);
     // Soft subtitle track: the renderer serialized the caption clips to SRT text
@@ -1529,75 +1228,15 @@ ipcMain.handle('export:run', async (_e, projectIn, target, textFrames) => {
     }
     // Low-End mode: the export yields CPU to the rest of the PC (nice +10). Other modes
     // run at normal priority. Priority never changes the encoder settings or output.
-    // The encode reports 0 → 0.95 when mastering is on: the master stage owns the last
-    // 5% of the bar (the renderer flips to the 'loudness' phase on the export:phase event).
-    const loudnessTarget = require('./loudness.cjs').resolveLoudnessTarget(withStickers.export);
-    const masterOn = !!loudnessTarget && withStickers.export?.format !== 'gif' && require('./loudness.cjs').projectHasAudio(withStickers);
-    currentExport = runExport(withStickers, target.file, (p) => win.webContents.send('export:progress', masterOn ? p * 0.95 : p), { nice: settings.getPerfMode() === 'low-end' ? 10 : 0 });
+    currentExport = runExport(withStickers, target.file, (p) => win.webContents.send('export:progress', p), { nice: settings.getPerfMode() === 'low-end' ? 10 : 0 });
     await currentExport.promise;
     let size = 0;
     try { size = fs.statSync(target.file).size; } catch { /* the done card shows no size */ }
-    // P0-01 (#16): clips skipped for missing files, listed on the done card
-    // like the ZIP export's missing files — never a silent drop.
-    // P1-14: the master loudness stage — measure the finished file, gain its
-    // audio to the target, measure again for the report. Best-effort by
-    // design: a failed stage never fails the export (the file stands as
-    // encoded, and the report says what was measured, if anything).
-    let loudnessReport = null;
-    if (masterOn) {
-      win.webContents.send('export:phase', 'loudness');
-      try {
-        const { ffmpegPath, ffprobePath } = require('./ffmpeg.cjs');
-        loudnessReport = await require('./loudness.cjs').normalizeLoudness(ffmpegPath, ffprobePath, target.file, loudnessTarget, {
-          audioKbps: withStickers.export?.audioKbps,
-          isCanceled: () => !!currentExport?.canceled,
-        });
-        if (loudnessReport?.applied) { try { size = fs.statSync(target.file).size; } catch { /* keep the encode size */ } }
-      } catch (e) {
-        loudnessReport = { applied: false, gainDb: 0, target: loudnessTarget, measured: null, final: null, error: e.message };
-      }
-    } else if (withStickers.export?.format !== 'gif' && require('./loudness.cjs').projectHasAudio(withStickers)) {
-      // AU-07: mastering off — still measure, so the done card reports the
-      // export's true loudness instead of saying nothing. Best-effort like
-      // the master stage: a failed measurement never fails the export.
-      try {
-        const { ffmpegPath } = require('./ffmpeg.cjs');
-        const measured = await require('./loudness.cjs').measureLoudness(ffmpegPath, target.file);
-        loudnessReport = { applied: false, gainDb: 0, target: null, measured, final: measured };
-      } catch (e) {
-        loudnessReport = { applied: false, gainDb: 0, target: null, measured: null, final: null, error: e.message };
-      }
-    }
-    // P1-57: the automatic export quality check — verify the finished file
-    // against what the renderer expected (dimensions, fps, duration, audio)
-    // plus black/frozen/silent runs and missing fonts. Best-effort like the
-    // loudness stage: a failed check never fails the export; the done card
-    // shows the verdict, and a null report means the check itself failed.
-    let qcReport = null;
-    if (!currentExport?.canceled && withStickers.qcExpected) {
-      win.webContents.send('export:phase', 'qc');
-      try {
-        const { ffmpegPath, ffprobePath } = require('./ffmpeg.cjs');
-        qcReport = await require('./exportqc.cjs').checkExport({
-          ffmpegPath, ffprobePath, file: target.file,
-          expected: withStickers.qcExpected,
-          missingFonts: withStickers.qcMissingFonts || [],
-          isCanceled: () => !!currentExport?.canceled,
-        });
-      } catch (e) { console.error('[export-qc] check failed:', e.message); }
-    }
-    return { ok: true, file: target.file, size, skipped: currentExport.skipped || [], loudness: loudnessReport, qc: qcReport,
-      cost: { wallMs: Date.now() - costT0, peakRssMB: costSampler.stop() } };
+    return { ok: true, file: target.file, size };
   } catch (e) {
     if (currentExport?.canceled) return { canceled: true };
-    // FB-18 (P1-24): the error may already carry its classification from
-    // ffmpeg.cjs; a failure raised before any encode (probe, setup) is
-    // classified here, against the project being exported.
-    const h = e.exportCode ? { code: e.exportCode, clipName: e.exportClip, raw: e.exportRaw }
-      : require('./exportErrors.cjs').humanizeExportError({ message: e.message, project: projectIn });
-    return { ok: false, error: e.message, errorCode: h.code, errorClip: h.clipName || null, errorRaw: h.raw || e.message };
+    return { ok: false, error: e.message };
   } finally {
-    costSampler.stop();
     currentExport = null;
     dropFrames(target.frameDir);
     fxJobs.clear();
@@ -1667,9 +1306,6 @@ ipcMain.handle('export:cover', async (_e, file, mediaPath, at) => {
 const AUDIO_FORMATS = { mp3: 'MP3 audio', wav: 'WAV audio', m4a: 'M4A audio' };
 ipcMain.handle('export:audio', async (_e, project, format, name) => {
   if (!AUDIO_FORMATS[format]) return { ok: false, error: 'Unknown audio format' };
-  // P2-36: per-job cost, same as the video export.
-  const costT0 = Date.now();
-  const costSampler = require('./resourceMonitor.cjs').startPeakSampler(app);
   const base = String(name || 'audio').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80) || 'audio';
   let file = process.env.FVE_SMOKE ? path.join(process.env.FVE_SMOKE, `ui-audio.${format}`) : null;
   if (!file) {
@@ -1678,45 +1314,22 @@ ipcMain.handle('export:audio', async (_e, project, format, name) => {
       defaultPath: `${base}.${format}`,
       filters: [{ name: AUDIO_FORMATS[format], extensions: [format] }],
     });
-    if (res.canceled) { costSampler.stop(); return { canceled: true }; }
+    if (res.canceled) return { canceled: true };
     file = res.filePath;
   }
   try {
     currentAudioJob = runAudioExport(project, file, format, (p) => win.webContents.send('export:progress', p), { nice: settings.getPerfMode() === 'low-end' ? 10 : 0 });
     await currentAudioJob.promise;
-    // P1-57: same automatic quality check as the video export — silence and
-    // duration only (no picture to check). Best-effort: never fails the export.
-    let qcReport = null;
-    if (!currentAudioJob?.canceled && project.qcExpected) {
-      win.webContents.send('export:phase', 'qc');
-      try {
-        const { ffmpegPath, ffprobePath } = require('./ffmpeg.cjs');
-        qcReport = await require('./exportqc.cjs').checkExport({
-          ffmpegPath, ffprobePath, file,
-          expected: { ...project.qcExpected, kind: 'audio' },
-          missingFonts: [],
-          isCanceled: () => !!currentAudioJob?.canceled,
-        });
-      } catch (e) { console.error('[export-qc] audio check failed:', e.message); }
-    }
-    return { ok: true, file, skipped: currentAudioJob.skipped || [], loudness: currentAudioJob.loudness || null, qc: qcReport,
-      cost: { wallMs: Date.now() - costT0, peakRssMB: costSampler.stop() } };
+    return { ok: true, file };
   } catch (e) {
     if (currentAudioJob?.canceled) return { canceled: true };
-    // FB-18 (P1-24): same classification as the video export, against the
-    // project being exported.
-    const h = e.exportCode ? { code: e.exportCode, clipName: e.exportClip, raw: e.exportRaw }
-      : require('./exportErrors.cjs').humanizeExportError({ message: e.message, project });
-    return { ok: false, error: e.message, errorCode: h.code, errorClip: h.clipName || null, errorRaw: h.raw || e.message };
+    return { ok: false, error: e.message };
   } finally {
-    costSampler.stop();
     currentAudioJob = null;
   }
 });
 
 ipcMain.handle('export:cancel', () => {
-  // P1-52: a canceled export leaves no pause behind for the next job.
-  clearExportPause();
   if (currentExport) {
     currentExport.canceled = true;
     currentExport.cancel();
@@ -1726,17 +1339,12 @@ ipcMain.handle('export:cancel', () => {
     currentAudioJob.cancel();
   }
 });
-
-// P1-52: pause / resume a running export (SIGSTOP / SIGCONT on the live
-// ffmpeg children; queued jobs pause in the renderer queue, not here).
-ipcMain.handle('export:pause', () => setExportPaused(true));
-ipcMain.handle('export:resume', () => setExportPaused(false));
 // ---- Settings and AI. API keys stay in this process; the renderer only ever sees a hint like "…abcd". ----
 const settings = require('./settings.cjs');
 const ai = require('./ai.cjs');
 
 // Opens a help page in the browser. Only a short allowlist of known sites is accepted.
-const HELP_HOSTS = new Set(['www.slaycamera.com', 'www.instagram.com', 'elevenlabs.io', 'try.elevenlabs.io', 'pixabay.com', 'aistudio.google.com', 'console.developers.google.com', 'console.cloud.google.com', 'ollama.com', 'console.anthropic.com', 'platform.openai.com', 'console.groq.com', 'github.com', 'hamzaabika.com', 'www.hamzaabika.com', 'paypal.me', 'clipcrafts.pages.dev', 'getcutflow.pages.dev']); // P2-30: the update feed / About download links live on the feed hosts — without them "open in browser" silently no-ops.
+const HELP_HOSTS = new Set(['www.slaycamera.com', 'www.instagram.com', 'elevenlabs.io', 'try.elevenlabs.io', 'pixabay.com', 'aistudio.google.com', 'console.developers.google.com', 'console.cloud.google.com', 'ollama.com', 'console.anthropic.com', 'platform.openai.com', 'console.groq.com', 'github.com', 'hamzaabika.com', 'www.hamzaabika.com', 'paypal.me']);
 ipcMain.handle('app:openHelp', (_e, url) => {
   try {
     const u = new URL(url);
@@ -1755,16 +1363,6 @@ ipcMain.handle('settings:setRecorderPrefs', (_e, patch) => settings.setRecorderP
 ipcMain.handle('app:locale', () => app.getLocale());
 ipcMain.handle('settings:setKeymap', (_e, map) => settings.setKeymap(map));
 ipcMain.handle('settings:setKeystrokes', (_e, on) => settings.setKeystrokes(on));
-ipcMain.handle('settings:setExportSound', (_e, on) => settings.setExportSound(on));
-ipcMain.handle('settings:setReduceMotion', (_e, on) => settings.setReduceMotion(on));
-ipcMain.handle('settings:setReduceFlashing', (_e, on) => settings.setReduceFlashing(on));
-// FB-17 (P1-22): video decode choice + safe mode. Both apply on next
-// launch (the decode switch is set before the first window starts); the
-// Settings UI says so.
-ipcMain.handle('settings:setVideoDecode', (_e, m) => settings.setVideoDecode(m));
-ipcMain.handle('settings:setSafeMode', (_e, on) => settings.setSafeMode(on));
-// The decode decision this launch started with, for the Settings UI.
-ipcMain.handle('app:decodeDecision', () => ({ ...decodeDecision }));
 // ---- MCP servers: external tool servers (stdio) whose tools FlowAI may call. ----
 const mcp = require('./mcp.cjs');
 const mcpRegistry = mcp.createRegistry(() => settings.getMcpServers());
@@ -1822,19 +1420,14 @@ ipcMain.handle('updates:check', async () => {
 let lastCheck = null;
 // In-app installer download (progress streamed to the requesting window). Uses ONLY the
 // download URL from the last check — the renderer never supplies a URL.
-ipcMain.handle('updates:download', async (e, allowUnverified = false) => {
+ipcMain.handle('updates:download', async (e) => {
   if (process.env.SNAP) return { error: 'This install updates through the Snap Store.' };
   if (!lastCheck?.newer || !lastCheck.downloadUrl) return { error: 'Check for updates first.' };
-  // A-F8: a newer version whose feed published no checksum is held, not downloaded.
-  if (!lastCheck.sha256) return { error: 'This update has no published checksum — the update feed did not include a SHA-256 for the installer, so Cutflow will not download or install it. The update will be available once the feed publishes a checksum.', hashMissing: true };
   return updates.downloadInstaller(lastCheck.downloadUrl, {
     destDir: app.getPath('downloads'),
     // Gate 7: the feed's published SHA-256 for this installer; the download is
     // verified against it before it can ever be installed (updates.cjs).
-    // FB-21: without a feed checksum the download is refused unless the user
-    // explicitly overrode it in About (allowUnverified).
     expectedSha256: lastCheck.sha256 || '',
-    allowUnverified: allowUnverified === true,
     onProgress: (p) => { if (!e.sender.isDestroyed()) e.sender.send('updates:progress', p); },
   });
 });
@@ -1851,15 +1444,9 @@ ipcMain.handle('updates:openInstaller', async () => {
 // and this process quits, so the new instance begins only after the package files are fully
 // replaced. Where no silent install exists (macOS), fall back to opening the downloaded
 // file — the same behaviour as updates:openInstaller.
-ipcMain.handle('updates:install', async (_e, allowUnverified = false) => {
+ipcMain.handle('updates:install', async () => {
   if (process.env.SNAP) return { error: 'This install updates through the Snap Store.' };
-  // FB-21: an unverified download (no feed checksum) is not installed — or
-  // opened for a manual install — without the same explicit override the
-  // download needed.
-  if (updates.lastDownload() && !updates.lastDownloadSha256() && allowUnverified !== true) {
-    return { error: 'This installer was downloaded without a checksum to verify it against, so it will not be installed. Download it again with checksum verification, or explicitly allow the unverified install.', missingChecksum: true };
-  }
-  const r = await updates.installDownloaded({ destDir: app.getPath('downloads'), allowUnverified: allowUnverified === true });
+  const r = await updates.installDownloaded({ destDir: app.getPath('downloads') });
   if (r.unsupported) {
     const p = updates.lastDownload();
     if (!p || !fs.existsSync(p)) return { error: 'The downloaded installer is no longer there.' };
@@ -1872,6 +1459,11 @@ ipcMain.handle('updates:install', async (_e, allowUnverified = false) => {
   setTimeout(() => app.quit(), 300);
   return { ok: true, restarting: true };
 });
+
+// ---- Anonymous usage statistics: opt-in, see telemetry.cjs. ----
+const telemetry = require('./telemetry.cjs');
+ipcMain.handle('telemetry:status', () => telemetry.getStatus());
+ipcMain.handle('telemetry:setConsent', (_e, on) => telemetry.setConsent(on === true));
 
 // ---- Text to speech: Piper (free, on this PC) and ElevenLabs (the user's key). ----
 const tts = require('./tts.cjs');
@@ -1905,9 +1497,7 @@ ipcMain.handle('tts:testKey', async (_e, key) => {
   }
 });
 // Speaks the text and returns a media item (the file stays in <userData>/voiceovers).
-let ttsJob = null; // FB-30: visible in system:status while speaking
 ipcMain.handle('tts:speak', async (_e, req) => {
-  ttsJob = { engine: req.engine || 'piper' };
   try {
     const send = (stage, fraction) => { if (win && !win.isDestroyed()) win.webContents.send('tts:progress', { stage, fraction }); };
     let file;
@@ -1928,8 +1518,6 @@ ipcMain.handle('tts:speak', async (_e, req) => {
     return { ...m, name: `Voice - ${words || 'text'}${path.extname(file)}`, credit };
   } catch (e) {
     return { error: e.message };
-  } finally {
-    ttsJob = null;
   }
 });
 
@@ -2452,22 +2040,6 @@ ipcMain.handle('enhance:run', async (_e, item, from, to, strength) => {
 });
 ipcMain.handle('enhance:cancel', () => { if (enhanceJob) enhanceJob.canceled = true; });
 
-// Smooth Cut (P2-06): score the frames either side of a cut. The renderer passes
-// the two media paths and the source times of the last / first frames; the reply
-// is { psnr, fallback } — fallback 'large-motion' means the cut stays hard.
-const { checkCut } = require('./smoothcut.cjs');
-ipcMain.handle('smoothcut:check', async (_e, req) => {
-  try {
-    if (!req || !req.prevPath || !req.nextPath) return { error: 'Smooth Cut needs the two clips around the cut.' };
-    const res = await checkCut(require('./ffmpeg.cjs').ffmpegPath, {
-      ...req, tmpDir: path.join(mediaCacheDir(), 'smoothcut'),
-    });
-    return { psnr: res.psnr === Infinity ? null : Math.round(res.psnr * 10) / 10, fallback: res.fallback };
-  } catch (err) {
-    return { error: err.message };
-  }
-});
-
 // AudioFx preview parity (electron/audiofxrender.cjs): render a clip's effected sound,
 // cached like the enhance renders. The renderer asks whenever a clip's audioFx / range /
 // sound source outdates the stored derivative (clip.audioFxRender); preview and export
@@ -2482,7 +2054,7 @@ ipcMain.handle('audiofx:render', async (_e, req) => {
   audioFxJob = job;
   try {
     const res = await renderAudioFx({
-      srcPath: req.srcPath, from: req.from, to: req.to, fx: req.fx, cleanVoice: req.cleanVoice, repair: req.repair, channels: req.channels,
+      srcPath: req.srcPath, from: req.from, to: req.to, fx: req.fx, channels: req.channels,
       cacheDir: mediaCacheDir(), ffmpegPath: require('./ffmpeg.cjs').ffmpegPath,
       isCanceled: () => job.canceled,
       onProgress: (fraction) => { if (win && !win.isDestroyed()) win.webContents.send('audiofx:progress', { path: req.srcPath, fraction }); },
@@ -2542,41 +2114,6 @@ const draftConfig = (draft = {}) => {
 };
 ipcMain.handle('ai:test', (_e, draft) => ai.testConnection(draftConfig(draft)));
 ipcMain.handle('ai:models', (_e, draft) => ai.listModels(draftConfig(draft)));
-ipcMain.handle('ai:ollamaStatus', (_e, draft) => ai.ollamaStatus(draftConfig(draft).baseUrl));
-
-// Ollama model download (P1-30 free path): runs `ollama pull <model>` in the main
-// process and streams the last progress line to the renderer. The model name is
-// validated (no shell is used at all), one pull at a time; a missing `ollama`
-// binary reports plainly instead of failing silently.
-let ollamaPullChild = null;
-ipcMain.handle('ai:ollamaPull', (e, model) => new Promise((resolve) => {
-  const m = String(model || '').trim();
-  if (!ai.validOllamaModel(m)) return resolve({ ok: false, error: 'Invalid model name.' });
-  if (ollamaPullChild) return resolve({ ok: false, error: 'A model download is already running.' });
-  const child = require('child_process').spawn('ollama', ['pull', m], { windowsHide: true });
-  ollamaPullChild = child;
-  let last = '';
-  const onData = (d) => {
-    last = String(d).trim().split('\n').filter(Boolean).pop() || last;
-    try { e.sender.send('ai:ollamaPullProgress', { model: m, line: last }); } catch { /* window closed */ }
-  };
-  child.stdout.on('data', onData);
-  child.stderr.on('data', onData);
-  child.on('error', (err) => {
-    ollamaPullChild = null;
-    resolve({ ok: false, error: err.code === 'ENOENT' ? 'Ollama is not installed on this PC. Download it from ollama.com first.' : err.message });
-  });
-  child.on('close', (code) => {
-    ollamaPullChild = null;
-    resolve(code === 0 ? { ok: true, model: m } : { ok: false, error: `Download failed (exit ${code}).${last ? ` Last line: ${last}` : ''}` });
-  });
-}));
-ipcMain.handle('ai:ollamaPullCancel', () => {
-  if (!ollamaPullChild) return false;
-  ollamaPullChild.kill();
-  ollamaPullChild = null;
-  return true;
-});
 
 // ---- Bundled generated media (10/10 step 3): the synthesized SFX and the drawn
 // stickers live under shared/<kind>/; the renderer knows only file names from its
@@ -2643,29 +2180,12 @@ ipcMain.handle('agent:silences', async (_e, project, opts) => {
   }
 });
 
-// B-F19 — the live LUFS panel: render the timeline's mixed audio, run EBU
-// R128 over it, and return the momentary/short-term curve + summary.
-ipcMain.handle('audio:loudnessCurve', async (_e, project) => {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'fve-lufs-'));
-  try {
-    const wav = await renderTimelineAudio(project, path.join(tmp, 'audio.wav'), 'all');
-    const { ffmpegPath } = require('./ffmpeg.cjs');
-    const curve = await require('./loudness.cjs').measureLoudnessCurve(ffmpegPath, wav);
-    return { ok: true, curve };
-  } catch (e) {
-    return { ok: false, error: e.message };
-  } finally {
-    try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* temp dir */ }
-  }
-});
-
 ipcMain.handle('captions:status', () => whisper.status(whisperDir()));
 
 // Auto captions: install whisper.cpp on first use, mix the main-track audio, transcribe.
 ipcMain.handle('captions:run', async (_e, project, opts = {}) => {
   const send = (stage, progress) => win.webContents.send('captions:progress', { stage, progress });
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'fve-cap-'));
-  captionsJob = { model: opts.model || 'base' }; // FB-30: visible in system:status while running
   try {
     const dir = whisperDir();
     const install = () => whisper.install(dir, (what, f) => send(`Downloading ${what}`, f), opts.model);
@@ -2693,22 +2213,13 @@ ipcMain.handle('captions:run', async (_e, project, opts = {}) => {
     const log = path.join(whisperDir(), 'last-run.log');
     return { ok: false, error: e.message.includes('Full log:') ? e.message : `${e.message}\n\nFull log: ${log}` };
   } finally {
-    captionsJob = null;
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
 
 // Like shell:openFolder, the path must be a real existing one — never raw renderer input.
-// P2-30: validated before the OS ever sees the path — see electron/shellOpen.cjs.
-// show only reveals the containing folder; open launches the default handler,
-// so open is restricted to known-safe extensions, no execute bits, and never
-// under the app's userData dir (settings/keys).
-// P2-36: live resource numbers for the Resources dialog (electron/resourceMonitor.cjs).
-// Cheap by design: one getAppMetrics call per poll, and the dialog polls at 2 s.
-ipcMain.handle('system:metrics', () => require('./resourceMonitor.cjs').collectMetrics({ app, process, os: require('os'), gpuName }));
-const { canShow, canOpen } = require('./shellOpen.cjs');
-ipcMain.handle('shell:show', (_e, file) => (canShow(file) ? shell.showItemInFolder(file) : false));
-ipcMain.handle('shell:open', (_e, file) => (canOpen(file, app.getPath('userData')) ? shell.openPath(file) : false));
+ipcMain.handle('shell:show', (_e, file) => (typeof file === 'string' && !!file && fs.existsSync(file) ? shell.showItemInFolder(file) : false));
+ipcMain.handle('shell:open', (_e, file) => (typeof file === 'string' && !!file && fs.existsSync(file) ? shell.openPath(file) : false));
 
 // Cloud captions (item O): the same timeline audio, transcribed by the provider the user
 // picked with their own saved key. Segments come back in the local flow's exact shape.
@@ -2725,7 +2236,7 @@ ipcMain.handle('captions:runCloud', async (_e, project, opts = {}) => {
     const wav = await renderTimelineAudio(project, path.join(tmp, 'audio.wav'), opts.source || 'all');
     send('Transcribing', 0.05);
     const segments = await cloudCaptions.transcribePrepared({
-      provider, key, model: opts.model || undefined, language: opts.language, diarize: !!opts.diarize,
+      provider, key, model: opts.model || undefined, language: opts.language,
       wavPath: wav, dir: tmp, ffmpegPath: require('./ffmpeg.cjs').ffmpegPath, probe,
       fetchImpl: net.fetch, onProgress: (f) => send('Transcribing', 0.05 + f * 0.95),
     });
@@ -2757,6 +2268,7 @@ ipcMain.handle('captions:testCloud', async (_e, provider, keyOverride) => {
 app.whenReady().then(() => {
   settings.ensureQualityDefault(); // brand-new installs start with preview copies on (Sprint 9)
   createWindow();
+  telemetry.start();
   // Agent draft bridge: only when the user left it enabled — while off, nothing listens.
   if (settings.getBridgeEnabled()) bridge.start().then(writeBridgeDiscovery).catch(() => {});
   // Find the graphics card's video encoder now (a short test encode), so the first export does not wait for it.

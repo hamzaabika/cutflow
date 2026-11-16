@@ -30,7 +30,7 @@ module.exports = async function tplmotionSmoke(win, dir, result) {
   await q(`(() => { const b = [...document.querySelectorAll('button')].find((x) => x.textContent.trim() === 'Skip tour'); if (b) b.click(); return !!b; })()`).catch(() => {});
   await wait(400);
   at('enter-editor');
-  await q(`document.querySelector('.home-create').click()`);
+  await q(`document.querySelector('[aria-label="New 16:9 project"]').click()`);
   await wait(600);
   await q(`(() => { const b = [...document.querySelectorAll('button')].find((x) => x.textContent.trim() === 'Start creating'); if (b) b.click(); return !!b; })()`).catch(() => {});
   await wait(400);

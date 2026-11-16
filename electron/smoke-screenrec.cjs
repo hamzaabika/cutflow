@@ -13,49 +13,26 @@ module.exports = async function screenrecSmoke(win, dir, result) {
   const others = () => BrowserWindow.getAllWindows().filter((w) => w !== win && !w.isDestroyed());
   const byFile = (name) => others().find((w) => w.webContents.getURL().endsWith(name));
   const P = () => q('window.__fve.exportData().project');
-  const clickText = (sel, text) => q(`(() => { const b = [...document.querySelectorAll(${JSON.stringify(sel)})].find((x) => x.textContent.includes(${JSON.stringify(text)})); if (!b) throw new Error('clickText: no button matching ' + ${JSON.stringify(sel)} + ' / ' + ${JSON.stringify(text)}); b.click(); })()`);
+  const clickText = (sel, text) => q(`[...document.querySelectorAll(${JSON.stringify(sel)})].find((b) => b.textContent.includes(${JSON.stringify(text)})).click()`);
   const check = (label, on) => q(`(() => { const l = [...document.querySelectorAll('.rec-pick label')].find((x) => x.textContent.includes(${JSON.stringify(label)}));
     const i = l.querySelector('input'); if (i.checked !== ${on}) i.click(); })()`);
 
   await wait(800);
-  // The app starts on the Home screen: enter the editor through a preset card first, then load.
-  // (Same entry step as smoke-textanim.cjs; without it __fve.load() leaves the app on Home.)
-  await q(`document.querySelector('.home-create')?.click()`);
-  await wait(600);
   await q(`window.__fve.load(${fs.readFileSync(path.join(dir, 'project.json'), 'utf8')})`);
   await wait(600);
   await q(`window.__fve.tab('media')`);
   await wait(300);
 
   const record = async (kind, seconds) => {
-    // The Record button lives in the media toolbar (.media-toolbar .head-btns),
-    // not under .lib-head — the MediaTab heading was removed 2026-11-10.
-    await q(`[...document.querySelectorAll('.left button')].find((b) => b.textContent.trim() === 'Record').click()`);
+    await q(`[...document.querySelectorAll('.lib-head button')].find((b) => b.textContent.trim() === 'Record').click()`);
     await until(() => q(`document.querySelectorAll('.rec-source').length > 0`));
     if (kind === 'window') {
       await clickText('.rec-tabs button', 'Windows');
-      // The window list reloads on tab switch — wait for it instead of
-      // assuming 300 ms is enough (the click threw on a null .rec-source).
-      // On a bare Xvfb there are no window sources at all: report skipped,
-      // not failed — the flow is untestable on this display.
-      const hasWin = await until(() => q(`document.querySelectorAll('.rec-source').length > 0`), 10000);
-      if (!hasWin) {
-        await q(`(() => { const b = [...document.querySelectorAll('.rec-pick button')].find((x) => x.textContent.trim() === 'Cancel') || document.querySelector('.rec-pick [aria-label="Close"]'); if (b) b.click(); })()`);
-        await wait(400);
-        return { skipped: 'no window sources on this display' };
-      }
-      await q(`document.querySelector('.rec-source').click()`);
-    } else {
-      // A screen source must be picked too: pick starts null and Start stays
-      // disabled until a source is chosen (only the window flow picked one).
+      await wait(300);
       await q(`document.querySelector('.rec-source').click()`);
     }
-    await check('Hide Cutflow', kind === 'screen'); // the default: Cutflow hides while recording (renamed from ClipCraft; the smoke still said ClipCraft)
+    await check('Hide ClipCraft', kind === 'screen'); // the default: ClipCraft hides while recording
     await check('Camera', true);
-    // The mic is off by default and Start otherwise only shows the mic
-    // warning (tryStart returns early) — enable the fake mic so recording
-    // actually starts.
-    await check('Microphone', true);
     const bubble = await until(() => !!byFile('cambubble.html'), 8000);
     await wait(1500);
     const b = byFile('cambubble.html');
@@ -124,10 +101,7 @@ module.exports = async function screenrecSmoke(win, dir, result) {
     out.saved = await until(async () => (await P()).media.length > before && !(await q(`!!document.querySelector('.rec-modal')`)), 120000);
     out.windowsLeft = others().length;
     const p = await P();
-    // The bubble IS in the screen video by design (screenrec.cjs: "on a screen
-    // recording it stays visible in the video... and the camera clip is placed
-    // over it at the same spot"; rec.camNoteScreen: "It is recorded with the
-    // screen."). Only a window recording cannot see it.
+    // The bubble must not be in the screen video: at its place, the frame is not the (green) fake camera.
     const shot = p.media.slice(before).find((m) => /^Screen/.test(m.name));
     const bw = out.bubbleWhileRecording && out.bubbleWhileRecording.bounds;
     if (kind === 'screen' && shot && bw) {

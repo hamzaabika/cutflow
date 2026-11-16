@@ -18,31 +18,6 @@ function cropOf(clip) {
 }
 const hasCrop = (clip) => { const c = cropOf(clip); return c.l > 0 || c.t > 0 || c.r > 0 || c.b > 0; };
 const hasCustomMask = (clip) => !!(clip.customMask && Array.isArray(clip.customMask.strokes) && clip.customMask.strokes.length > 0);
-// Anchor point (P2-10, mirror of src/visual.js anchorOf): the pivot rotation
-// and scale turn around, as fractions of the displayed picture.
-function anchorOf(clip) {
-  const a = clip.transform && clip.transform.anchor;
-  const num = (v) => (Number.isFinite(Number(v)) ? Math.min(1, Math.max(0, Number(v))) : 0.5);
-  return a ? { x: num(a.x), y: num(a.y) } : { x: 0.5, y: 0.5 };
-}
-// Offset (in frame pixels) that keeps the anchor fixed while the picture is
-// scaled by (sx, sy) and rotated by th radians about the FRAME centre:
-// the anchor sits at centre + u, the transform moves it to centre +
-// R*S(u), so the overlay must shift by u - R*S(u). Uniform scale s (the
-// animated path scales after rotating) multiplies the rotated term.
-// Static numbers in, numbers out; the animated path builds the same
-// expression from curveExpr strings (anchorShiftExpr below).
-function anchorShift(anchor, fw, fh, sx, sy, rotRad, s = 1) {
-  const ux = (anchor.x - 0.5) * fw;
-  const uy = (anchor.y - 0.5) * fh;
-  if (ux === 0 && uy === 0) return { dx: 0, dy: 0 };
-  const cs = Math.cos(rotRad);
-  const sn = Math.sin(rotRad);
-  return {
-    dx: ux - s * (cs * sx * ux - sn * sy * uy),
-    dy: uy - s * (sn * sx * ux + cs * sy * uy),
-  };
-}
 const BLEND_FF = {
   multiply: 'multiply', screen: 'screen', overlay: 'overlay', softlight: 'softlight', hardlight: 'hardlight',
   darken: 'darken', lighten: 'lighten', dodge: 'dodge', burn: 'burn', difference: 'difference', exclusion: 'exclusion', add: 'addition',
@@ -109,7 +84,7 @@ function isLayered(clip, motion) {
     || (clip.mask && clip.mask.type && clip.mask.type !== 'none')
     || chroma.on || (clip.opacity !== undefined && clip.opacity < 1) || (clip.blend && clip.blend !== 'normal')
     || hasCrop(clip) || hasCustomMask(clip)
-    || !!clip.bgRemove || !!(clip.matte && clip.matte.sourceId);
+    || !!clip.bgRemove;
 }
 
 // o: { clip, media: { width, height }, W, H, fps, len, tag, srcLabel, maskIdx, decoIdx, matteLabel, customMaskIdx }
@@ -207,64 +182,30 @@ function buildLayer(o, h) {
     cur = `dk${tag}`;
   }
 
-  let result;
-  if (o.motion) result = { filters: [...filters, ...animatedPlace(o, h, t, cur, fw, fh)], out: `L${tag}` };
-  else {
-    // Opacity, then scale / rotate the whole frame and place it around the canvas center.
-    const post = [];
-    if (clip.opacity !== undefined && clip.opacity < 1) post.push(`colorchannelmixer=aa=${h.num(Math.max(0, clip.opacity))}`);
-    const sx = t.uniform ? t.scale : t.scale * t.scaleX;
-    const sy = t.uniform ? t.scale : t.scale * t.scaleY;
-    const moved = sx !== 1 || sy !== 1 || t.x !== 0 || t.y !== 0 || t.rot !== 0;
-    if (sx !== 1 || sy !== 1) post.push(`scale=w='max(2,trunc(iw*${h.num(sx)}/2)*2)':h='max(2,trunc(ih*${h.num(sy)}/2)*2)'`);
-    if (t.rot !== 0) {
-      const rad = h.num((t.rot * Math.PI) / 180);
-      post.push(`rotate=a=${rad}:ow=rotw(${rad}):oh=roth(${rad}):c=none`);
-    }
-    if (post.length) {
-      filters.push(`[${cur}]${post.join(',')}[xf${tag}]`);
-      cur = `xf${tag}`;
-    }
-    if (!moved) result = { filters, out: cur };
-    else {
-      // Anchor pivot (P2-10): rotation/scale turn about the anchor, not the frame
-      // centre — shift the overlay by u - R*S(u) so the anchor stays put.
-      const anch = anchorOf(clip);
-      const { dx, dy } = anchorShift(anch, fw, fh, sx, sy, (t.rot * Math.PI) / 180);
-      filters.push(
-        `color=c=black@0:s=${W}x${H}:r=${fps}:d=${h.num(len)},format=rgba[cv${tag}]`,
-        `[cv${tag}][${cur}]overlay=x='(W-w)/2+${h.num(t.x * W + dx)}':y='(H-h)/2+${h.num(t.y * H + dy)}':format=auto:shortest=1[L${tag}]`,
-      );
-      result = { filters, out: `L${tag}` };
-    }
+  if (o.motion) return { filters: [...filters, ...animatedPlace(o, h, t, cur)], out: `L${tag}` };
+
+  // Opacity, then scale / rotate the whole frame and place it around the canvas center.
+  const post = [];
+  if (clip.opacity !== undefined && clip.opacity < 1) post.push(`colorchannelmixer=aa=${h.num(Math.max(0, clip.opacity))}`);
+  const sx = t.uniform ? t.scale : t.scale * t.scaleX;
+  const sy = t.uniform ? t.scale : t.scale * t.scaleY;
+  const moved = sx !== 1 || sy !== 1 || t.x !== 0 || t.y !== 0 || t.rot !== 0;
+  if (sx !== 1 || sy !== 1) post.push(`scale=w='max(2,trunc(iw*${h.num(sx)}/2)*2)':h='max(2,trunc(ih*${h.num(sy)}/2)*2)'`);
+  if (t.rot !== 0) {
+    const rad = h.num((t.rot * Math.PI) / 180);
+    post.push(`rotate=a=${rad}:ow=rotw(${rad}):oh=roth(${rad}):c=none`);
   }
-  // Track matte (P2-12): o.trackMatte is a full-frame grayscale stream from
-  // the source track (luma, or alphaextract for alpha mode) — it becomes
-  // this layer's alpha. Applied last so it mattes the finished picture.
-  // alphamerge REPLACES the alpha (verified 2026-11-15: a transparent
-  // surround became semi-opaque black and darkened the whole frame), so the
-  // matte is first multiplied by the layer's own alpha — 0 outside the
-  // picture, the matte value inside it — and only then merged in.
-  if (o.trackMatte) {
-    // A labelled stream feeds one filter only, so split the layer: one
-    // copy donates its alpha, the other takes the multiplied matte.
-    result.filters.push(
-      `[${result.out}]split[sp${tag}][ly${tag}]`,
-      `[sp${tag}]alphaextract[la${tag}]`,
-      `[${o.trackMatte}][la${tag}]blend=all_mode=multiply[mm${tag}]`,
-      `[ly${tag}][mm${tag}]alphamerge,format=rgba[tm${tag}]`,
-    );
-    result.out = `tm${tag}`;
+  if (post.length) {
+    filters.push(`[${cur}]${post.join(',')}[xf${tag}]`);
+    cur = `xf${tag}`;
   }
-  // Motion blur (P2-18): blend three consecutive placed frames when a motion
-  // preset asked for it — applied last so it blurs the finished picture
-  // (matte already baked in), not the matte. Preview shows the motion
-  // without the blur; the blur renders at export.
-  if (clip.motionBlur && result.out) {
-    result.filters.push(`[${result.out}]tmix=frames=3:weights='1 1 1'[mb${tag}]`);
-    result.out = `mb${tag}`;
-  }
-  return result;
+  if (!moved) return { filters, out: cur };
+
+  filters.push(
+    `color=c=black@0:s=${W}x${H}:r=${fps}:d=${h.num(len)},format=rgba[cv${tag}]`,
+    `[cv${tag}][${cur}]overlay=x='(W-w)/2+${h.num(t.x * W)}':y='(H-h)/2+${h.num(t.y * H)}':format=auto:shortest=1[L${tag}]`,
+  );
+  return { filters, out: `L${tag}` };
 }
 
 // Opacity and placement that change over time (animations, keyframes). o.motion holds the curves of
@@ -272,7 +213,7 @@ function buildLayer(o, h) {
 // seconds. A static non-uniform scale comes first, then the rotation, then the (animated) uniform scale, so the
 // result matches the preview's CSS translate / rotate / scale. Opacity goes through sendcmd because
 // colorchannelmixer takes no expression.
-function animatedPlace(o, h, t, cur, fw, fh) {
+function animatedPlace(o, h, t, cur) {
   const { W, H, fps, len, tag, motion: mo } = o;
   const num = h.num;
   const chain = [];
@@ -300,28 +241,8 @@ function animatedPlace(o, h, t, cur, fw, fh) {
     filters.push(`[${cur}]${chain.join(',')}[xf${tag}]`);
     src = `xf${tag}`;
   }
-  // Anchor pivot (P2-10), same u - s*R*S(u) correction as the static path,
-  // as FFmpeg expressions of the animated rotation / scale curves. The
-  // static non-uniform scale (if any) is inside S; the animated uniform
-  // scale multiplies the rotated term. Skipped when the anchor is centred,
-  // so unchanged graphs stay byte-identical.
-  const anch = anchorOf(o.clip);
-  const ux = (anch.x - 0.5) * (fw || W);
-  const uy = (anch.y - 0.5) * (fh || H);
-  let dxE = '';
-  let dyE = '';
-  if (ux !== 0 || uy !== 0) {
-    const usx = !t.uniform ? t.scaleX : 1;
-    const usy = !t.uniform ? t.scaleY : 1;
-    const th = `((${curveExpr(mo.r, num)})*PI/180)`;
-    const sE = `(${curveExpr(mo.s, num)})`;
-    const rx = `(${num(usx * ux)})`;
-    const ry = `(${num(usy * uy)})`;
-    dxE = `+(${num(ux)}-(${sE})*(cos${th}*${rx}-sin${th}*${ry}))`;
-    dyE = `+(${num(uy)}-(${sE})*(sin${th}*${rx}+cos${th}*${ry}))`;
-  }
-  const x = `(W-w)/2+(${curveExpr(mo.x, num)})*${W}${dxE}`;
-  const y = `(H-h)/2+(${curveExpr(mo.y, num)})*${H}${dyE}`;
+  const x = `(W-w)/2+(${curveExpr(mo.x, num)})*${W}`;
+  const y = `(H-h)/2+(${curveExpr(mo.y, num)})*${H}`;
   filters.push(
     `color=c=black@0:s=${W}x${H}:r=${fps}:d=${num(len)},format=rgba[cv${tag}]`,
     `[cv${tag}][${src}]overlay=x='${x}':y='${y}':eval=frame:format=auto:shortest=1[L${tag}]`,
@@ -335,32 +256,25 @@ function animatedPlace(o, h, t, cur, fw, fh) {
 // swscale's default RGB -> YUV matrix is BT.601, which shifted every blended colour on decode (worst in
 // difference mode, which amplifies small shifts). scripts/test-compositing.cjs proves the parity.
 const TO_YUV709 = 'scale=out_color_matrix=bt709:out_range=tv,format=yuv420p';
-// FX-06: the HDR twin — the same re-encode, but into 10-bit BT.2020 with the
-// project's HDR transfer (the frames already carry bt2020/pq|hlg tags from
-// the input conversion; the matrix here must match, or the colours shift).
-const TO_YUV2020 = 'scale=out_color_matrix=bt2020:out_range=tv,format=yuv420p10le';
-function composite({ base, layer, blend, tag, out, hdr = null }) {
+function composite({ base, layer, blend, tag, out }) {
   const mode = BLEND_FF[blend];
   // Normal blending stays in YUV: the layer converts to yuva420p and the base never
   // leaves yuv420p. The old overlay=format=auto with an RGBA layer forced the whole
   // base frame through YUV->RGB->YUV on EVERY composite — 13 overlays in a row
   // measured PSNR 24.5 dB on a clean frame (1 pass alone: 45.6 dB), i.e. visible
   // macroblocking even where no overlay is showing.
-  // FX-06: in HDR mode the same path runs in 10-bit BT.2020 (yuva420p10le).
-  // Layered clips still pass through the 8-bit RGBA stage inside buildLayer,
-  // so their precision is 8-bit even in an HDR export — documented, not hidden.
   if (!mode) return [
-    `[${layer}]scale=out_color_matrix=${hdr ? 'bt2020' : 'bt709'}:out_range=tv,format=${hdr ? 'yuva420p10le' : 'yuva420p'}[ly${tag}]`,
-    `[${base}][ly${tag}]overlay=format=auto:shortest=1,format=${hdr ? 'yuv420p10le' : 'yuv420p'}[${out}]`,
+    `[${layer}]scale=out_color_matrix=bt709:out_range=tv,format=yuva420p[ly${tag}]`,
+    `[${base}][ly${tag}]overlay=format=auto:shortest=1,format=yuv420p[${out}]`,
   ];
   return [
     `[${layer}]split[l1${tag}][l2${tag}]`,
     `[l2${tag}]alphaextract[la${tag}]`,
-    `[l1${tag}]format=${hdr ? 'gbrp10le' : 'gbrp'}[lc${tag}]`,
-    `[${base}]format=${hdr ? 'gbrp10le' : 'gbrp'},split[b1${tag}][b2${tag}]`,
+    `[l1${tag}]format=gbrp[lc${tag}]`,
+    `[${base}]format=gbrp,split[b1${tag}][b2${tag}]`,
     `[b1${tag}][lc${tag}]blend=all_mode=${mode}:shortest=1[bl${tag}]`,
-    `[b2${tag}][bl${tag}][la${tag}]maskedmerge,${hdr ? TO_YUV2020 : TO_YUV709}[${out}]`,
+    `[b2${tag}][bl${tag}][la${tag}]maskedmerge,${TO_YUV709}[${out}]`,
   ];
 }
 
-module.exports = { buildLayer, composite, isLayered, curveExpr, shiftCurves, chromaParams, cropOf, hasCrop, anchorOf, anchorShift, DEFAULT_TRANSFORM, DEFAULT_CHROMA, DEFAULT_CROP, BLEND_FF };
+module.exports = { buildLayer, composite, isLayered, curveExpr, shiftCurves, chromaParams, cropOf, hasCrop, DEFAULT_TRANSFORM, DEFAULT_CHROMA, DEFAULT_CROP, BLEND_FF };
