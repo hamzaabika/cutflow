@@ -573,11 +573,13 @@ export default function Timeline({
           dispatch({ type: 'update', track: 'video', id: clip.id, patch: { out: clamp(o.out + d * sp, o.in + MIN_CLIP * sp, isImage ? 3600 : media.duration) } });
         }
       } else {
-        // Reorder on the magnetic main track: drop index from the pointer position among the other clips.
-        const others = videoLayout(project.videoClips.filter((c) => c.id !== clip.id));
+        // Slide on the main track: the clip follows the pointer in time — its
+        // start lands at the pointer time minus the grab offset. Dropping it
+        // over another clip keeps the reorder behaviour; dropping it in empty
+        // space opens a gap. A lone clip used to be unmovable here: reorder
+        // has nothing to reorder past, so the drag was a visible no-op.
         const pos = timeFromEvent(ev);
-        const toIndex = others.filter((l) => (l.start + l.end) / 2 < pos).length;
-        dispatch({ type: 'moveVideo', id: clip.id, toIndex });
+        dispatch({ type: 'slideVideo', id: clip.id, at: Math.max(0, pos - grab) });
       }
     };
     const videoEnd = () => {

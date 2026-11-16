@@ -532,6 +532,59 @@ function reduceProjectInner(p, a) {
       list.splice(Math.max(0, Math.min(a.toIndex, list.length)), 0, c);
       return { ...p, videoClips: list };
     }
+    case 'slideVideo': {
+      // A main-track clip slides in time: it lands with its start at `at`
+      // (clamped to >= 0). Dropping it over another clip keeps the reorder
+      // behaviour (nearest boundary wins, as moveVideo does); dropping it in
+      // empty space opens a gap before it — and after it when the next clip
+      // starts later than the clip's new end. Without this, a lone clip could
+      // not be moved on the timeline at all: reorder has nothing to reorder
+      // past, so the drag was a visible no-op (2026-11-16, Hamza's video).
+      // The array is rebuilt from the others on every move, so the drag stays
+      // live; begin/endGesture folds the whole slide into one undo step.
+      // Linked audio follows through syncLinked (picStart is layout-derived).
+      const list = [...p.videoClips];
+      const from = list.findIndex((c) => c.id === a.id);
+      if (from < 0) return p;
+      const [clip] = list.splice(from, 1);
+      if (clip.gap) return p;
+      const len = clipLen(clip);
+      const at = Math.max(0, Number(a.at) || 0);
+      const others = videoLayout(list);
+      let idx = others.length;
+      let gapBefore = others.length ? 0 : at;
+      let gapAfter = 0;
+      for (let i = 0; i < others.length; i++) {
+        const l = others[i];
+        if (at >= l.end) {
+          if (i === others.length - 1) { idx = others.length; gapBefore = at - l.end; }
+          continue;
+        }
+        // `at` falls inside item i's span.
+        if (l.clip.gap) {
+          idx = i;
+          gapBefore = at - l.start;
+          gapAfter = Math.max(0, l.end - (at + len));
+        } else {
+          idx = at < (l.start + l.end) / 2 ? i : i + 1;
+        }
+        break;
+      }
+      const next = [...list];
+      let atIdx = idx;
+      if (gapBefore > 0.02) { next.splice(atIdx, 0, newGap(uid(), gapBefore)); atIdx++; }
+      next.splice(atIdx, 0, clip);
+      if (gapAfter > 0.02) next.splice(atIdx + 1, 0, newGap(uid(), gapAfter));
+      const built = normalizeGaps(next);
+      const same = built.length === p.videoClips.length && built.every((c, i) => {
+        const o = p.videoClips[i];
+        if (!!c.gap !== !!o.gap) return false;
+        if (c.gap) return Math.abs((c.out - c.in) - (o.out - o.in)) < 1e-6;
+        return c.id === o.id;
+      });
+      if (same) return p;
+      return { ...p, videoClips: built };
+    }
     case 'setCaptions': {
       // Replaces previous auto captions with new ones (one undo step).
       // Words keep their spoken timings (relative to the caption) for highlight / karaoke styles.
@@ -1491,6 +1544,7 @@ function actionLocked(p, a) {
       return isLayerLocked(p, a.track, layerOf(a.clip || {}));
     }
     case 'moveVideo': return isLayerLocked(p, 'video', 0);
+    case 'slideVideo': return isLayerLocked(p, 'video', 0);
     case 'moveToOverlay': return isLayerLocked(p, 'video', 0);
     case 'moveToMain': return clipLocked(p, 'overlay', clipOf('overlay', a.id));
     case 'extractAudio': return clipLocked(p, a.track, clipOf(a.track, a.id));
