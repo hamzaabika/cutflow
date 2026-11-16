@@ -31,6 +31,7 @@ export const normalizeWord = (w) => String(w || '')
 export function detectFillers(project, { fillers = true, pauses = true, minPause = 0.7 } = {}) {
   const words = flatWords(transcriptSentences(project)).filter((w) => w.end > w.start);
   const ranges = [];
+  const details = []; // one entry per proposed cut, pre-merge: { start, end, kind, word?, gap? }
   let fillerCount = 0;
   let pauseCount = 0;
   if (fillers) {
@@ -38,6 +39,7 @@ export function detectFillers(project, { fillers = true, pauses = true, minPause
       const w = words[i];
       if (ALL_FILLERS.has(normalizeWord(w.text))) {
         ranges.push({ start: w.start, end: w.end });
+        details.push({ start: w.start, end: w.end, kind: 'filler', word: w.text });
         fillerCount++;
         continue;
       }
@@ -49,6 +51,7 @@ export function detectFillers(project, { fillers = true, pauses = true, minPause
         if (seq.some((s) => s.clipId !== w.clipId)) continue;
         if (seq.map((s) => normalizeWord(s.text)).join(' ') === phrase) {
           ranges.push({ start: seq[0].start, end: seq[seq.length - 1].end });
+          details.push({ start: seq[0].start, end: seq[seq.length - 1].end, kind: 'phrase', word: phrase });
           fillerCount++;
           i += parts.length - 1;
           break;
@@ -67,9 +70,9 @@ export function detectFillers(project, { fillers = true, pauses = true, minPause
       if (gap >= minPause) {
         const start = prev.end + 0.15;
         const end = next.start - 0.15;
-        if (end - start > 0.05) { ranges.push({ start, end }); pauseCount++; }
+        if (end - start > 0.05) { ranges.push({ start, end }); details.push({ start, end, kind: 'pause', gap }); pauseCount++; }
       }
     }
   }
-  return { ranges: mergeRanges(ranges), fillerCount, pauseCount };
+  return { ranges: mergeRanges(ranges), details, fillerCount, pauseCount };
 }

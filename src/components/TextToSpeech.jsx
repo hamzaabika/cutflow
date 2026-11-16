@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { CheckCircle2, ExternalLink, KeyRound, Loader2, Pause, Play, Plus, Type } from '../icons.jsx';
 import { toFileUrl } from '../store.js';
+import AiCostBadge from './AiCostBadge.jsx';
 import { useT, getLanguage } from '../i18n/index.jsx';
 
 // Sign-up page for new ElevenLabs accounts.
@@ -74,6 +75,8 @@ export default function TextToSpeech({ onAdd, selectedText, onOpenSettings }) {
           <button key={id} role="tab" aria-selected={engine === id} className={engine === id ? 'on' : ''} onClick={() => setEngine(id)}>{name}</button>
         ))}
       </div>
+      {/* AI-02: Piper runs on this PC for free; ElevenLabs sends the text off-device and bills characters. */}
+      <AiCostBadge featureId={engine === 'eleven' ? 'tts-elevenlabs' : 'tts-piper'} chars={text.trim().length} />
 
       <label className="field">
         <span>{t('tts.text')}

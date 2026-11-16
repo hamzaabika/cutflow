@@ -25,7 +25,7 @@ export const EXPORT_PRESET_ORDER = ['low', 'medium', 'high', 'ultra', 'custom'];
 export const CUSTOM_DEFAULTS = { mode: 'crf', crf: 20, bitrateMbps: 12, resCap: 0, fps: 0, codec: 'h264', encoderPreset: 'veryfast', audioKbps: 192 };
 export const ENCODER_PRESETS = ['ultrafast', 'superfast', 'veryfast', 'faster', 'fast', 'medium', 'slow', 'slower', 'veryslow'];
 export const RES_CAPS = [0, 2160, 1440, 1080, 720, 480]; // 0 = Original (project size)
-export const FPS_CHOICES = [0, 24, 25, 30, 50, 60]; // 0 = project fps
+export const FPS_CHOICES = [0, 24000 / 1001, 24, 25, 30000 / 1001, 30, 50, 60000 / 1001, 60]; // 0 = project fps; NTSC rates are exact rationals (see frames.js)
 export const AUDIO_RATES = [96, 128, 192, 256, 320];
 // Output formats (Sprint 3): MP4 and MOV carry the H.264/H.265 settings below; WebM is
 // VP9 + Opus through the same quality settings; GIF is a silent palette export with its
@@ -43,11 +43,21 @@ const snap = (v, list) => list.reduce((best, x) => (Math.abs(x - v) < Math.abs(b
 // from any era of the stored object — absent fields take the historical defaults (MP4, no
 // subtitle track, 640p GIF at 15 fps).
 function storedFormatFields(s) {
+  const loudness = ['off', 'social', 'podcast', 'broadcast', 'custom'].includes(s && s.loudness) ? s.loudness : 'social';
+  const loudnessI = Number.isFinite(Number(s && s.loudnessI)) ? Math.max(-30, Math.min(-8, Number(s.loudnessI))) : -14;
   return {
     format: s && EXPORT_FORMATS.includes(s.format) ? s.format : 'mp4',
     subtitleTrack: !!(s && s.subtitleTrack),
     gifSize: s && GIF_SIZES.includes(s.gifSize) ? s.gifSize : 640,
     gifFps: s && GIF_FPS_CHOICES.includes(s.gifFps) ? s.gifFps : 15,
+    // Master loudness (P1-14): the target profile + the custom LUFS value.
+    // 'social' (-14 LUFS) is the default — the target the audio-only master
+    // stage already used, so video exports now match audio exports.
+    loudness,
+    loudnessI,
+    // FX-06: HDR export mode — 'off' | 'pq' (HDR10) | 'hlg'. Only meaningful
+    // for MP4/MOV in H.265; resolveExport forces it off anywhere else.
+    hdr: ['pq', 'hlg'].includes(s && s.hdr) ? s.hdr : 'off',
   };
 }
 
@@ -75,6 +85,9 @@ export function settingsPatch(project, next) {
     subtitleTrack: next.subtitleTrack != null ? !!next.subtitleTrack : prev.subtitleTrack,
     gifSize: GIF_SIZES.includes(next.gifSize) ? next.gifSize : prev.gifSize,
     gifFps: GIF_FPS_CHOICES.includes(next.gifFps) ? next.gifFps : prev.gifFps,
+    loudness: ['off', 'social', 'podcast', 'broadcast', 'custom'].includes(next.loudness) ? next.loudness : prev.loudness,
+    loudnessI: Number.isFinite(Number(next.loudnessI)) ? Math.max(-30, Math.min(-8, Number(next.loudnessI))) : prev.loudnessI,
+    hdr: ['pq', 'hlg'].includes(next.hdr) ? next.hdr : prev.hdr,
   };
   const patch = { exportSettings: stored };
   const eff = stored.preset === 'custom' ? stored.custom : EXPORT_PRESETS[stored.preset];
@@ -136,6 +149,14 @@ export function resolveExport(project, caps = {}) {
     notes.push({ k: 'exp.note.webmCpu' });
   }
   if (format === 'gif') notes.push({ k: 'exp.note.gif' });
+  // FX-06: HDR export only exists as H.265 in MP4/MOV; anything else forces
+  // it off with a note, and HDR forces the codec to H.265.
+  let hdr = stored.hdr || 'off';
+  if (hdr !== 'off') {
+    if (format !== 'mp4' && format !== 'mov') { hdr = 'off'; notes.push({ k: 'exp.note.hdrFormat' }); }
+    else if (!libx265) { hdr = 'off'; notes.push({ k: 'exp.note.hdrH265' }); }
+    else { codecFamily = 'h265'; notes.push({ k: 'exp.note.hdrOn', p: { mode: hdr === 'pq' ? 'PQ (HDR10)' : 'HLG' } }); }
+  }
   if (stored.subtitleTrack && format !== 'mp4' && format !== 'mov') notes.push({ k: 'exp.note.subtitleOnly' });
   if (stored.subtitleTrack && (format === 'mp4' || format === 'mov')) notes.push({ k: 'exp.note.subtitleEmbedded' });
 
@@ -160,6 +181,15 @@ export function resolveExport(project, caps = {}) {
     subtitleTrack: stored.subtitleTrack,
     gifSize: stored.gifSize,
     gifFps: stored.gifFps,
+    hdr,
+    loudness: stored.loudness,
+    loudnessI: stored.loudnessI,
+    // The numeric target the loudness profile resolves to (null when off) —
+    // display only; the engine resolves the same numbers from the profile id
+    // (electron/loudness.cjs), and the test pins the two maps together.
+    loudnessTargetI: stored.loudness === 'off' ? null
+      : stored.loudness === 'custom' ? stored.loudnessI
+      : { social: -14, podcast: -16, broadcast: -23 }[stored.loudness] ?? -14,
     gifW,
     gifH,
     encoder: format === 'webm' ? 'libvpx-vp9 · CPU (software)' : format === 'gif' ? null : encoderSummary(codecFamily, caps),
@@ -227,6 +257,7 @@ export function summaryRows(eff, project) {
     ['exp.quality', eff.mode === 'crf' ? `CRF ${eff.crf}` : { k: 'exp.summary.bitrate', p: { mbps: eff.bitrateMbps } }],
     ['exp.encoderPreset', eff.encoderPreset],
     ['exp.audio', eff.format === 'webm' ? { k: 'exp.summary.audioOpus', p: { kbps: eff.audioKbps } } : { k: 'exp.summary.audioAac', p: { kbps: eff.audioKbps } }],
+    ['exp.loudness', eff.loudnessTargetI == null ? { k: 'exp.summary.loudnessOff' } : { k: 'exp.summary.loudnessTarget', p: { i: eff.loudnessTargetI } }],
   ];
   if (eff.encoder) rows.splice(rows.findIndex(([k]) => k === 'exp.audio'), 0, ['exp.encoder', eff.encoder]);
   if (eff.subtitleTrack && (eff.format === 'mp4' || eff.format === 'mov')) rows.push(['exp.subtitleTrack', { k: 'exp.summary.subtitle' }]);

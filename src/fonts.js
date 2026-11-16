@@ -1,102 +1,19 @@
-// Fonts available to text clips. Bundled fonts are open-source (OFL) packages from @fontsource;
-// system fonts ship with Windows. Text is rendered on a canvas for both preview and export,
-// so a font only needs to be loadable by the renderer.
-import '@fontsource/montserrat/400.css';
-import '@fontsource/montserrat/700.css';
-import '@fontsource/montserrat/900.css';
-import '@fontsource/poppins/400.css';
-import '@fontsource/poppins/700.css';
-import '@fontsource/poppins/900.css';
-import '@fontsource/anton/400.css';
-import '@fontsource/bebas-neue/400.css';
-import '@fontsource/oswald/400.css';
-import '@fontsource/oswald/700.css';
-import '@fontsource/bangers/400.css';
-import '@fontsource/luckiest-guy/400.css';
-import '@fontsource/permanent-marker/400.css';
-import '@fontsource/pacifico/400.css';
-import '@fontsource/lobster/400.css';
-import '@fontsource/caveat/400.css';
-import '@fontsource/caveat/700.css';
-import '@fontsource/righteous/400.css';
-import '@fontsource/press-start-2p/400.css';
-import '@fontsource/playfair-display/400.css';
-import '@fontsource/playfair-display/700.css';
-import '@fontsource/playfair-display/900.css';
-import '@fontsource/dancing-script/400.css';
-import '@fontsource/dancing-script/700.css';
-import '@fontsource/cairo/400.css';
-import '@fontsource/cairo/700.css';
-import '@fontsource/cairo/900.css';
-import '@fontsource/tajawal/400.css';
-import '@fontsource/tajawal/700.css';
-import '@fontsource/tajawal/900.css';
-import '@fontsource/lalezar/400.css';
-import '@fontsource/amiri/400.css';
-import '@fontsource/amiri/700.css';
-import '@fontsource/rakkas/400.css';
-import '@fontsource/roboto/400.css';
-import '@fontsource/roboto/900.css';
-import '@fontsource/rubik/400.css';
-import '@fontsource/rubik/900.css';
-import '@fontsource/kanit/400.css';
-import '@fontsource/kanit/900.css';
-import '@fontsource/archivo-black/400.css';
-import '@fontsource/barlow-condensed/400.css';
-import '@fontsource/barlow-condensed/800.css';
-import '@fontsource/lilita-one/400.css';
-import '@fontsource/fredoka/400.css';
-import '@fontsource/fredoka/700.css';
-import '@fontsource/titan-one/400.css';
-import '@fontsource/russo-one/400.css';
-import '@fontsource/black-ops-one/400.css';
-import '@fontsource/bungee/400.css';
-import '@fontsource/creepster/400.css';
-import '@fontsource/monoton/400.css';
-import '@fontsource/orbitron/400.css';
-import '@fontsource/orbitron/900.css';
-import '@fontsource/audiowide/400.css';
-import '@fontsource/chewy/400.css';
-import '@fontsource/cinzel/400.css';
-import '@fontsource/cinzel/900.css';
-import '@fontsource/abril-fatface/400.css';
-import '@fontsource/dm-serif-display/400.css';
-import '@fontsource/cormorant-garamond/400.css';
-import '@fontsource/cormorant-garamond/700.css';
-import '@fontsource/great-vibes/400.css';
-import '@fontsource/kaushan-script/400.css';
-import '@fontsource/satisfy/400.css';
-import '@fontsource/shadows-into-light/400.css';
-import '@fontsource/sacramento/400.css';
-import '@fontsource/yellowtail/400.css';
-import '@fontsource/almarai/400.css';
-import '@fontsource/almarai/800.css';
-import '@fontsource/changa/400.css';
-import '@fontsource/changa/800.css';
-import '@fontsource/el-messiri/400.css';
-import '@fontsource/el-messiri/700.css';
-import '@fontsource/reem-kufi/400.css';
-import '@fontsource/reem-kufi/700.css';
-import '@fontsource/aref-ruqaa/400.css';
-import '@fontsource/aref-ruqaa/700.css';
-import '@fontsource/marhey/400.css';
-import '@fontsource/marhey/700.css';
-import '@fontsource/lemonada/400.css';
-import '@fontsource/lemonada/700.css';
-import '@fontsource/noto-kufi-arabic/400.css';
-import '@fontsource/noto-kufi-arabic/900.css';
-import '@fontsource/noto-naskh-arabic/400.css';
-import '@fontsource/noto-naskh-arabic/700.css';
-import '@fontsource/baloo-bhaijaan-2/400.css';
-import '@fontsource/baloo-bhaijaan-2/800.css';
-import '@fontsource/readex-pro/400.css';
-import '@fontsource/readex-pro/700.css';
-
+// Fonts available to text clips. Bundled fonts are open-source (OFL) faces from
+// @fontsource, kept as woff2 files in the runtime font store (public/fonts/ —
+// see scripts/gen-font-manifest.cjs) and loaded on demand per font, never
+// imported into the bundle. System fonts ship with Windows. Text is rendered
+// on a canvas for both preview and export, so a font only needs to be
+// loadable by the renderer — and the load gate (ensureFontLoaded) confirms
+// it before any frame using it renders.
+import { faceInStore, loadFace } from './fontStore.js';
 // bold: weight used when the clip is bold (null = the font has a single weight).
 const F = (id, name, family, group, bold = 700, regular = 400) => ({ id, name, family, group, bold, regular });
 
 export const FONT_LIST = [
   F('montserrat', 'Montserrat', 'Montserrat', 'Popular', 900),
+  // Inter Variable (imported in main.jsx): Neon Pop Duo's line 1. Regular 500
+  // is the Medium the spec wants; bold 700 for the bold toggle.
+  F('inter', 'Inter', 'Inter Variable', 'Popular', 700, 500),
   F('poppins', 'Poppins', 'Poppins', 'Popular', 900),
   F('anton', 'Anton', 'Anton', 'Popular', null),
   F('bebas', 'Bebas Neue', 'Bebas Neue', 'Popular', null),
@@ -129,6 +46,9 @@ export const FONT_LIST = [
   F('audiowide', 'Audiowide', 'Audiowide', 'Display', null),
   F('chewy', 'Chewy', 'Chewy', 'Display', null),
   F('playfair', 'Playfair Display', 'Playfair Display', 'Elegant', 900),
+  // Real Bold Italic (not synthesized oblique): the 700-italic face is
+  // imported above and loaded in fontsReady. Neon Pop Duo's line 2.
+  F('playfairbi', 'Playfair Display Bold Italic', 'Playfair Display', 'Elegant', 700, 700),
   F('georgia', 'Georgia', 'Georgia', 'Elegant'),
   F('garamond', 'Garamond', 'Garamond', 'Elegant'),
   F('times', 'Times New Roman', 'Times New Roman', 'Elegant'),
@@ -150,6 +70,9 @@ export const FONT_LIST = [
   F('sacramento', 'Sacramento', 'Sacramento', 'Script', null),
   F('yellowtail', 'Yellowtail', 'Yellowtail', 'Script', null),
   F('cairo', 'Cairo (Arabic)', 'Cairo', 'Arabic', 900),
+  // Cairo Medium 500: Neon Pop Duo's Arabic line 1 (regular weight is the
+  // Medium here; bold 700 for the bold toggle).
+  F('cairomed', 'Cairo Medium', 'Cairo', 'Arabic', 700, 500),
   F('tajawal', 'Tajawal (Arabic)', 'Tajawal', 'Arabic', 900),
   F('lalezar', 'Lalezar (Arabic)', 'Lalezar', 'Arabic', null),
   F('amiri', 'Amiri (Arabic)', 'Amiri', 'Arabic'),
@@ -249,22 +172,89 @@ export function fontById(id) {
   return BY_ID[id] || custom.find((f) => f.id === id) || BY_ID[LEGACY[id]] || BY_ID.arial;
 }
 
+// True when the font id resolves to a real face on this PC — a built-in,
+// a loaded custom font, or a legacy alias. False means fontById would
+// silently fall back to Arial, which is exactly what the export QC
+// reports as a missing font (P1-57). A custom font whose file the browser
+// could not read never lands in `custom`, so it reads as missing here.
+export function fontKnown(id) {
+  return !!(id && (BY_ID[id] || custom.find((f) => f.id === id) || BY_ID[LEGACY[id]]));
+}
+
 export function cssFont(fontId, sizePx, bold, italic) {
   const f = fontById(fontId);
   const weight = bold ? f.bold ?? f.regular : f.regular;
   return `${italic ? 'italic ' : ''}${weight} ${sizePx}px "${f.family}", Arial, sans-serif`;
 }
 
-// Resolves once every bundled font face and your fonts have been loaded (canvas text needs loaded fonts).
+// ---- Per-font on-demand loading (FB-33 / P2-28) ----
+// The faces a font id needs, as (family, weight, style) triples — pure,
+// so the unit test can check the gate without a DOM. Regular is always
+// needed; bold adds the bold face; italic uses a real italic face when
+// the store has one (Playfair Bold Italic) and otherwise falls back to
+// the upright face (the browser synthesises the oblique, as before).
+export function facesForFont(fontId, { bold = false, italic = false } = {}) {
+  const f = fontById(fontId);
+  if (!f || f.family.startsWith('Cutflow ')) return []; // custom fonts load through loadCustom
+  const weights = [f.regular, bold ? f.bold : null].filter((w, i, a) => w != null && a.indexOf(w) === i);
+  return weights.map((weight) => ({
+    family: f.family, weight,
+    style: italic && faceInStore(f.family, weight, 'italic') ? 'italic' : 'normal',
+  }));
+}
+
+const inflight = new Map(); // gate key -> Promise (one load per face, ever)
+// Load gate: confirms the faces a font id needs are loaded before any
+// frame using them renders. A bundled face comes from the runtime store;
+// a system font (or Inter, imported by main.jsx) just confirms through
+// document.fonts. A custom font id first makes sure the custom list is
+// loaded. Never rejects — an unloadable face resolves and the renderer
+// falls back, exactly as before.
+export function ensureFontLoaded(fontId, opts = {}) {
+  const key = `${fontId}|${opts.bold ? 'b' : 'r'}|${opts.italic ? 'i' : 'n'}`;
+  if (!inflight.has(key)) {
+    inflight.set(key, (async () => {
+      if (!BY_ID[fontId] && !BY_ID[LEGACY[fontId]]) await customFonts().catch(() => {});
+      const faces = facesForFont(fontId, opts);
+      for (const { family, weight, style } of faces) {
+        await loadFace(family, weight, style);
+        try { await document.fonts.load(`${style === 'italic' ? 'italic ' : ''}${weight} 32px "${family}"`, 'Aa أب'); } catch { /* fallback */ }
+      }
+      await document.fonts.ready;
+    })());
+  }
+  return inflight.get(key);
+}
+
+// The gate for a whole project: every font id its text clips use, with
+// the bold/italic variants the clips actually ask for. Export (and the
+// preview) await this before drawing any frame, so a frame can never
+// render with a font that is still loading.
+export function ensureFontsForProject(project) {
+  const jobs = new Map();
+  for (const c of project.textClips || []) {
+    if (!c.font) continue;
+    const key = `${c.font}|${c.bold ? 'b' : 'r'}|${c.italic ? 'i' : 'n'}`;
+    if (!jobs.has(key)) jobs.set(key, ensureFontLoaded(c.font, { bold: !!c.bold, italic: !!c.italic }));
+  }
+  return Promise.all([...jobs.values()]);
+}
+
+// The FontPicker's list: load the faces for the fonts it shows (both
+// weights, so each name renders in its own face). Called when the picker
+// opens or its filter changes — never at startup.
+export function ensureFontsForList(fontIds) {
+  return Promise.all((fontIds || []).map((id) => ensureFontLoaded(id, { bold: true })));
+}
+
+// Resolves once your (custom) fonts have been loaded. Bundled faces are
+// NOT loaded here any more — they load on demand through
+// ensureFontLoaded / ensureFontsForProject, so startup no longer waits
+// on ~100 faces and fetches no woff2 it never uses. (Before FB-33 this
+// loaded every bundled face; callers that need a bundled face must go
+// through the gate.)
 let ready = null;
 export function fontsReady() {
-  if (!ready) {
-    const loads = [customFonts()];
-    FONT_LIST.forEach((f) => {
-      const weights = [f.regular, f.bold].filter((w, i, a) => w != null && a.indexOf(w) === i);
-      weights.forEach((w) => loads.push(document.fonts.load(`${w} 32px "${f.family}"`, 'Aa أب').catch(() => {})));
-    });
-    ready = Promise.all(loads).then(() => document.fonts.ready);
-  }
+  if (!ready) ready = customFonts().then(() => document.fonts.ready);
   return ready;
 }

@@ -2,7 +2,8 @@ import React from 'react';
 import { tr, useT } from '../i18n/index.jsx';
 import { libName } from '../i18n/libNames.js';
 import { fxTimingOf, withFxTiming } from '../store.js';
-import { fxSchema, fxDefaults } from '../fx/params.js';
+import { fxSchema, fxDefaults, fxPresets, pruneFxParams } from '../fx/params.js';
+import { fxStrengthAt, sanitizeFxKeys, upsertFxKey, removeFxKey } from '../fx/fxKeys.js';
 import { clipLenTl } from '../track.js';
 import Slider from './Slider.jsx';
 import NumBox from './NumBox.jsx';
@@ -77,20 +78,61 @@ export function StrengthControl({ value, onChange, dispatch }) {
 // code. Values are stored sparsely: only values that differ from the default
 // land on the instance (clip.fxParams / effect clip .params), so an untouched
 // parameter costs nothing and renders exactly as the effect always has.
-export function ParamsControls({ fx, values, onParam, dispatch }) {
+// Toggle parameters (type: 'toggle', CC-09c) render as a switch, not a
+// slider; an effect that declares starter presets (fxPresets, CC-02) shows
+// them as chips above the sliders — tapping one applies the whole bundle
+// through onPreset (the caller prunes it to its sparse form).
+export function ParamsControls({ fx, values, onParam, onPreset, dispatch }) {
   const schema = fxSchema(fx);
   if (!schema) return null;
+  const presets = fxPresets(fx);
   const defs = fxDefaults(fx);
   const vals = { ...defs, ...(values || {}) };
   const pct = (v) => `${Math.round(v * 100)}%`;
   const S = (p) => <Slider dispatch={dispatch} {...p} />;
   return (
     <InspCard id="fx:params" title={tr('fx.parameters')}>
-      {schema.map((p) => S({
-        key: p.key, label: libName('fxparam', fx + '.' + p.key, p.name), value: vals[p.key], min: p.min, max: p.max, step: p.step,
-        ...(p.fmt === 'pct' ? { fmt: pct, numScale: 100 } : {}),
-        onChange: (v) => onParam(p.key, v),
-      }))}
+      {!!presets && (
+        <div className="chips">
+          {presets.map((pr) => (
+            <button key={pr.id} className="chip" onClick={() => onPreset && onPreset(pr)}>
+              {libName('fxpreset', fx + '.' + pr.id, pr.name)}
+            </button>
+          ))}
+        </div>
+      )}
+      {schema.map((p) => {
+        // Option entries (e.g. the particle system's preset) render as
+        // segmented buttons, like the transition direction/shape controls.
+        if (p.options) {
+          const labels = p.optionLabels || {};
+          return (
+            <div className="field" key={p.key}>
+              <span>{libName('fxparam', fx + '.' + p.key, p.name)}</span>
+              <div className="dir-seg" role="group" aria-label={libName('fxparam', fx + '.' + p.key, p.name)}>
+                {p.options.map((o) => (
+                  <button key={o} type="button" className={`btn btn-sm ${o === vals[p.key] ? 'btn-primary' : ''}`}
+                    aria-pressed={o === vals[p.key]} onClick={() => onParam(p.key, o)}>{labels[o] || o}</button>
+                ))}
+              </div>
+            </div>
+          );
+        }
+        if (p.type === 'toggle') {
+          return (
+            <div className="field" key={p.key}>
+              <span>{libName('fxparam', fx + '.' + p.key, p.name)}</span>
+              <Toggle checked={!!vals[p.key]} aria-label={libName('fxparam', fx + '.' + p.key, p.name)}
+                onChange={(e) => onParam(p.key, e.target.checked)} />
+            </div>
+          );
+        }
+        return S({
+          key: p.key, label: libName('fxparam', fx + '.' + p.key, p.name), value: vals[p.key], min: p.min, max: p.max, step: p.step,
+          ...(p.fmt === 'pct' ? { fmt: pct, numScale: 100 } : {}),
+          onChange: (v) => onParam(p.key, v),
+        });
+      })}
       <p className="dim small">{tr('fx.tunesNote')}</p>
     </InspCard>
   );
@@ -105,10 +147,53 @@ export function prunedParams(fx, current, key, value) {
   return next;
 }
 
+// ---- Effect intensity keyframes (P2-20) ----
+// The effect's strength as a function of clip-local time: keys are added at
+// the playhead with the value below, interpolated linearly between keys, and
+// the preview and the export both read them through fxStrengthAt
+// (src/fx/apply.js), so a keyframed fade has preview/export parity. With no
+// keys the static strength above is the whole story, as before.
+export function FxKeyframesCard({ keys, span, playheadLt, staticValue, onChange, dispatch }) {
+  const ks = sanitizeFxKeys(keys, span);
+  const lt = Number.isFinite(playheadLt) ? Math.min(Math.max(0, playheadLt), span) : null;
+  const cur = lt == null ? (staticValue ?? 1) : fxStrengthAt(ks, lt, staticValue);
+  const [draft, setDraft] = React.useState(null);
+  const value = draft ?? cur;
+  const pct = (v) => `${Math.round(v * 100)}%`;
+  const S = (p) => <Slider dispatch={dispatch} {...p} />;
+  return (
+    <InspCard id="fx:keyframes" title={tr('fx.keyframes')}>
+      <p className="dim small">{ks.length
+        ? tr('fx.keyframesNote', { count: ks.length })
+        : tr('fx.keyframesEmpty')}</p>
+      {lt == null && <p className="dim small">{tr('fx.keyframesNoPlayhead')}</p>}
+      {lt != null && (
+        <>
+          {S({ label: tr('fx.keyValue'), value, min: 0, max: 1, step: 0.01, fmt: pct, numScale: 100, onChange: (v) => setDraft(v) })}
+          <button className="btn btn-sm" onClick={() => { onChange(upsertFxKey(ks, lt, value, span)); setDraft(null); }}>
+            {tr('fx.keyAdd', { time: lt.toFixed(2) })}
+          </button>
+        </>
+      )}
+      {!!ks.length && (
+        <div className="fx-keys">
+          {ks.map((k) => (
+            <div key={k.t} className="fx-key-row">
+              <span>{k.t.toFixed(2)}s · {Math.round(k.v * 100)}%</span>
+              <button className="icon-btn" aria-label={tr('fx.keyRemove', { time: k.t.toFixed(2) })}
+                onClick={() => onChange(removeFxKey(ks, k.t))}>×</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </InspCard>
+  );
+}
+
 // The cards for one effect bound to a clip (clip.effects): timing window,
 // strength, parameters and region, stored in the clip's fxTiming / fxStrength /
 // fxParams / fxRegions maps — the same writes the Effects-lane panel has always made.
-export function BoundFxCards({ track, clip, fx, dispatch }) {
+export function BoundFxCards({ track, clip, fx, dispatch, playheadLt }) {
   const setRegion = (region) => {
     const next = { ...(clip.fxRegions || {}) };
     if (region) next[fx] = region; else delete next[fx];
@@ -138,10 +223,25 @@ export function BoundFxCards({ track, clip, fx, dispatch }) {
         <NumBox layout="field" label={tr('fx.windowDuration')} value={win.duration} step={0.1} min={0.1} onChange={(duration) => setTiming({ duration })} />
       </InspCard>
       {!NO_STRENGTH.includes(fx) && <StrengthControl value={clip.fxStrength?.[fx]} dispatch={dispatch} onChange={setStrength} />}
+      {!NO_STRENGTH.includes(fx) && (
+        <FxKeyframesCard keys={clip.fxKeys?.[fx]} span={span} playheadLt={playheadLt} staticValue={clip.fxStrength?.[fx] ?? 1}
+          dispatch={dispatch}
+          onChange={(next) => {
+            const map = { ...(clip.fxKeys || {}) };
+            if (next.length) map[fx] = next; else delete map[fx];
+            dispatch({ type: 'update', track, id: clip.id, patch: { fxKeys: map } });
+          }} />
+      )}
       <ParamsControls fx={fx} values={clip.fxParams?.[fx]} dispatch={dispatch}
         onParam={(key, v) => {
           const next = { ...(clip.fxParams || {}) };
           const pruned = prunedParams(fx, clip.fxParams?.[fx], key, v);
+          if (Object.keys(pruned).length) next[fx] = pruned; else delete next[fx];
+          dispatch({ type: 'update', track, id: clip.id, patch: { fxParams: next } });
+        }}
+        onPreset={(pr) => {
+          const next = { ...(clip.fxParams || {}) };
+          const pruned = pruneFxParams(fx, pr.params);
           if (Object.keys(pruned).length) next[fx] = pruned; else delete next[fx];
           dispatch({ type: 'update', track, id: clip.id, patch: { fxParams: next } });
         }} />
@@ -149,3 +249,4 @@ export function BoundFxCards({ track, clip, fx, dispatch }) {
     </>
   );
 }
+

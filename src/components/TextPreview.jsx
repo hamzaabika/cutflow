@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import { drawTextClip } from '../text/render.js';
-import { fontsReady } from '../fonts.js';
+import { ensureFontLoaded } from '../fonts.js';
 import { tr } from '../i18n/index.jsx';
 
 // Small canvas thumbnail of a text style, rendered with the real text renderer.
@@ -39,7 +39,9 @@ export default function TextPreview({ style, text, hover, width = 150, height = 
       drawTextClip(ctx, clip, lt, VW, VH);
     };
     let alive = true;
-    fontsReady().then(() => {
+    // FB-33: load only this preview's font (the gate confirms it before
+    // the frame draws), not every bundled face.
+    ensureFontLoaded(style.font, { bold: !!style.bold, italic: !!style.italic }).then(() => {
       if (!alive) return;
       if (!hover) {
         const words = sample.split(/\s+/).length;

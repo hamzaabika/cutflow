@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { AudioLines, Bot, Check, ChevronDown, CircleAlert, Download, Film, FolderOpen, Heart, History, Home, Info, Keyboard, MoreHorizontal, Save, Settings, Smartphone } from '../icons.jsx';
+import { AudioLines, Bot, Check, ChevronDown, CircleAlert, Download, Film, FolderOpen, Gauge, Heart, History, Home, Info, Keyboard, MoreHorizontal, RotateCcw, Save, Settings, Smartphone } from '../icons.jsx';
+import { WORKSPACE_IDS } from '../useWorkspaces.js';
 import ContextMenu from './ContextMenu.jsx';
 import ShortcutsDialog from './ShortcutsDialog.jsx';
 import { SUPPORT_URL } from './HomeScreen.jsx';
@@ -27,7 +28,7 @@ const saveStates = () => {
 // over the timeline is the panel's only entrance). The
 // aspect-ratio picker no longer lives here — it was duplicated three times;
 // it stays on the player badge and in Project Settings.
-export default function TopBar({ project, dispatch, onOpen, onSave, saveState = 'new', onHistory, onBridge, bridgePending = 0, onExport, onExportAudio, onExportProjectZip, onReframe, onSettings, onAbout, onHome, updateReady = false }) {
+export default function TopBar({ project, dispatch, onOpen, onSave, saveState = 'new', onHistory, onBridge, bridgePending = 0, onExport, onExportAudio, onExportProjectZip, onReframe, onSettings, onPacks, onAbout, onHome, onResources, updateReady = false, workspace = 'default', onWorkspaceChange, onWorkspaceReset }) {
   const t = useT();
   const SAVE_STATES = saveStates();
   const [menu, setMenu] = useState(null);
@@ -65,6 +66,21 @@ export default function TopBar({ project, dispatch, onOpen, onSave, saveState = 
       </div>
 
       <div className="top-actions">
+        {/* Workspaces (P2-37): one control switches the whole arrangement
+            (panel + sizes); the reset button restores the shipped preset. */}
+        {onWorkspaceChange && (
+          <label className="workspace-picker">
+            <span className="sr-only">{t('workspace.label')}</span>
+            <select value={workspace} aria-label={t('workspace.label')} onChange={(e) => onWorkspaceChange(e.target.value)}>
+              {WORKSPACE_IDS.map((id) => <option key={id} value={id}>{t(`workspace.${id}`)}</option>)}
+            </select>
+            {onWorkspaceReset && (
+              <button type="button" className="icon-btn" aria-label={t('workspace.reset')} title={t('workspace.resetTitle')} onClick={onWorkspaceReset}>
+                <RotateCcw size={14} />
+              </button>
+            )}
+          </label>
+        )}
         <div className="export-split">
           <button className="btn btn-export" onClick={onExport}><Download size={15} /> {t('topbar.export')}</button>
           <button className="btn btn-export caret" aria-label={t('topbar.moreExportOptions')} aria-haspopup="menu"
@@ -79,6 +95,7 @@ export default function TopBar({ project, dispatch, onOpen, onSave, saveState = 
           { label: t('topbar.openProject'), icon: FolderOpen, onClick: onOpen },
           { label: t('common.save'), icon: Save, shortcut: saveChord ? formatChord(saveChord) : undefined, onClick: () => onSave(false) },
           { label: t('settings.title'), icon: Settings, onClick: onSettings },
+          ...(onPacks ? [{ label: t('prim.packs'), icon: FolderOpen, onClick: onPacks }] : []),
           'sep',
           ...(onBridge ? [{ label: bridgePending > 0 ? t('topbar.agentDraftsWaiting', { count: bridgePending }) : t('topbar.agentDrafts'), icon: Bot, onClick: onBridge }] : []),
           { label: t('topbar.makeVerticalCopy'), icon: Smartphone, onClick: onReframe },
@@ -86,6 +103,7 @@ export default function TopBar({ project, dispatch, onOpen, onSave, saveState = 
           { label: t('topbar.about'), icon: Info, hint: updateReady ? t('topbar.updateAvailable') : undefined, onClick: onAbout },
           { label: t('topbar.supportProject'), icon: Heart, onClick: () => window.api.openHelp(SUPPORT_URL) },
           { label: t('topbar.shortcuts'), icon: Keyboard, onClick: () => setShortcutsOpen(true) },
+          ...(onResources ? [{ label: t('res.title'), icon: Gauge, onClick: onResources }] : []),
         ]} />
       )}
       {menu && (

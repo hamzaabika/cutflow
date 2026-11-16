@@ -41,9 +41,10 @@ export default function AudioMeter({ active }) {
     const plotH = Math.max(10, H - top - bottom);
     const frac = (db) => Math.min(1, Math.max(0, (db - FLOOR) / -FLOOR));
     const yOf = (db) => top + (1 - frac(db)) * plotH;
-    // Scale numbers.
+    // Scale numbers: 11 px minimum (P2-39 — the old 8.5 px labels were
+    // unreadable at 125–200% OS scaling, and too small even at 100%).
     g.fillStyle = '#8b8fa3';
-    g.font = '8.5px system-ui, sans-serif';
+    g.font = '11px system-ui, sans-serif';
     g.textAlign = 'right';
     for (const t of TICKS) g.fillText(t === 0 ? '0' : `−${Math.abs(t)}`, 21, yOf(t) + 3);
     // Bars: L at x=25, R at x=38, 8 px wide.
@@ -75,7 +76,7 @@ export default function AudioMeter({ active }) {
       }
       // Channel letter.
       g.fillStyle = '#8b8fa3';
-      g.font = '9px system-ui, sans-serif';
+      g.font = '11px system-ui, sans-serif';
       g.textAlign = 'center';
       g.fillText(ch === 0 ? 'L' : 'R', x + 4, H - 4);
     }

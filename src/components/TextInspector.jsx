@@ -8,10 +8,11 @@ import BrandSwatches from './BrandSwatches.jsx';
 import { dragProps } from '../dnd.js';
 import TextPreview from './TextPreview.jsx';
 import FontPicker from './FontPicker.jsx';
-import { resolveStyle } from '../text/render.js';
+import { aspectKey, aspectPosition, resolveStyle } from '../text/render.js';
 import {
   ANIM_LOOP, BUBBLES, HIGHLIGHTS, TEMPLATE_CATEGORIES, TEXT_EFFECTS, TEXT_TEMPLATES,
 } from '../text/catalog.js';
+import { CAPTION_PACKS, applyCaptionPack, captionPackPatch } from '../text/captionPacks.js';
 import TextAnimBrowser from './TextAnimBrowser.jsx';
 import { PinToTrack } from './ClipInspector.jsx';
 import { useT } from '../i18n/index.jsx';
@@ -132,6 +133,9 @@ export default function TextInspector({ clip, dispatch, project = null }) {
   const [animTab, setAnimTab] = useState('In');
   const st = useMemo(() => resolveStyle(clip), [clip]);
   const sharedToCaptions = clip.caption && applyAll;
+  // Gap-build C: a graphic clip (src/graphics/catalog.js) gets its own tab
+  // with the params its kind actually paints with.
+  const tabs = st.graphic ? [...TABS, 'Graphic'] : TABS;
 
   // Style changes go to every caption when "Apply to all main captions" is on.
   const set = (patch) => {
@@ -142,6 +146,13 @@ export default function TextInspector({ clip, dispatch, project = null }) {
     if (Object.keys(own).length) dispatch({ type: 'update', track: 'text', id: clip.id, patch: own });
   };
   const nested = (key) => (p) => set({ [key]: { ...st[key], ...p } });
+  // Neon Pop Duo: two text fields (line 1 / line 2) joined by '\n' in clip.text,
+  // and per-line spec edits one level deeper than nested() merges.
+  const duoLines = (clip.text || '').split('\n');
+  const duoLine1 = duoLines[0] || '';
+  const duoLine2 = duoLines.slice(1).join(' ');
+  const setDuoText = (l1, l2) => set({ text: l2 ? `${l1}\n${l2}` : l1 });
+  const duoLine = (line) => (p) => set({ duo: { ...st.duo, [line]: { ...st.duo[line], ...p } } });
   const S = (p) => <Slider dispatch={dispatch} {...p} />;
   // The colour roles the clip's style actually paints with, derived from the resolved style
   // (so every template — captions, titles, labels — gets exactly its own roles, no more).
@@ -177,7 +188,7 @@ export default function TextInspector({ clip, dispatch, project = null }) {
   return (
     <div className="text-inspector">
       <div className="seg-tabs" role="tablist">
-        {TABS.map((tb) => (
+        {tabs.map((tb) => (
           <button key={tb} role="tab" aria-selected={tab === tb} className={tab === tb ? 'on' : ''} onClick={() => setTab(tb)}>{t('ti.tab.' + tb.toLowerCase())}</button>
         ))}
       </div>
@@ -193,33 +204,70 @@ export default function TextInspector({ clip, dispatch, project = null }) {
           {project && <PinToTrack clip={clip} project={project} card
             set={(patch) => dispatch({ type: 'update', track: 'text', id: clip.id, patch })} />}
           <InspCard id="text:type" title={t('ti.type')}>
-          <label className="field">
-            <span>{t('ti.text')}</span>
-            <textarea rows={3} dir="auto" value={clip.text} onChange={(e) => set({ text: e.target.value })} />
-          </label>
-          <div className="field">
-            <span>{t('ti.font')}</span>
-            <FontPicker value={st.font} onChange={(font) => set({ font })} />
-          </div>
-          <div className="toggle-row">
-            <Toggle label={t('ti.bold')} on={st.bold} onClick={() => set({ bold: !st.bold })}><Bold size={15} /></Toggle>
-            <Toggle label={t('ti.italic')} on={st.italic} onClick={() => set({ italic: !st.italic })}><Italic size={15} /></Toggle>
-            <Toggle label={t('ti.underline')} on={st.underline} onClick={() => set({ underline: !st.underline })}><Underline size={15} /></Toggle>
-            <Toggle label={t('ti.uppercase')} on={st.uppercase} onClick={() => set({ uppercase: !st.uppercase })}><CaseUpper size={15} /></Toggle>
-            <span className="tool-sep" />
-            <Toggle label={t('ti.alignLeft')} on={st.align === 'left'} onClick={() => set({ align: 'left' })}><AlignLeft size={15} /></Toggle>
-            <Toggle label={t('ti.alignCenter')} on={st.align === 'center'} onClick={() => set({ align: 'center' })}><AlignCenter size={15} /></Toggle>
-            <Toggle label={t('ti.alignRight')} on={st.align === 'right'} onClick={() => set({ align: 'right' })}><AlignRight size={15} /></Toggle>
-          </div>
-          {S({ label: t('ti.size'), value: st.size, min: 12, max: 260, step: 1, onChange: (size) => set({ size }) })}
-          {S({ label: t('ti.letterSpacing'), value: st.letterSpacing, min: -5, max: 40, step: 1, onChange: (letterSpacing) => set({ letterSpacing }) })}
-          {S({ label: t('ti.lineHeight'), value: st.lineHeight, min: 0.8, max: 2.5, step: 0.05, onChange: (lineHeight) => set({ lineHeight }) })}
-          {S({ label: t('ti.maxWidth'), value: st.maxWidth, min: 0.2, max: 1, numScale: 100, fmt: (v) => `${Math.round(v * 100)}%`, onChange: (maxWidth) => set({ maxWidth }) })}
+          {st.duo ? (
+            <>
+              <label className="field">
+                <span>Line 1</span>
+                <textarea rows={2} dir="auto" value={duoLine1} onChange={(e) => setDuoText(e.target.value, duoLine2)} />
+              </label>
+              <label className="field">
+                <span>Line 2 (emphasis)</span>
+                <textarea rows={2} dir="auto" value={duoLine2} onChange={(e) => setDuoText(duoLine1, e.target.value)} />
+              </label>
+            </>
+          ) : (
+            <label className="field">
+              <span>{t('ti.text')}</span>
+              <textarea rows={3} dir="auto" value={clip.text} onChange={(e) => set({ text: e.target.value })} />
+            </label>
+          )}
+          {!st.duo && (
+            <>
+              <div className="field">
+                <span>{t('ti.font')}</span>
+                <FontPicker value={st.font} onChange={(font) => set({ font })} />
+              </div>
+              <div className="toggle-row">
+                <Toggle label={t('ti.bold')} on={st.bold} onClick={() => set({ bold: !st.bold })}><Bold size={15} /></Toggle>
+                <Toggle label={t('ti.italic')} on={st.italic} onClick={() => set({ italic: !st.italic })}><Italic size={15} /></Toggle>
+                <Toggle label={t('ti.underline')} on={st.underline} onClick={() => set({ underline: !st.underline })}><Underline size={15} /></Toggle>
+                <Toggle label={t('ti.uppercase')} on={st.uppercase} onClick={() => set({ uppercase: !st.uppercase })}><CaseUpper size={15} /></Toggle>
+                <span className="tool-sep" />
+                <Toggle label={t('ti.alignLeft')} on={st.align === 'left'} onClick={() => set({ align: 'left' })}><AlignLeft size={15} /></Toggle>
+                <Toggle label={t('ti.alignCenter')} on={st.align === 'center'} onClick={() => set({ align: 'center' })}><AlignCenter size={15} /></Toggle>
+                <Toggle label={t('ti.alignRight')} on={st.align === 'right'} onClick={() => set({ align: 'right' })}><AlignRight size={15} /></Toggle>
+              </div>
+              {S({ label: t('ti.size'), value: st.size, min: 12, max: 260, step: 1, onChange: (size) => set({ size }) })}
+              {S({ label: t('ti.letterSpacing'), value: st.letterSpacing, min: -5, max: 40, step: 1, onChange: (letterSpacing) => set({ letterSpacing }) })}
+              {S({ label: t('ti.lineHeight'), value: st.lineHeight, min: 0.8, max: 2.5, step: 0.05, onChange: (lineHeight) => set({ lineHeight }) })}
+              {S({ label: t('ti.maxWidth'), value: st.maxWidth, min: 0.2, max: 1, numScale: 100, fmt: (v) => `${Math.round(v * 100)}%`, onChange: (maxWidth) => set({ maxWidth }) })}
+            </>
+          )}
           </InspCard>
-          <InspCard id="text:fill" title={t('ti.fill')}>
-            <Color label={t('ti.color')} value={st.color} onChange={(color) => set({ color })} />
-            {S({ label: t('insp.opacity'), value: st.opacity ?? 1, numScale: 100, fmt: (v) => `${Math.round(v * 100)}%`, onChange: (opacity) => set({ opacity }) })}
-          </InspCard>
+          {st.duo && (
+            <InspCard id="text:duo" title="Neon Pop Duo">
+              <Color label="Line 1 color" value={st.duo.line1.color} onChange={(color) => duoLine('line1')({ color })} />
+              <Color label="Line 2 color" value={st.duo.line2.color} onChange={(color) => duoLine('line2')({ color })} />
+              {S({ label: 'Line 1 size', value: st.duo.line1.sizeRel, min: 0.03, max: 0.09, step: 0.005, fmt: (v) => `${(v * 100).toFixed(1)}% of width`, onChange: (sizeRel) => duoLine('line1')({ sizeRel }) })}
+              {S({ label: 'Speed', value: st.duo.speed, min: 0.5, max: 2, step: 0.05, fmt: (v) => `${v.toFixed(2)}×`, onChange: (speed) => nested('duo')({ speed }) })}
+              {S({ label: 'Word stagger', value: st.duo.line1.stagger, min: 40, max: 300, step: 10, fmt: (v) => `${v} ms`, onChange: (stagger) => duoLine('line1')({ stagger }) })}
+              {S({ label: 'Glow', value: st.duo.glowScale, min: 0, max: 2, step: 0.1, fmt: (v) => `${v.toFixed(1)}×`, onChange: (glowScale) => nested('duo')({ glowScale }) })}
+              <label className="apply-all">
+                <KitToggle checked={st.duo.lightMode} onChange={(e) => nested('duo')({ lightMode: e.target.checked })} />
+                Light mode (no blur, opacity + scale only)
+              </label>
+              <label className="apply-all">
+                <KitToggle checked={st.duo.hardCut} onChange={(e) => nested('duo')({ hardCut: e.target.checked })} />
+                Hard-cut exit (no fade)
+              </label>
+            </InspCard>
+          )}
+          {!st.duo && (
+            <InspCard id="text:fill" title={t('ti.fill')}>
+              <Color label={t('ti.color')} value={st.color} onChange={(color) => set({ color })} />
+              {S({ label: t('insp.opacity'), value: st.opacity ?? 1, numScale: 100, fmt: (v) => `${Math.round(v * 100)}%`, onChange: (opacity) => set({ opacity }) })}
+            </InspCard>
+          )}
           {colorRoles.length > 0 && (
             <InspCard id="text:style-colors" title={t('ti.styleColors')}>
               {colorRoles}
@@ -242,6 +290,21 @@ export default function TextInspector({ clip, dispatch, project = null }) {
           )}
 
           </InspCard>
+          {!st.duo && (
+          <InspCard id="text:extrude" title={t('ti.extrude')}
+            right={<KitToggle checked={st.extrude.on} onChange={(e) => nested('extrude')({ on: e.target.checked })} aria-label={t('ti.extrude')} />}>
+          {st.extrude.on && (
+            <>
+              {S({ label: t('ti.extrudeDepth'), value: st.extrude.depth, min: 1, max: 40, step: 1, fmt: (v) => `${Math.round(v)} px`, onChange: (depth) => nested('extrude')({ depth }) })}
+              {S({ label: t('ti.extrudeBevel'), value: st.extrude.bevel, min: 0, max: 10, step: 1, fmt: (v) => `${Math.round(v)} px`, onChange: (bevel) => nested('extrude')({ bevel }) })}
+              {S({ label: t('ti.extrudeLight'), value: st.extrude.light, min: 0, max: 360, step: 5, fmt: (v) => `${Math.round(v)}°`, onChange: (light) => nested('extrude')({ light }) })}
+              {S({ label: t('ti.extrudeTiltX'), value: st.extrude.tiltX, min: -45, max: 45, step: 1, fmt: (v) => `${Math.round(v)}°`, onChange: (tiltX) => nested('extrude')({ tiltX }) })}
+              {S({ label: t('ti.extrudeTiltY'), value: st.extrude.tiltY, min: -45, max: 45, step: 1, fmt: (v) => `${Math.round(v)}°`, onChange: (tiltY) => nested('extrude')({ tiltY }) })}
+            </>
+          )}
+
+          </InspCard>
+          )}
           <InspCard id="text:background" title={t('ti.background')}
             right={<KitToggle checked={st.bg.on} onChange={(e) => nested('bg')({ on: e.target.checked })} aria-label={t('ti.background')} />}>
           {st.bg.on && (
@@ -262,8 +325,32 @@ export default function TextInspector({ clip, dispatch, project = null }) {
           </InspCard>
           <InspCard id="text:position" title={t('ti.positionTiming')}>
             <p className="dim small">{t('ti.dragNote')}</p>
-          {S({ label: t('insp.positionX'), value: st.x, numScale: 100, fmt: (v) => `${Math.round(v * 100)}%`, onChange: (x) => set({ x }) })}
-          {S({ label: t('insp.positionY'), value: st.y, numScale: 100, fmt: (v) => `${Math.round(v * 100)}%`, onChange: (y) => set({ y }) })}
+          {(() => {
+            // Responsive titles (P2-13): the sliders show the position for
+            // this aspect, and every edit is also saved as that aspect's
+            // override, so the title keeps its place per aspect.
+            const aspect = project ? aspectKey(project.width, project.height) : 'other';
+            const effPos = project ? aspectPosition(clip, project.width, project.height) : { x: st.x, y: st.y };
+            const setPos = (patch) => {
+              const next = { ...effPos, ...patch };
+              set({ ...patch, responsive: { ...(clip.responsive || {}), [aspect]: { x: next.x, y: next.y } } });
+            };
+            const clearAspect = () => {
+              const next = { ...(clip.responsive || {}) };
+              delete next[aspect];
+              set({ responsive: next });
+            };
+            return (
+              <>
+                {S({ label: t('insp.positionX'), value: effPos.x, numScale: 100, fmt: (v) => `${Math.round(v * 100)}%`, onChange: (x) => setPos({ x }) })}
+                {S({ label: t('insp.positionY'), value: effPos.y, numScale: 100, fmt: (v) => `${Math.round(v * 100)}%`, onChange: (y) => setPos({ y }) })}
+                <p className="dim small">{t('prim.respNote', { aspect })}</p>
+                {clip.responsive?.[aspect] && (
+                  <button type="button" className="btn btn-sm" onClick={clearAspect}>{t('prim.respReset', { aspect })}</button>
+                )}
+              </>
+            );
+          })()}
           {S({ label: t('insp.rotation'), value: st.rotation || 0, min: -180, max: 180, step: 1, fmt: (v) => `${Math.round(v)}°`, onChange: (rotation) => set({ rotation }) })}
           <NumBox layout="field" label={t('insp.startS')} step={0.1} min={0} value={clip.start}
             onChange={(v) => set({ start: Math.max(0, v) })} />
@@ -275,6 +362,23 @@ export default function TextInspector({ clip, dispatch, project = null }) {
 
       {tab === 'Templates' && (
         <div className="pad-block">
+          {clip.caption && (
+            <div className="caption-packs">
+              <div className="look-cat-title">{t('ti.captionPacks')}</div>
+              <p className="dim small">{t('ti.captionPacksNote')}</p>
+              {CAPTION_PACKS.map((pack) => (
+                <button key={pack.id} type="button" className="composer-apply caption-pack-row"
+                  title={pack.desc}
+                  onClick={() => {
+                    const applied = applyCaptionPack(clip, pack.id);
+                    if (applied) set({ ...captionPackPatch(pack), template: applied.template });
+                  }}>
+                  <span className="composer-name">{pack.name}</span>
+                  <span className="composer-meta">{pack.desc}</span>
+                </button>
+              ))}
+            </div>
+          )}
           <TemplateGrid activeId={clip.template} captionOnly={clip.caption} sampleText={clip.caption ? undefined : clip.text}
             onPick={(t) => set({ ...stylePatch(t.patch), template: t.id })} />
         </div>
@@ -301,6 +405,9 @@ export default function TextInspector({ clip, dispatch, project = null }) {
 
       {tab === 'Animation' && (
         <div className="pad-block">
+          {st.duo && (
+            <div className="sub-head">Neon Pop Duo runs its own word-by-word timing — the highlight and animation controls below do not apply to this clip.</div>
+          )}
           <div className="sub-head">{t('ti.wordHighlight')}</div>
           <div className="chips">
             {HIGHLIGHTS.map((h) => (
@@ -346,6 +453,79 @@ export default function TextInspector({ clip, dispatch, project = null }) {
               {S({ label: t('ci.speed'), value: st.animLoop.speed, min: 0.2, max: 3, step: 0.1, fmt: (v) => `${v.toFixed(1)}×`, onChange: (speed) => nested('animLoop')({ speed }) })}
               <StyleTiles ns="animloop" items={ANIM_LOOP} value={st.animLoop.id} sample={clip.text} onPick={(id) => nested('animLoop')({ id })} styleFor={animStyle('Loop')} />
             </>
+          )}
+        </div>
+      )}
+
+      {tab === 'Graphic' && st.graphic && (
+        <div className="pad-block">
+          <div className="sub-head">{st.graphic.kind === 'panel' ? 'Panel' : st.graphic.kind.split('-').map((w) => w[0].toUpperCase() + w.slice(1)).join(' ')}</div>
+          {st.graphic.kind === 'panel' ? (
+            <>
+              <Color label="Panel colour" value={st.graphic.bgColor || st.graphic.color || '#111111'} onChange={(bgColor) => nested('graphic')({ bgColor })} />
+              {S({ label: 'Opacity', value: st.graphic.opacity ?? 0.9, min: 0.1, max: 1, step: 0.01, fmt: (v) => `${Math.round(v * 100)}%`, onChange: (opacity) => nested('graphic')({ opacity }) })}
+            </>
+          ) : (
+            <Color label="Colour" value={st.graphic.color || st.color} onChange={(color) => nested('graphic')({ color })} />
+          )}
+          {(st.graphic.kind === 'progress-ring' || st.graphic.kind === 'progress-bar') && (
+            <>
+              {S({ label: `Progress${st.graphic.progress == null ? ' (time-driven)' : ''}`, value: st.graphic.progress ?? 0, min: 0, max: 1, step: 0.01, fmt: (v) => `${Math.round(v * 100)}%`, onChange: (progress) => nested('graphic')({ progress }) })}
+              {st.graphic.progress != null && (
+                <div className="pad-x"><button className="btn btn-sm" onClick={() => nested('graphic')({ progress: null })}>Animate over clip</button></div>
+              )}
+            </>
+          )}
+          {st.graphic.kind === 'progress-ring' && (
+            <>
+              {S({ label: 'Ring thickness', value: st.graphic.stroke ?? 0.16, min: 0.05, max: 0.3, step: 0.01, fmt: (v) => `${Math.round(v * 100)}%`, onChange: (stroke) => nested('graphic')({ stroke }) })}
+              <Color label="Track colour" value={st.graphic.trackColor || '#ffffff'} onChange={(trackColor) => nested('graphic')({ trackColor })} />
+            </>
+          )}
+          {st.graphic.kind === 'progress-bar' && (
+            <>
+              {S({ label: 'Bar width', value: st.graphic.width ?? 0.6, min: 0.2, max: 0.9, step: 0.01, fmt: (v) => `${Math.round(v * 100)}%`, onChange: (width) => nested('graphic')({ width }) })}
+              <Color label="Track colour" value={st.graphic.trackColor || '#ffffff'} onChange={(trackColor) => nested('graphic')({ trackColor })} />
+            </>
+          )}
+          {st.graphic.kind === 'number-counter' && (
+            <>
+              {S({ label: 'From', value: st.graphic.from ?? 0, min: 0, max: 1000, step: 10, fmt: (v) => `${Math.round(v)}`, onChange: (from) => nested('graphic')({ from }) })}
+              {S({ label: 'To', value: st.graphic.to ?? 100, min: 0, max: 10000, step: 10, fmt: (v) => `${Math.round(v)}`, onChange: (to) => nested('graphic')({ to }) })}
+            </>
+          )}
+          {st.graphic.kind === 'countdown-timer' && (
+            <>
+              {S({ label: 'Seconds', value: st.graphic.seconds ?? 10, min: 3, max: 120, step: 1, fmt: (v) => `${Math.round(v)}s`, onChange: (seconds) => nested('graphic')({ seconds }) })}
+              <div className="chips">
+                {['mmss', 's'].map((f) => (
+                  <button key={f} className={`chip ${(st.graphic.format || 'mmss') === f ? 'on' : ''}`} onClick={() => nested('graphic')({ format: f })}>{f === 'mmss' ? '0:10' : '10'}</button>
+                ))}
+              </div>
+            </>
+          )}
+          {st.graphic.kind === 'pointer-highlight' && (
+            S({ label: 'Ring size', value: st.graphic.radius ?? 0.9, min: 0.4, max: 1.6, step: 0.05, fmt: (v) => `${v.toFixed(2)}×`, onChange: (radius) => nested('graphic')({ radius }) })
+          )}
+          {st.graphic.kind === 'kinetic-dot-grid' && (
+            <>
+              {S({ label: 'Columns', value: st.graphic.cols ?? 7, min: 3, max: 12, step: 1, fmt: (v) => `${Math.round(v)}`, onChange: (cols) => nested('graphic')({ cols: Math.round(cols) }) })}
+              {S({ label: 'Rows', value: st.graphic.rows ?? 4, min: 2, max: 8, step: 1, fmt: (v) => `${Math.round(v)}`, onChange: (rows) => nested('graphic')({ rows: Math.round(rows) }) })}
+              {S({ label: 'Spacing', value: st.graphic.spacing ?? 1.1, min: 0.7, max: 1.6, step: 0.05, fmt: (v) => `${v.toFixed(2)}×`, onChange: (spacing) => nested('graphic')({ spacing }) })}
+            </>
+          )}
+          {st.graphic.kind === 'stroke-draw-on' && (
+            <>
+              <div className="chips">
+                {['checkmark', 'circle', 'underline'].map((sh) => (
+                  <button key={sh} className={`chip ${(st.graphic.shape || 'checkmark') === sh ? 'on' : ''}`} onClick={() => nested('graphic')({ shape: sh })}>{sh}</button>
+                ))}
+              </div>
+              {S({ label: 'Stroke width', value: st.graphic.stroke ?? 0.12, min: 0.06, max: 0.25, step: 0.01, fmt: (v) => `${Math.round(v * 100)}%`, onChange: (stroke) => nested('graphic')({ stroke }) })}
+            </>
+          )}
+          {st.graphic.kind === 'credits' && (
+            S({ label: 'Roll speed', value: st.graphic.speed ?? 46, min: 10, max: 120, step: 1, fmt: (v) => `${Math.round(v)} px/s`, onChange: (speed) => nested('graphic')({ speed }) })
           )}
         </div>
       )}

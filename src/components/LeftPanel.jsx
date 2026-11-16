@@ -1,15 +1,21 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState, lazy, Suspense } from 'react';
 import {
   Anvil, ArrowLeftRight, Blend, Captions as CaptionsIcon, Contrast, Download, Film, Flag, FolderOpen, ImagePlus, Mic, Music, Plus, Scissors, SlidersHorizontal,
   Loader2, Sparkles, Square, Trash2, Type, Upload, WandSparkles, X, Copy, Palette, Pencil,
   Layers, Check, ChevronDown, ChevronRight, Sparkles as SparklesIcon, FolderPlus, MonitorUp, History, UserRound, Users,
-  Languages, Sticker, SwatchBook, Unlink } from '../icons.jsx';
+  Languages, Sticker, SwatchBook, Unlink, Star } from '../icons.jsx';
 import Card from '../ui/Card.jsx';
 import BrandPanel from './BrandPanel.jsx';
+// Forge + Composer are tab panels, not startup UI: they load on first open (P2-28).
+const ComposerPanel = lazy(() => import('./ComposerPanel.jsx'));
+const ForgePanel = lazy(() => import('./ForgePanel.jsx'));
 import { useAssets } from '../useAssets.js';
-import { mediaTreeCounts, mediaTreeFilter } from '../assetsLib.js';
-import ForgePanel from './ForgePanel.jsx';
+import { mediaTreeCounts, mediaTreeFilter, mediaMatchesQuery, mediaTranscriptTexts, sortMedia } from '../assetsLib.js';
+import { autoTags, buildMediaIndex, searchMediaIndex, loadMediaIndexPrefs, saveMediaIndexPrefs, deleteMediaIndex } from '../mediaIndex.js';
+import { collectProjectSignals, recommendAssets, loadRecommendPrefs, saveRecommendPrefs, dismissRecommendation } from '../recommend.js';
 import GradePanel from './GradePanel.jsx';
+import AiBadge from './AiBadge.jsx';
+import { badgeForProvider } from '../ai/badges.js';
 import { LookThumb } from './FilterThumbs.jsx';
 import { FILTER_CATS, filterName } from '../fx/filters.js';
 import { loadPresets, savePresets, upsertPreset, removePreset, presetPatch } from '../fx/presets.js';
@@ -18,12 +24,34 @@ import {
   captureStylePatch, loadDefaultTemplateName, saveDefaultTemplateName,
 } from '../text/userTemplates.js';
 import { BUNDLED_LUTS } from '../fx/lut.js';
+import { colourSpaceLabel } from '../colour.js';
 import { loadLutLibrary, saveLutLibrary, addLutEntry, removeLutEntry } from '../fx/lutlib.js';
 import { formatTime, getPlaybackQuality, layerCount, levelCopyState, previewPath, projectDuration, proxyPrefOn, toFileUrl, uid } from '../store.js';
+import SourceMonitor from './SourceMonitor.jsx';
 import { TRANSLATE_LANGS, langName, translationSources, translationStyle } from '../translate.js';
-import { flatWords, rangesSeconds, retakeCutRanges, retakeGroups, selectionCutRanges, sentenceRange, silenceCutRanges, transcriptSentences } from '../transcript.js';
+import { flatWords, rangesSeconds, retakeCutRanges, retakeGroups, selectionCutRanges, sentenceRange, silenceCutRanges, transcriptSentences, DEFAULT_CONFIDENCE_THRESHOLD, confidenceSummary, confidenceStats, lowConfidenceWords, proofreadSentences, speakerName, SPEAKER_IDS } from '../transcript.js';
+import { correctCaptionClips } from '../captionCorrection.js';
+import { correctClip } from '../captionCorrect.js';
+import AiCostBadge from './AiCostBadge.jsx';
+import { cloudCaptionFeature } from '../aiCost.js';
 import { detectFillers } from '../fillers.js';
+import { scoreFillerDetection, scoreRetakeCuts, scoreSilenceRanges } from '../aiCutConfidence.js';
+import CutReviewDialog from './CutReviewDialog.jsx';
+import CaptionProofreadDialog from './CaptionProofreadDialog.jsx';
 import { COLLECTIONS, PACKS, COLLECTION_ITEMS, loadFavorites, saveFavorites, toggleFavorite } from '../fx/collections.js';
+import { catalogCounts, catalogEntryBySlug, engineVariantCounts } from '../fx/transitionCatalog.js';
+
+// FB-10: honest catalog numbers — 135 names, 45 real, 90 adapted, 41 distinct
+// engine transitions used (of 119 in the engine). Computed once; the counts
+// line in the Transitions tab renders these, never "135 unique algorithms".
+const TR_COUNTS = catalogCounts();
+const TR_VARIANT_COUNTS = engineVariantCounts();
+// Status per catalog slug: the 135 catalog's status where the slug is in it,
+// else the collection item's own status (§A extras / pack items).
+const TR_STATUS_BY_SLUG = new Map(COLLECTION_ITEMS.map((e) => [e.slug, catalogEntryBySlug(e.slug)?.status || e.status]));
+import { GRAPHIC_TEMPLATES } from '../graphics/catalog.js';
+import { drawTextClip } from '../text/render.js';
+import { fontsReady } from '../fonts.js';
 import { parseSRT, regroupSegments, toSRT } from '../subtitles.js';
 import { autoChapters, chaptersText } from '../chapters.js';
 import { DEFAULT_ADJUST, EFFECTS, EFFECT_GROUPS, FILTERS, TRANSITIONS } from '../effects.js';
@@ -34,9 +62,11 @@ import AudioLibrary, { MUSIC_TAGS, SFX_TAGS, SOUNDZA_TAGS, TROLL_TAGS } from './
 import StockLibrary, { CHIPS as STOCK_CHIPS } from './StockLibrary.jsx';
 import SideNav, { TabFrame } from './SideNav.jsx';
 import ContextMenu from './ContextMenu.jsx';
-import { FxThumb, samplePictureUrl } from '../fx/previews.jsx';
+import { FxThumb, samplePictureUrl, useFootageCanvas, useLiveThumbFrame } from '../fx/previews.jsx';
+import { loadRecentEffects, recordRecentEffect } from '../fx/recentEffects.js';
+import { effectUpdatesForSelection } from '../fx/applyToSelected.js';
 import MediaFavorites from './MediaFavorites.jsx';
-import { FavStar, favFile } from '../favorites.jsx';
+import { FavStar, favFile, useFavorites } from '../favorites.jsx';
 import { TemplateGrid } from './TextInspector.jsx';
 import { TEMPLATE_CATEGORIES, TEXT_TEMPLATES } from '../text/catalog.js';
 import { STICKER_CATS, STICKERS } from '../stickers.js';
@@ -61,6 +91,7 @@ export const TABS = [
   { id: 'transitions', icon: Blend, name: 'Transitions' },
   { id: 'filters', icon: Contrast, name: 'Filters' },
   { id: 'adjust', icon: SlidersHorizontal, name: 'Adjust' },
+  { id: 'composer', icon: Sparkles, name: 'Composer' },
   { sep: true },
   { id: 'brand', icon: SwatchBook, name: 'Brand' },
   { id: 'forge', icon: Anvil, name: 'Forge' },
@@ -93,8 +124,9 @@ export default function LeftPanel(props) {
         {activeTab === 'stickers' && <StickersTab {...p} />}
         {activeTab === 'filters' && <FiltersTab {...p} />}
         {activeTab === 'adjust' && <TabFrame><AdjustTab {...p} /></TabFrame>}
+        {activeTab === 'composer' && <TabFrame><Suspense fallback={null}><ComposerPanel {...p} /></Suspense></TabFrame>}
         {activeTab === 'brand' && <TabFrame><BrandPanel {...p} /></TabFrame>}
-        {activeTab === 'forge' && <TabFrame><ForgePanel {...p} /></TabFrame>}
+        {activeTab === 'forge' && <TabFrame><Suspense fallback={null}><ForgePanel {...p} /></Suspense></TabFrame>}
       </div>
     </aside>
   );
@@ -175,9 +207,33 @@ function Head({ title, hint, children }) {
 
 // A media item. Click selects it and plays it in the player (then Delete removes it), double-click adds it to the
 // timeline. Right-click opens the item menu (Rename / Duplicate / Delete).
-function MediaCard({ m, onAdd, onRemove, onOverlay, onPeek, peeking, onRelink, selected, onSelectCard, onCardMenu, onDeleteCard, renaming, onRename, onRenameEnd }) {
+function MediaCard({ m, onAdd, onRemove, onOverlay, onPeek, peeking, onRelink, selected, onSelectCard, onCardMenu, onDeleteCard, renaming, onRename, onRenameEnd, transcriptMatch }) {
   const t = useT();
   const lost = !!m.missing;
+  // Gap-build C (CSV row 231): hover scrub — moving the pointer across a
+  // video thumbnail scrubs through its filmstrip sprite (m.thumb, one frame
+  // per thumbCount) and shows the time under the pointer. The poster still
+  // shows at rest; the sprite only takes over while scrubbing.
+  const [scrub, setScrub] = useState(null);
+  const canScrub = m.type === 'video' && m.thumb && (m.thumbCount || 0) > 1 && Number(m.duration) > 0;
+  const onScrubMove = (e) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    if (!r.width) return;
+    const frac = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+    setScrub({ frame: Math.min(m.thumbCount - 1, Math.floor(frac * m.thumbCount)), time: frac * m.duration });
+  };
+  // One frame of the filmstrip sprite (poster not generated yet: the sprite
+  // IS the thumbnail, showing its last frame; while scrubbing it shows the
+  // frame under the pointer instead).
+  const sprite = (frame) => (
+    <div className="asset-sprite" style={{
+      aspectRatio: `${m.thumbW || 16} / ${m.thumbH || 9}`,
+      [(m.thumbW || 16) / (m.thumbH || 9) < 4 / 3 ? 'width' : 'height']: '100%',
+      backgroundImage: `url("${toFileUrl(m.thumb)}")`,
+      backgroundSize: `${m.thumbCount * 100}% 100%`,
+      backgroundPosition: `${(frame / (m.thumbCount - 1)) * 100}% 0`,
+    }} />
+  );
   // Rename input: Escape must win over the blur commit below (unmounting a
   // focused input can still fire blur), so a cancelled rename never saves.
   const renameCancelled = useRef(false);
@@ -197,7 +253,7 @@ function MediaCard({ m, onAdd, onRemove, onOverlay, onPeek, peeking, onRelink, s
       onDoubleClick={() => (lost && onRelink ? onRelink(m) : onAdd(m.id))}
       onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); if (onCardMenu) onCardMenu(m, e); }}
       title={lost ? t('panel.media.cardLost', { name: m.name }) : `${m.name}\n${onPeek ? t('panel.media.cardPeek') : ''}${t('panel.media.cardDrag')}${onRemove ? t('panel.media.cardDelete') : ''}`}>
-      <div className="asset-thumb">
+      <div className="asset-thumb" onMouseMove={canScrub ? onScrubMove : undefined} onMouseLeave={canScrub ? () => setScrub(null) : undefined}>
         {lost ? (
           // Lost source (Part 3, 2026-11-10): the file is gone from disk, so
           // no thumbnail — cached or otherwise — stands in for it. The card
@@ -208,20 +264,14 @@ function MediaCard({ m, onAdd, onRemove, onOverlay, onPeek, peeking, onRelink, s
             <span className="asset-lost-name">{m.name}</span>
           </div>
         ) : (<>
-        {m.type === 'video' && (m.poster ? (
+        {m.type === 'video' && (scrub != null ? sprite(scrub.frame) : m.poster ? (
           // W4b: the dedicated poster frame fills the card (object-fit: cover) — a portrait
           // video no longer renders as a thin strip in a wide black card.
           <img src={toFileUrl(m.poster)} alt="" draggable={false} />
         ) : m.thumb && m.thumbCount > 1 ? (
           // Sprite fallback (poster not generated yet): one frame, sized to COVER the
           // thumb box — the frame overflows on its long axis and the box crops it.
-          <div className="asset-sprite" style={{
-            aspectRatio: `${m.thumbW || 16} / ${m.thumbH || 9}`,
-            [(m.thumbW || 16) / (m.thumbH || 9) < 4 / 3 ? 'width' : 'height']: '100%',
-            backgroundImage: `url("${toFileUrl(m.thumb)}")`,
-            backgroundSize: `${m.thumbCount * 100}% 100%`,
-            backgroundPosition: `${(Math.min(1, m.thumbCount - 1) / (m.thumbCount - 1)) * 100}% 0`,
-          }} />
+          sprite(m.thumbCount - 1)
         ) : <video src={toFileUrl(m.path) + '#t=0.5'} preload="metadata" muted />)}
         {m.type === 'image' && <img src={toFileUrl(m.path)} alt="" draggable={false} />}
         {m.type === 'audio' && (
@@ -230,6 +280,10 @@ function MediaCard({ m, onAdd, onRemove, onOverlay, onPeek, peeking, onRelink, s
           </div>
         )}
         {m.type !== 'image' && <span className="asset-dur">{formatTime(m.duration).slice(0, 5)}</span>}
+        {scrub != null && <span className="asset-scrub">{formatTime(scrub.time).slice(0, 5)}</span>}
+        {m.vfr && <span className="asset-opt vfr" title={t('panel.media.vfrTitle')}>{t('panel.media.vfr')}</span>}
+        {transcriptMatch && <span className="asset-opt transcript" title={t('panel.media.transcriptMatchTitle')}>{t('panel.media.transcriptMatch')}</span>}
+        {colourSpaceLabel(m) && <span className="asset-opt colour" title={t('panel.media.colourTitle', { label: colourSpaceLabel(m) })}>{colourSpaceLabel(m)}</span>}
         {m.optimizing && <span className="asset-opt" title={t('panel.media.optimizingTitle')}>{t('panel.media.optimizing')}</span>}
         {!m.optimizing && proxyPrefOn() && previewPath(m) !== (m.proxy || m.path) && (
           <span className="asset-opt proxy" title={t('panel.media.proxyTitle')}>{t('panel.media.proxy')}</span>
@@ -273,7 +327,46 @@ function MediaCard({ m, onAdd, onRemove, onOverlay, onPeek, peeking, onRelink, s
   );
 }
 
-function MediaTab({ media, onImport, onAdd, onRemoveMedia, onRenameMedia, onDuplicateMedia, onRemoveMediaMany, onAddAsOverlay, onStockAdd, onAddFile, onOpenSettings, stockKey, sub, setSub, onRecordScreen, onPeek, peekId, onRelink, onNewBlackVideo, onNewMatte }) {
+// Intelligent asset recommendations (P3-10): the local P2-41 index ranked
+// by the project's own signals (transcript words, timeline clip names,
+// timeline media tags). Local only — no network — and each suggestion says
+// why it was suggested. Dismissing one persists locally; the index itself is
+// managed by the row above (off = no suggestions, delete = wipes it).
+function Recommendations({ mediaIndex, project, visual, transcripts, dismissed, onAdd, onDismiss }) {
+  const t = useT();
+  const byId = useMemo(() => new Map(visual.map((m) => [m.id, m])), [visual]);
+  const recs = useMemo(() => {
+    if (!mediaIndex) return [];
+    const signals = collectProjectSignals(project, byId, transcripts);
+    return recommendAssets({ index: mediaIndex, items: visual, signals, dismissed, limit: 5 });
+  }, [mediaIndex, project, byId, transcripts, visual, dismissed]);
+  if (!recs.length) return null;
+  const reasonText = (r) => {
+    if (r.kind === 'transcript') return t('panel.media.reasonTranscript', { term: r.term });
+    if (r.kind === 'clip') return t('panel.media.reasonClip', { clip: r.clip, term: r.term });
+    if (r.kind === 'tag') return t('panel.media.reasonTag', { term: r.term });
+    return t('panel.media.reasonName', { term: r.term });
+  };
+  return (
+    <div className="media-recommend" data-testid="recommendations">
+      <div className="media-recommend-title"><Sparkles size={13} /> {t('panel.media.recommendTitle')}</div>
+      {recs.map((rec) => (
+        <div key={rec.id} className="media-recommend-row">
+          <button type="button" className="media-recommend-add" title={t('panel.media.recommendAdd')} onClick={() => onAdd(rec.item.id)}>
+            <Plus size={13} /> <span className="media-recommend-name">{rec.item.name}</span>
+            <span className="media-recommend-type">{rec.item.type}</span>
+          </button>
+          <span className="media-recommend-why" title={rec.reasons.map(reasonText).join(' · ')}>{rec.reasons.map(reasonText).join(' · ')}</span>
+          <button type="button" className="media-recommend-dismiss" aria-label={t('panel.media.recommendDismiss')} title={t('panel.media.recommendDismiss')} onClick={() => onDismiss(rec.id)}>
+            <X size={13} />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MediaTab({ media, project, onImport, onAdd, onAddRange, onRemoveMedia, onRenameMedia, onDuplicateMedia, onRemoveMediaMany, onAddAsOverlay, onStockAdd, onAddFile, onOpenSettings, stockKey, sub, setSub, onRecordScreen, onPeek, peekId, onRelink, onNewBlackVideo, onNewMatte }) {
   const t = useT();
   const visual = media; // videos, photos and audio
   // One source switcher replaces the old second rail: Yours / Favorites / Stock live in a
@@ -289,7 +382,63 @@ function MediaTab({ media, onImport, onAdd, onRemoveMedia, onRenameMedia, onDupl
   // grid below it for real (mediaTreeFilter).
   const [treeSel, setTreeSel] = useState('all');
   const counts = mediaTreeCounts(visual);
-  const shownMedia = mediaTreeFilter(visual, treeSel);
+  // Media search (P1-47): the same SearchBox the other panels use, over the
+  // chip-filtered list. Query matches name, extension, kind/origin tags and
+  // any tags the item carries, plus spoken dialogue attributed from the
+  // project's caption clips (assetsLib.mediaTranscriptTexts). Favorites-only
+  // narrows to the starred files (the star on each card, same list as the
+  // Favorites view). Search is a plain substring scan over the filtered list,
+  // so it stays linear and allocation-light on big libraries.
+  const [query, setQuery] = useState('');
+  const [sort, setSort] = useState('added');
+  const [favOnly, setFavOnly] = useState(false);
+  const { has: isFav } = useFavorites();
+  const transcripts = useMemo(
+    () => mediaTranscriptTexts(project || { media: visual, textClips: [], videoClips: [], audioClips: [], overlayClips: [] }),
+    [project, visual],
+  );
+  const chipFiltered = mediaTreeFilter(visual, treeSel);
+  const favFiltered = favOnly ? chipFiltered.filter((m) => m.path && isFav(`file:${m.path}`)) : chipFiltered;
+  // Semantic search (P2-41): when the index is on, a query ranks by
+  // relevance (name > tags > spoken dialogue, Arabic-normalised) instead of
+  // the plain substring scan; when it is off, the old scan runs unchanged.
+  // The index is built in memory from the project's own media + transcripts
+  // and rebuilds on every media/transcript change — nothing leaves the PC.
+  const [indexPrefs, setIndexPrefs] = useState(() => loadMediaIndexPrefs(localStorage));
+  const mediaIndex = useMemo(() => {
+    if (!indexPrefs.enabled) return null;
+    return buildMediaIndex(visual.map((m) => ({
+      id: m.id, name: m.name, type: m.type,
+      tags: autoTags(m, transcripts.get(m.id) || ''),
+      transcript: transcripts.get(m.id) || '',
+    })));
+  }, [visual, transcripts, indexPrefs.enabled]);
+  const setIndexEnabled = (on) => {
+    setIndexPrefs((prev) => {
+      const next = { ...prev, enabled: on };
+      saveMediaIndexPrefs(localStorage, next);
+      return next;
+    });
+  };
+  const deleteIndex = () => setIndexPrefs(deleteMediaIndex(localStorage));
+  // Recommendations (P3-10): on by default, dismissals persist locally.
+  const [recPrefs, setRecPrefs] = useState(() => loadRecommendPrefs(localStorage));
+  const setRecEnabled = (on) => {
+    setRecPrefs((prev) => {
+      const next = { ...prev, enabled: on };
+      saveRecommendPrefs(localStorage, next);
+      return next;
+    });
+  };
+  const dismissRec = (id) => setRecPrefs(dismissRecommendation(localStorage, id));
+  const byId = useMemo(() => new Map(visual.map((m) => [m.id, m])), [visual]);
+  const ranked = useMemo(() => (mediaIndex && query.trim() ? searchMediaIndex(mediaIndex, query) : null), [mediaIndex, query]);
+  const matched = ranked
+    ? ranked.map((r) => ({ m: byId.get(r.id), match: true, viaTranscript: r.viaTranscript })).filter((r) => r.m && favFiltered.some((f) => f.id === r.m.id) && chipFiltered.some((f) => f.id === r.m.id))
+    : favFiltered.map((m) => ({ m, ...mediaMatchesQuery(m, query, transcripts.get(m.id) || '') })).filter((r) => r.match);
+  const transcriptHits = new Map(matched.filter((r) => r.viaTranscript).map((r) => [r.m.id, true]));
+  const shownMedia = ranked ? matched.map((r) => r.m) : sortMedia(matched.map((r) => r.m), sort);
+  const searching = !!query.trim() || favOnly;
   // Multi-select (checklist #14) + context menus (#9, #10): the selection
   // lives here, next to the grid it describes. Click still peeks (as before);
   // Ctrl/Cmd-click toggles one item, Shift-click ranges from the anchor,
@@ -425,6 +574,46 @@ function MediaTab({ media, onImport, onAdd, onRemoveMedia, onRenameMedia, onDupl
           </button>
         ) : (
           <>
+            <div className="panel-search panel-sticky media-search"><SearchBox value={query} onChange={setQuery} placeholder={t('panel.media.search')} ariaLabel={t('panel.media.searchAria')} /></div>
+            {peekId && visual.find((m) => m.id === peekId) && (
+              <SourceMonitor media={visual.find((m) => m.id === peekId)} onInsert={onAddRange || onAdd} onClose={() => onPeek(null)} />
+            )}
+            <div className="media-browse-row">
+              <label className="media-sort-label">{t('panel.media.sort')}
+                <select className="media-sort" value={sort} aria-label={t('panel.media.sortAria')} onChange={(e) => setSort(e.target.value)}>
+                  <option value="added">{t('panel.media.sortAdded')}</option>
+                  <option value="name">{t('panel.media.sortName')}</option>
+                  <option value="duration">{t('panel.media.sortDuration')}</option>
+                </select>
+              </label>
+              <button type="button" className={`chip media-fav-only ${favOnly ? 'on' : ''}`} aria-pressed={favOnly} onClick={() => setFavOnly((v) => !v)}>
+                <Star size={12} fill={favOnly ? 'currentColor' : 'none'} /> {t('panel.media.favoritesOnly')}
+              </button>
+              {searching && <span className="media-count" role="status">{t('panel.media.results', { shown: shownMedia.length, total: chipFiltered.length })}{ranked ? ` · ${t('panel.media.indexRanked')}` : ''}</span>}
+            </div>
+            {/* Search index controls (P2-41): the offline index can be
+                switched off (plain substring search) or deleted (its saved
+                state is wiped; it rebuilds from the project). */}
+            <div className="media-index-row">
+              <span className="muted small">{t('panel.media.indexLabel')}</span>
+              <button type="button" className={`chip ${indexPrefs.enabled ? 'on' : ''}`} aria-pressed={indexPrefs.enabled}
+                title={indexPrefs.enabled ? t('panel.media.indexOn') : t('panel.media.indexOff')}
+                onClick={() => setIndexEnabled(!indexPrefs.enabled)}>
+                {indexPrefs.enabled ? t('panel.media.indexOn') : t('panel.media.indexOff')}
+              </button>
+              <button type="button" className="btn btn-ghost btn-sm" title={t('panel.media.indexDeleteTitle')} onClick={deleteIndex}>
+                <Trash2 size={13} /> {t('panel.media.indexDelete')}
+              </button>
+              <button type="button" className={`chip ${recPrefs.enabled ? 'on' : ''}`} aria-pressed={recPrefs.enabled}
+                title={recPrefs.enabled ? t('panel.media.recommendOn') : t('panel.media.recommendOff')}
+                onClick={() => setRecEnabled(!recPrefs.enabled)}>
+                {recPrefs.enabled ? t('panel.media.recommendOn') : t('panel.media.recommendOff')}
+              </button>
+            </div>
+            {indexPrefs.enabled && recPrefs.enabled && (
+              <Recommendations mediaIndex={mediaIndex} project={project} visual={visual} transcripts={transcripts}
+                dismissed={recPrefs.dismissed} onAdd={onAdd} onDismiss={dismissRec} />
+            )}
             <div className="chips scroll-x media-chips" role="group" aria-label={t('panel.media.ariaFilter')}>
               {filterChips.map(([id, label, n]) => (
                 <button key={id} className={`chip ${treeSel === id ? 'on' : ''}`} aria-pressed={treeSel === id} onClick={() => setTreeSel(id)}>
@@ -436,9 +625,16 @@ function MediaTab({ media, onImport, onAdd, onRemoveMedia, onRenameMedia, onDupl
               <div className="asset-grid" ref={gridRef} onPointerDown={onGridPointerDown} onKeyDown={onGridKeyDown} tabIndex={0}
                 onContextMenu={(e) => { if (e.target.closest('.asset')) return; e.preventDefault(); openGridMenu(e); }}>
                 {shownMedia.map((m) => <MediaCard key={m.id} m={m} onAdd={onAdd} onRemove={onRemoveMedia} onOverlay={onAddAsOverlay} onPeek={onPeek} peeking={peekId === m.id} onRelink={onRelink}
-                  selected={selIds.has(m.id)} onSelectCard={selectCard} onCardMenu={openCardMenu} onDeleteCard={deleteCard}
+                  selected={selIds.has(m.id)} onSelectCard={selectCard} onCardMenu={openCardMenu} onDeleteCard={deleteCard} transcriptMatch={transcriptHits.has(m.id)}
                   renaming={renamingId === m.id} onRename={onRenameMedia} onRenameEnd={() => setRenamingId(null)} />)}
                 {marquee && <div className="marquee" style={marquee} />}
+              </div>
+            ) : searching ? (
+              <div className="empty-note media-empty-search" onContextMenu={(e) => { e.preventDefault(); openGridMenu(e); }}>
+                <p>{query.trim()
+                  ? t('panel.media.emptySearch', { q: query.trim() })
+                  : t('panel.media.emptyFavFilter')}</p>
+                <button type="button" className="btn btn-sm" onClick={() => { setQuery(''); setFavOnly(false); }}>{t('panel.media.clearSearch')}</button>
               </div>
             ) : (
               <p className="empty-note" onContextMenu={(e) => { e.preventDefault(); openGridMenu(e); }}>{treeSel === 'speech'
@@ -459,8 +655,39 @@ function MediaTab({ media, onImport, onAdd, onRemoveMedia, onRenameMedia, onDupl
             onKindChange={(k) => goStock(`${k}:Trending`)} />
         </div>
       )}
+      {view === 'yours' && <ProxyStatusLine media={visual} />}
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
     </TabFrame>
+  );
+}
+
+// Proxy status, always visible (P2-27): per-project preview-copy counts at the
+// current playback quality plus the media-cache totals, polled from the same
+// proxy:status the tray and Settings read. The tray's cache line only shows
+// while a job runs and Settings is a dialog — this is the line a user checks
+// at rest, in the panel where the per-clip Proxy/Failed badges already live.
+function ProxyStatusLine({ media }) {
+  const t = useT();
+  const [cache, setCache] = useState(null);
+  useEffect(() => {
+    let dead = false;
+    const poll = () => window.api.proxyStatus?.().then((st) => { if (!dead) setCache(st.mediaCache || null); }).catch(() => {});
+    poll();
+    const id = setInterval(poll, 5000);
+    return () => { dead = true; clearInterval(id); };
+  }, []);
+  const videos = (media || []).filter((m) => m.type === 'video');
+  if (!videos.length && !cache) return null;
+  const q = getPlaybackQuality();
+  const ready = videos.filter((m) => levelCopyState(m, q) === 'ready' || (q === 'full' && typeof m.proxy === 'string' && m.proxy)).length;
+  const pending = videos.filter((m) => m.optimizing || levelCopyState(m, q) === 'fallback').length;
+  const failed = videos.filter((m) => m.proxyFailed || levelCopyState(m, q) === 'failed').length;
+  const mb = cache ? (cache.bytes / 1e6 >= 100 ? (cache.bytes / 1e6).toFixed(0) : (cache.bytes / 1e6).toFixed(1)) : null;
+  return (
+    <div className="proxy-status" role="status">
+      <span>{t('panel.media.proxyStatus', { quality: t(`player.qualityShort.${q}`), ready, pending, failed })}</span>
+      {cache && <span> · {t('tray.cacheLine', { files: cache.files, mb })}</span>}
+    </div>
   );
 }
 
@@ -510,7 +737,34 @@ function AudioTab(props) {
   );
 }
 
-function TextTab({ onAddText, sub, setSub }) {
+function GraphicTile({ tpl }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const cv = ref.current;
+    if (!cv) return;
+    const dpr = window.devicePixelRatio || 1;
+    cv.width = Math.round(128 * dpr);
+    cv.height = Math.round(72 * dpr);
+    const ctx = cv.getContext('2d');
+    let alive = true;
+    fontsReady().then(() => {
+      if (!alive) return;
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, cv.width, cv.height);
+      ctx.setTransform(cv.width / 1280, 0, 0, cv.height / 720, 0, 0);
+      // Mid-clip: in-animations done, time-driven graphics (ring, bar,
+      // counter) half filled — the tile shows the motion, not just the end.
+      const lt = tpl.duration / 2;
+      for (const part of tpl.parts) {
+        drawTextClip(ctx, { text: part.text ?? '', start: 0, duration: tpl.duration, y: 0.5, ...part.patch }, lt, 1280, 720);
+      }
+    });
+    return () => { alive = false; };
+  }, [tpl]);
+  return <canvas ref={ref} style={{ width: 128, height: 72, display: 'block' }} aria-hidden="true" />;
+}
+
+function TextTab({ onAddText, onAddGraphic, sub, setSub }) {
   const t = useT();
   // Step 5: the template categories move into the category column (name +
   // count, the same counts the chips carried); the grid is unchanged.
@@ -525,6 +779,21 @@ function TextTab({ onAddText, sub, setSub }) {
       </Head>
       <div className="pad-block">
         <TemplateGrid draggable category={sub} onPick={(t) => onAddText({ ...t.patch, template: t.id })} />
+        {onAddGraphic && (
+          <div className="lib-group">
+            <span className="lib-group-name pad-x">Graphics · {GRAPHIC_TEMPLATES.length}</span>
+            <div className="tpl-grid">
+              {GRAPHIC_TEMPLATES.map((tpl) => (
+                <div key={tpl.id} className="tpl-item">
+                  <button className="tpl-btn" onClick={() => onAddGraphic(tpl.id)} title={`${tpl.name} — ${tpl.desc}`}>
+                    <GraphicTile tpl={tpl} />
+                  </button>
+                  <span className="tpl-name">{tpl.name}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </TabFrame>
   );
@@ -536,15 +805,34 @@ function NeedClip({ target }) {
   return <p className="hint">{t('panel.needClip')}</p>;
 }
 
-function EffectsTab({ target, updateTarget, clipSelected, onAddFreeEffect, onAddTextOver }) {
+function EffectsTab({ target, updateTarget, clipSelected, onAddFreeEffect, onAddGradeLayer, onAddTextOver, project, selection, dispatch, selectedCount = 0, media, time }) {
   const t = useT();
   const [query, setQuery] = useState('');
   const [group, setGroup] = useState('All');
+  // FX-03: the tiles preview on the selected clip's own frame when one can
+  // be grabbed; otherwise (no clip, audio, missing file) the sample pair.
+  const live = useLiveThumbFrame(target, media, time);
   const fx = clipSelected ? target?.clip.effects || [] : [];
   const toggle = (id) => updateTarget({ effects: fx.includes(id) ? fx.filter((x) => x !== id) : [...fx, id] });
-  // With a clip selected the effect goes on that clip; otherwise it goes on the Effects track at
-  // the playhead, as an object you can move and stretch over several clips.
-  const pick = (id) => (clipSelected && target ? toggle(id) : onAddFreeEffect(id));
+  // FB-28: recently-used effects (most recent first) + apply-to-all-selected.
+  // The apply-to-all path runs through the ONE shared helper in
+  // src/fx/applyToSelected.js (the Composer reuses it later) — one updateMany,
+  // one undo step, clips that already have the effect untouched.
+  const [recent, setRecent] = useState(() => loadRecentEffects());
+  const [applyAll, setApplyAll] = useState(false);
+  // FB-28: the tiles preview on the selected clip's own frame when one is
+  // available, falling back to the stock-photo tiles when it is not.
+  const footage = useFootageCanvas(live.on && clipSelected ? target?.clip?.id : null);
+  const thumbSource = live.on ? (footage || live.frame) : null;
+  const pick = (id) => {
+    setRecent(recordRecentEffect(id));
+    if (applyAll && selectedCount > 1 && clipSelected && target) {
+      const updates = effectUpdatesForSelection(project, selection, id);
+      if (updates.length) dispatch({ type: 'updateMany', updates });
+      return;
+    }
+    return clipSelected && target ? toggle(id) : onAddFreeEffect(id);
+  };
   const q = query.trim().toLowerCase();
   const groups = EFFECT_GROUPS.map((g) => [g, EFFECTS.filter((e) => e.group === g && (!q || e.name.toLowerCase().includes(q)))]).filter(([, list]) => list.length);
   // Step 5: groups move into the category column (name + count); the grid
@@ -561,6 +849,47 @@ function EffectsTab({ target, updateTarget, clipSelected, onAddFreeEffect, onAdd
       <p className="hint fx-mode">{clipSelected
         ? t('panel.effects.modeSelected')
         : t('panel.effects.modeFree')}</p>
+      {clipSelected && selectedCount > 1 && (
+        <div className="pad-x">
+          <label className="field row">
+            <span>{t('panel.effects.applyAll', { count: selectedCount })}</span>
+            <input type="checkbox" checked={applyAll} aria-label={t('panel.effects.applyAll', { count: selectedCount })}
+              onChange={(e) => setApplyAll(e.target.checked)} />
+          </label>
+        </div>
+      )}
+      {recent.length > 0 && (
+        <div className="pad-x">
+          <span className="lib-group-name">{t('panel.effects.recent')}</span>
+          <div className="chips">
+            {recent.map((id) => {
+              const e = EFFECTS.find((x) => x.id === id);
+              if (!e) return null;
+              return (
+                <button key={id} type="button" className={`chip ${fx.includes(id) ? 'on' : ''}`}
+                  onClick={() => pick(id)} title={libName('fx', id, e.name)}>
+                  {libName('fx', id, e.name)}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      {clipSelected && (
+        <p className="hint pad-x">{thumbSource ? t('panel.effects.footageNote') : t('panel.effects.stockNote')}</p>
+      )}
+      {live.available && (
+        <label className="pad-x fx-live-toggle" title={t('panel.effects.thumbMineHint')}>
+          <input type="checkbox" checked={live.on} onChange={(e) => live.setOn(e.target.checked)} />
+          {t('panel.effects.thumbMine')}
+        </label>
+      )}
+      )}
+      {!clipSelected && onAddGradeLayer && (
+        <div className="pad-x">
+          <button className="btn btn-sm" onClick={onAddGradeLayer} title={t('panel.effects.newLayerHint')}><Layers size={14} /> {t('panel.effects.newLayer')}</button>
+        </div>
+      )}
       {clipSelected && target && onAddTextOver && (
         <div className="pad-x">
           <button className="btn btn-sm" onClick={() => onAddTextOver(target.start, Math.max(0.1, target.end - target.start))}><Type size={14} /> {t('panel.effects.addTextOver')}</button>
@@ -574,7 +903,7 @@ function EffectsTab({ target, updateTarget, clipSelected, onAddFreeEffect, onAdd
             {list.map((e) => (
               <button key={e.id} className={`tile ${fx.includes(e.id) ? 'on' : ''}`} onClick={() => pick(e.id)}
                 aria-pressed={fx.includes(e.id)} {...dragProps({ kind: 'effect', id: e.id })}>
-                <span className="tile-preview fx-live"><FxThumb kind="effect" id={e.id} /></span>
+                <span className="tile-preview fx-live"><FxThumb kind="effect" id={e.id} source={thumbSource} /></span>
                 <span className="tile-label">{libName('fx', e.id, e.name)}</span>
               </button>
             ))}
@@ -592,6 +921,7 @@ function TransitionsTab({ target, updateTarget }) {
   const [dur, setDur] = useState(0.5);
   const [view, setView] = useState('catalog'); // 'catalog' (the 135 reference library) | 'classic'
   const [query, setQuery] = useState('');
+  const [realOnly, setRealOnly] = useState(false); // FB-10: show only transitions the engine performs as named
   const [collection, setCollection] = useState('All'); // 'All' | 'fav' | a COLLECTIONS id
   const [favs, setFavs] = useState(() => loadFavorites());
   const toggleFav = (slug) => { const next = toggleFavorite(favs, slug); setFavs(next); saveFavorites(localStorage, next); };
@@ -614,6 +944,12 @@ function TransitionsTab({ target, updateTarget }) {
       onClick={() => applyEngine(engineId, engineById[engineId]?.fx ? engineById[engineId].duration : null)} title={extra?.title || label}>
       <span className="tile-preview fx-live"><FxThumb kind="transition" id={engineId} pair={extra?.pair || 0} duration={engineById[engineId]?.fx ? engineById[engineId].duration : 0.8} /></span>
       <span className="tile-label">{label}</span>
+      {extra?.slug && TR_STATUS_BY_SLUG.get(extra.slug) === 'adapted' && (
+        <span className="tile-adapted">{t('panel.tr.adaptedBadge')}</span>
+      )}
+      {extra?.slug && TR_VARIANT_COUNTS[engineId] > 1 && (
+        <span className="tile-variants">{t('panel.tr.variantCount', { n: TR_VARIANT_COUNTS[engineId] })}</span>
+      )}
       {extra?.slug && (
         <span className={`tile-star ${favs.has(extra.slug) ? 'on' : ''}`} role="button" aria-label={favs.has(extra.slug) ? t('panel.tr.favRemove') : t('panel.tr.favAdd')}
           title={favs.has(extra.slug) ? t('panel.tr.favRemove') : t('panel.tr.favAdd')}
@@ -628,6 +964,10 @@ function TransitionsTab({ target, updateTarget }) {
     : collection.startsWith('pack:') ? e.pack === collection.slice(5)
     : e.collection === collection);
   const catalogList = COLLECTION_ITEMS.filter((e) => inSelection(e)
+    // FB-10: the 135 catalog carries the status; the §A extras and pack items
+    // (outside the 135) carry their own status field — either way, real-only
+    // keeps only transitions the engine performs as named.
+    && (!realOnly || (catalogEntryBySlug(e.slug)?.status || e.status) === 'implemented')
     && (!q || e.name.toLowerCase().includes(q) || e.behavior.toLowerCase().includes(q) || e.family.toLowerCase().includes(q) || e.engineName.toLowerCase().includes(q)));
   // Step 5: the library switch and the collection chips move into the
   // category column — Catalog folds open over its collections and packs
@@ -666,6 +1006,16 @@ function TransitionsTab({ target, updateTarget }) {
         {view === 'catalog' && (
           <div className="field pad">
             <SearchBox placeholder={t('panel.tr.search', { n: COLLECTION_ITEMS.length })} value={query} onChange={setQuery} ariaLabel={t('panel.tr.searchAria')} />
+          </div>
+        )}
+        {view === 'catalog' && (
+          <div className="pad-x">
+            <p className="hint">{t('panel.tr.counts', { entries: TR_COUNTS.entries, implemented: TR_COUNTS.implemented, adapted: TR_COUNTS.adapted, mapped: TR_COUNTS.mappedEngineIds })}</p>
+            <label className="field row">
+              <span title={t('panel.tr.realOnlyHint')}>{t('panel.tr.realOnly')}</span>
+              <input type="checkbox" checked={realOnly} aria-label={t('panel.tr.realOnly')}
+                onChange={(e) => setRealOnly(e.target.checked)} />
+            </label>
           </div>
         )}
       </div>
@@ -756,6 +1106,61 @@ function Accordion({ title, children }) {
   );
 }
 
+import { suggestBroll } from '../broll.js';
+
+// AI-05 smart B-roll suggestions: what the speaker is saying names the
+// B-roll — the local P2-41 index ranks the project's own library against
+// each transcript sentence, and the best unused picture clip is offered as
+// an overlay at that sentence. Local only; nothing is added automatically.
+function BrollCard({ project, dispatch, onSeek }) {
+  const t = useT();
+  const [recPrefs, setRecPrefs] = useState(() => loadRecommendPrefs(localStorage));
+  const [indexPrefs] = useState(() => loadMediaIndexPrefs(localStorage));
+  const transcripts = useMemo(
+    () => mediaTranscriptTexts(project || { media: project?.media || [], textClips: [], videoClips: [], audioClips: [], overlayClips: [] }),
+    [project],
+  );
+  const visual = project?.media || [];
+  const mediaIndex = useMemo(() => {
+    if (!indexPrefs.enabled) return null;
+    return buildMediaIndex(visual.map((m) => ({
+      id: m.id, name: m.name, type: m.type,
+      tags: autoTags(m, transcripts.get(m.id) || ''),
+      transcript: transcripts.get(m.id) || '',
+    })));
+  }, [visual, transcripts, indexPrefs.enabled]);
+  const suggestions = useMemo(
+    () => (recPrefs.enabled ? suggestBroll({ project, index: mediaIndex, items: visual, dismissed: recPrefs.dismissed, limit: 8 }) : []),
+    [project, mediaIndex, visual, recPrefs],
+  );
+  if (!suggestions.length) return null;
+  return (
+    <div className="card" data-testid="broll-suggestions">
+      <div className="sub-panel-head">
+        <b>{t('captions.brollTitle')}</b>
+        <span className="muted small">{t('captions.brollLocal')}</span>
+      </div>
+      <p className="muted small">{t('captions.brollHelp')}</p>
+      {suggestions.map((s) => (
+        <div key={`${s.mediaId}@${s.start}`} className="media-recommend-row">
+          <button type="button" className="media-recommend-add"
+            title={t('captions.brollAdd', { name: s.name, time: formatTime(s.start) })}
+            onClick={() => dispatch({ type: 'addOverlayClip', mediaId: s.mediaId, clipId: uid(), at: s.start })}>
+            <Plus size={13} /> <span className="media-recommend-name">{s.name}</span>
+            <span className="media-recommend-type">{formatTime(s.start)}</span>
+          </button>
+          <span className="media-recommend-why" title={s.reason.text}>{s.reason.text}</span>
+          <button type="button" className="media-recommend-dismiss" aria-label={t('panel.media.recommendDismiss')}
+            title={t('panel.media.recommendDismiss')}
+            onClick={() => setRecPrefs(dismissRecommendation(localStorage, s.mediaId))}>
+            <X size={13} />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function TranscriptCard({ project, dispatch, onSeek, onSelect }) {
   const t = useT();
   const sentences = transcriptSentences(project);
@@ -775,6 +1180,28 @@ function TranscriptCard({ project, dispatch, onSeek, onSelect }) {
   }
   const selRanges = sel ? selectionCutRanges(words, sel.from, sel.to) : [];
   const selSecs = rangesSeconds(selRanges);
+  // P1-33 confidence: words below the project threshold are flagged (never
+  // auto-fixed — the proofreader below only flags them for a human). Words
+  // without a confidence score are unknown, never low-confidence.
+  const threshold = project.transcript?.confidenceThreshold ?? DEFAULT_CONFIDENCE_THRESHOLD;
+  const lowWords = lowConfidenceWords(sentences, threshold);
+  const lowSet = new Set(lowWords.map((w) => `${w.clipId}:${w.start}`));
+  const confSummary = confidenceSummary(sentences);
+  // AI-03: coverage stats for the same threshold (how many words carry a
+  // score at all), and the review-list toggle. The threshold itself stays
+  // the project setting above — no second local slider state.
+  const confStats = confidenceStats(sentences, threshold);
+  const [showLowConf, setShowLowConf] = useState(false);
+  // P1-34 proofreading: deterministic rule-based corrections, applied only
+  // when the user clicks Apply (one undo step via updateMany).
+  const [proof, setProof] = useState(null);
+  const applyProof = () => {
+    if (!proof) return;
+    const changed = proof.sentences.filter((s) => s.text !== (sentences.find((x) => x.clipId === s.clipId)?.text || ''));
+    if (!changed.length) return;
+    dispatch({ type: 'updateMany', updates: changed.map((s) => ({ track: 'text', id: s.clipId, patch: { text: s.text } })) });
+    setProof(null);
+  };
   const pickWord = (gi, w, e) => {
     if (e.shiftKey && anchor.current != null) setSel({ from: anchor.current, to: gi });
     else {
@@ -789,6 +1216,22 @@ function TranscriptCard({ project, dispatch, onSeek, onSelect }) {
     dispatch({ type: 'cutRanges', ranges: selRanges, rippleText: true });
     setSel(null);
     anchor.current = null;
+  };
+  // AI-04 caption correction: one click proofreads every caption clip
+  // (rule-based, on-device, Darija kept as spoken) as a single undo step,
+  // and reports how many fixes it made.
+  const [correctNote, setCorrectNote] = useState('');
+  const correctCaptions = () => {
+    const updates = [];
+    let fixes = 0;
+    for (const c of project.textClips || []) {
+      if (!c.caption) continue;
+      const { patch, changes } = correctClip(c);
+      if (patch) { updates.push({ track: 'text', id: c.id, patch }); fixes += changes.length; }
+    }
+    if (!updates.length) { setCorrectNote(t('captions.correctNone')); return; }
+    dispatch({ type: 'updateMany', updates });
+    setCorrectNote(t('captions.correctDone', { fixes, clips: updates.length }));
   };
   // Move (Sprint 10): the selection's ranges are lifted and re-inserted at
   // the chosen sentence — the store's moveRanges keeps the captions locked
@@ -806,7 +1249,12 @@ function TranscriptCard({ project, dispatch, onSeek, onSelect }) {
   const takeGroups = retakeGroups(sentences);
   const takeOf = new Map(); // sentenceIndex -> { group, takeNo, isKeep }
   takeGroups.forEach((g, gi2) => g.members.forEach((mi, ti) => takeOf.set(mi, { group: gi2, takeNo: ti + 1, takes: g.members.length, isKeep: mi === g.keep })));
-  const keepTake = (g) => dispatch({ type: 'cutRanges', ranges: retakeCutRanges(sentences, g), rippleText: true });
+  // FB-24: keeping a take opens the cut review (confidence per removed
+  // take) instead of cutting blind; the dialog applies the accepted cuts.
+  const [retakeReview, setRetakeReview] = useState(null);
+  const keepTake = (g) => setRetakeReview({ cuts: scoreRetakeCuts(sentences, g), group: g });
+  // FB-25: proofreading dialog (proper nouns, punctuation, timing, speakers).
+  const [proofreadOpen, setProofreadOpen] = useState(false);
   let gi = -1;
   return (
     <div className="card tx-card">
@@ -815,6 +1263,61 @@ function TranscriptCard({ project, dispatch, onSeek, onSelect }) {
         <span className="muted small">{t(sentences.length > 1 ? 'captions.sentenceOther' : 'captions.sentenceOne', { n: sentences.length })}</span>
       </div>
       <p className="muted small">{t('captions.transcriptHelp')}</p>
+      <div className="tx-quality">
+        <label className="tx-threshold">
+          <span>Confidence below <b>{Math.round(threshold * 100)}%</b> is flagged</span>
+          <input type="range" min={0.5} max={0.95} step={0.05} value={threshold} aria-label="Confidence threshold"
+            onChange={(e) => dispatch({ type: 'setTranscriptSettings', patch: { confidenceThreshold: Number(e.target.value) } })} />
+        </label>
+        <span className="muted small">
+          {confSummary.words ? `${lowWords.length} of ${confSummary.words} words below ${Math.round(threshold * 100)}% (mean ${Math.round(confSummary.mean * 100)}%)` : 'No confidence scores on these words yet — they are unknown, not low-confidence.'}
+        </span>
+        <div className="tx-proof">
+          <button type="button" className="btn btn-sm" onClick={() => setProof(proofreadSentences(sentences))}>Check text</button>
+          {proof && (
+            proof.corrections.length ? (
+              <span className="small">{proof.corrections.length} fix{proof.corrections.length > 1 ? 'es' : ''} found ({[...new Set(proof.corrections.map((c) => c.rule))].join(', ')})
+                <button type="button" className="btn btn-sm btn-primary" onClick={applyProof}>Apply all</button>
+                <button type="button" className="btn btn-sm btn-ghost" onClick={() => setProof(null)}>Dismiss</button>
+              </span>
+            ) : (
+              <span className="small">No issues found.</span>
+            )
+          )}
+        </div>
+      </div>
+      {/* AI-03 speaker labelling: names for the diarization ids (S1…S4).
+          The per-sentence control below stays the free-text input — the
+          live tests type a name into it, and the proofread dialog edits
+          the same free-text value. */}
+      <div className="tx-speakers" data-testid="tx-speakers">
+        <span className="small"><b>{t('captions.speakers')}</b></span>
+        {SPEAKER_IDS.map((id) => (
+          <input key={id} type="text" className="tx-speaker-name" value={project.speakers?.[id] || ''}
+            placeholder={speakerName(project, id)} aria-label={speakerName(project, id)}
+            onChange={(e) => dispatch({ type: 'setProject', patch: { speakers: { ...(project.speakers || {}), [id]: e.target.value } }, transient: true })} />
+        ))}
+      </div>
+      {confStats.withConf > 0 ? (
+        <div className="tx-confidence" data-testid="tx-confidence">
+          <span className="muted small">{t('captions.confStats', { avg: Math.round(confStats.avg * 100), low: confStats.low, withConf: confStats.withConf, total: confStats.total })}</span>
+          <button type="button" className="btn btn-sm" disabled={!lowWords.length} onClick={() => setShowLowConf((v) => !v)}>
+            {t('captions.reviewLowConf', { n: lowWords.length })}
+          </button>
+          {showLowConf && lowWords.length > 0 && (
+            <ul className="tx-lowconf-list">
+              {lowWords.slice(0, 30).map((w, i) => (
+                <li key={i}><button type="button" onClick={() => { onSeek?.(w.start); onSelect?.({ track: 'text', id: w.clipId }); }}>
+                  {w.text} <span className="muted">({Math.round(w.conf * 100)}% · {formatTime(w.start)})</span>
+                </button></li>
+              ))}
+              {lowWords.length > 30 && <li className="muted small">{t('captions.lowConfMore', { n: lowWords.length - 30 })}</li>}
+            </ul>
+          )}
+        </div>
+      ) : (
+        <p className="muted small">{t('captions.noConf')}</p>
+      )}
       <div className="tx-body">
         {shown.map((s, si) => (
           <div key={s.clipId} className={`tx-sentence ${takeOf.has(si) ? 'tx-retake' : ''} ${takeOf.get(si)?.isKeep ? 'tx-retake-keep' : ''}`}>
@@ -822,13 +1325,23 @@ function TranscriptCard({ project, dispatch, onSeek, onSelect }) {
               onClick={() => { onSeek?.(s.start); onSelect?.({ track: 'text', id: s.clipId }); }}>
               {formatTime(s.start)}
             </button>
+            {/* P1-32 speaker label: free text, committed on blur (one undo step);
+                never guessed — empty means unlabelled. (AI-03 offered an
+                S1-S4 select here instead; the free-text input stays — the
+                live tests type a name into it, and the proofread dialog
+                edits the same free-text value. Diarization ids land on the
+                clip via setCaptions and are named in the panel above.) */}
+            <input className="tx-speaker" type="text" defaultValue={s.speaker || ''} placeholder="Speaker"
+              aria-label={`Speaker for caption at ${formatTime(s.start)}`}
+              onBlur={(e) => { if ((e.target.value || '') !== (s.speaker || '')) dispatch({ type: 'setCaptionSpeaker', clipId: s.clipId, speaker: e.target.value }); }} />
             <span className="tx-text" dir="auto">
               {s.words.map((w) => {
                 gi += 1;
                 const mine = gi;
                 const on = sel && mine >= Math.min(sel.from, sel.to) && mine <= Math.max(sel.from, sel.to);
+                const low = lowSet.has(`${s.clipId}:${w.start}`);
                 return (
-                  <span key={mine} className={`tx-word ${on ? 'on' : ''}`} onClick={(e) => pickWord(mine, w, e)}>
+                  <span key={mine} className={`tx-word ${on ? 'on' : ''} ${low ? 'tx-word-low' : ''}`} title={low ? `Low confidence (${Math.round((w.conf ?? 0) * 100)}%)` : (Number.isFinite(w.conf) ? t('captions.wordConf', { pct: Math.round(w.conf * 100) }) : undefined)} onClick={(e) => pickWord(mine, w, e)}>
                     {w.text}{' '}
                   </span>
                 );
@@ -852,6 +1365,9 @@ function TranscriptCard({ project, dispatch, onSeek, onSelect }) {
       </div>
       {sentences.length > TX_RENDER_CAP && <p className="muted small">{t('captions.showingFirst', { n: TX_RENDER_CAP })}</p>}
       <div className="tx-actions">
+        <button className="btn btn-sm" onClick={() => setProofreadOpen(true)}>
+          {t('proofread.open')}
+        </button>
         <button className="btn btn-sm" disabled={!selRanges.length} onClick={cutSelection}>
           <Scissors size={14} /> {t('captions.cutSelected')}{selRanges.length ? t('captions.secsSuffix', { secs: selSecs.toFixed(1) }) : ''}
         </button>
@@ -866,7 +1382,9 @@ function TranscriptCard({ project, dispatch, onSeek, onSelect }) {
           </>
         )}
         {sel && <button className="btn btn-sm btn-ghost" onClick={() => { setSel(null); anchor.current = null; }}>{t('captions.clearSelection')}</button>}
+        <button className="btn btn-sm" onClick={correctCaptions}>{t('captions.correctCaptions')}</button>
       </div>
+      {correctNote && <p className="muted small">{correctNote}</p>}
       {moveSel && <p className="muted small">{t('captions.moveHelp')}</p>}
       {takeGroups.length > 0 && (
         <div className="tx-retakes">
@@ -882,6 +1400,16 @@ function TranscriptCard({ project, dispatch, onSeek, onSelect }) {
           ))}
         </div>
       )}
+      {retakeReview && (
+        <CutReviewDialog title={t('cuts.reviewTitleRetakes')} cuts={retakeReview.cuts}
+          onCancel={() => setRetakeReview(null)}
+          onApply={(ranges) => { dispatch({ type: 'cutRanges', ranges, rippleText: true }); setRetakeReview(null); }} />
+      )}
+      {proofreadOpen && (
+        <CaptionProofreadDialog project={project}
+          onClose={() => setProofreadOpen(false)}
+          onApply={(patches) => { dispatch({ type: 'proofreadCaptions', patches }); setProofreadOpen(false); }} />
+      )}
     </div>
   );
 }
@@ -895,6 +1423,9 @@ function SilencesBlock({ project, dispatch }) {
   const [silMin, setSilMin] = useState(0.4);
   const [silPad, setSilPad] = useState(0.1);
   const [sil, setSil] = useState(null); // { busy } | { list, ranges } | { error }
+  // FB-24: the silence removal opens the cut review (confidence per span)
+  // instead of cutting blind; the dialog applies the accepted cuts.
+  const [silReview, setSilReview] = useState(null);
   const findSilences = async () => {
     setSil({ busy: true });
     const res = await window.api.agentSilences(project, { minDur: silMin, noiseDb: silDb });
@@ -903,8 +1434,7 @@ function SilencesBlock({ project, dispatch }) {
   };
   const removeSilences = () => {
     if (!sil?.ranges?.length) return;
-    dispatch({ type: 'cutRanges', ranges: sil.ranges, rippleText: true });
-    setSil(null);
+    setSilReview({ cuts: scoreSilenceRanges(sil.ranges, { minDur: silMin }) });
   };
   return (
     <div className="acc-tool">
@@ -943,6 +1473,11 @@ function SilencesBlock({ project, dispatch }) {
               <button className="btn btn-sm btn-primary" onClick={removeSilences}>
                 <Scissors size={14} /> {t(sil.ranges.length > 1 ? 'captions.removeSilencesOther' : 'captions.removeSilencesOne', { n: sil.ranges.length, secs: rangesSeconds(sil.ranges).toFixed(1) })}
               </button>
+              {silReview && (
+                <CutReviewDialog title={t('cuts.reviewTitleSilences')} cuts={silReview.cuts}
+                  onCancel={() => setSilReview(null)}
+                  onApply={(ranges) => { dispatch({ type: 'cutRanges', ranges, rippleText: true }); setSilReview(null); setSil(null); }} />
+              )}
             </>
           ) : <p className="muted small">{t('captions.silNone')}</p>}
         </>
@@ -1037,6 +1572,55 @@ function FindReplaceCard({ project, dispatch, bare }) {
   );
 }
 
+// Caption proofreading (B-H-capcor): deterministic local rules over the
+// caption clips — doubled spaces, repeated words, spacing before punctuation,
+// sentence starts. Every change is previewed before anything is applied, and
+// Apply is one updateMany dispatch, i.e. one undo step. The preview is
+// re-derived from the live project at Apply time, so an edit made after
+// Check can never apply a stale correction.
+function CaptionProofreadCard({ project, dispatch, bare }) {
+  const t = useT();
+  const [result, setResult] = useState(null); // { clips, changes } | null
+  const [note, setNote] = useState('');
+  const count = (project.textClips || []).filter((c) => c.caption).length;
+  const check = () => { setNote(''); setResult(correctCaptionClips(project.textClips)); };
+  const apply = () => {
+    const fresh = correctCaptionClips(project.textClips);
+    if (!fresh.changes.length) return;
+    const byId = new Map(fresh.clips.map((c) => [c.id, c]));
+    dispatch({
+      type: 'updateMany',
+      updates: fresh.changes.map((ch) => {
+        const c = byId.get(ch.id);
+        return { track: 'text', id: ch.id, patch: { text: c.text, ...(c.words ? { words: c.words } : {}) } };
+      }),
+    });
+    setNote(t('captions.proofreadApplied'));
+    setResult(null);
+  };
+  return (
+    <div className={bare ? 'acc-tool' : 'card'}>
+      {!bare && <b>{t('captions.proofreadTitle')}</b>}
+      <p className="muted">{t('captions.proofreadDesc')}</p>
+      <button className="btn btn-sm" disabled={!count} onClick={check}>{t('captions.proofreadCheck')}{count ? ` · ${count}` : ''}</button>
+      {result && !result.changes.length && <p className="muted small">{t('captions.proofreadNone')}</p>}
+      {result && result.changes.length > 0 && (
+        <>
+          <p className="muted small">{t('captions.proofreadCount', { n: result.changes.length })}</p>
+          <ul className="cap-proof-list">
+            {result.changes.slice(0, 20).map((ch) => (
+              <li key={ch.id}><span className="cap-proof-before">{ch.before}</span> → <span className="cap-proof-after">{ch.after}</span></li>
+            ))}
+          </ul>
+          {result.changes.length > 20 && <p className="muted small">… +{result.changes.length - 20}</p>}
+          <button className="btn btn-sm btn-primary" onClick={apply}>{t('captions.proofreadApply')}</button>
+        </>
+      )}
+      {note && <p className="muted small">{note}</p>}
+    </div>
+  );
+}
+
 // Filler-word removal (10/10 step 5): one click clears the ums, the يعني-s
 // and the dead air between words from the generated captions — detection is
 // src/fillers.js over the word timings, removal is the transcript editor's
@@ -1046,12 +1630,14 @@ function FillerCard({ project, dispatch, bare }) {
   const [withFillers, setWithFillers] = useState(true);
   const [withPauses, setWithPauses] = useState(true);
   const [note, setNote] = useState('');
+  // FB-24: filler removal opens the cut review (confidence per filler /
+  // pause) instead of cutting blind; the dialog applies the accepted cuts.
+  const [fillerReview, setFillerReview] = useState(null);
   const hasWords = project.textClips.some((c) => c.caption && c.words && c.words.length);
-  const found = hasWords ? detectFillers(project, { fillers: withFillers, pauses: withPauses }) : { ranges: [], fillerCount: 0, pauseCount: 0 };
+  const found = hasWords ? detectFillers(project, { fillers: withFillers, pauses: withPauses }) : { ranges: [], details: [], fillerCount: 0, pauseCount: 0 };
   const remove = () => {
     if (!found.ranges.length) return;
-    dispatch({ type: 'cutRanges', ranges: found.ranges, rippleText: true });
-    setNote(t(found.ranges.length === 1 ? 'captions.fillerRemovedOne' : 'captions.fillerRemovedOther', { n: found.ranges.length }));
+    setFillerReview({ cuts: scoreFillerDetection(found, { minPause: 0.7 }) });
   };
   return (
     <div className={bare ? 'acc-tool' : 'card'}>
@@ -1068,6 +1654,15 @@ function FillerCard({ project, dispatch, bare }) {
             {found.ranges.length ? t(found.ranges.length === 1 ? 'captions.removeRangesOne' : 'captions.removeRangesOther', { n: found.ranges.length }) : t('common.remove')}
           </button>
           {!found.ranges.length && <p className="muted small">{t('captions.fillerNothing')}</p>}
+          {fillerReview && (
+            <CutReviewDialog title={t('cuts.reviewTitleFillers')} cuts={fillerReview.cuts}
+              onCancel={() => setFillerReview(null)}
+              onApply={(ranges, accepted) => {
+                dispatch({ type: 'cutRanges', ranges, rippleText: true });
+                setNote(t(accepted.length === 1 ? 'captions.fillerRemovedOne' : 'captions.fillerRemovedOther', { n: accepted.length }));
+                setFillerReview(null);
+              }} />
+          )}
         </>
       )}
       {note && <p className="muted small">{note}</p>}
@@ -1168,7 +1763,7 @@ function TranslateCard({ project, dispatch, bare }) {
 
   return (
     <div className={bare ? 'acc-tool' : 'card'}>
-      {!bare && <b><Languages size={14} /> {t('captions.translateTitle')}</b>}
+      {!bare && <b><Languages size={14} /> {t('captions.translateTitle')} <AiBadge kind={badgeForProvider(aiProvider)} /></b>}
       <p className="muted">{t('captions.translateDesc')}</p>
       <div className="preset-save">
         <select value={src} onChange={(e) => setSrc(e.target.value)} aria-label={t('captions.ariaSetTranslate')} disabled={busy}>
@@ -1207,6 +1802,10 @@ function CaptionsTab({ onAddText, captions, project, dispatch, onSeek, onSelect 
   // service-key store as the stock/voice keys; never shown again after saving.
   const [engine, setEngine] = useState('local');
   const [provider, setProvider] = useState('groq');
+  // AI-03: Deepgram diarization — label who is speaking per segment. Only
+  // Deepgram offers it on this endpoint, so the checkbox only appears for
+  // that provider; the flag rides through captions.run to the cloud call.
+  const [diarize, setDiarize] = useState(false);
   const [cloudModel, setCloudModel] = useState('');
   const [keyField, setKeyField] = useState('');
   const [savedKeys, setSavedKeys] = useState({});
@@ -1217,9 +1816,12 @@ function CaptionsTab({ onAddText, captions, project, dispatch, onSeek, onSelect 
   const [capTab, setCapTab] = useState('generate');
   // A saved cloud key collapses to a one-line Connected state until Edit.
   const [keyEdit, setKeyEdit] = useState(false);
+  // The FlowAI provider caption translation sends lines to (B-F14): the
+  // translate badge follows it — local only when the provider is Ollama.
+  const [aiProvider, setAiProvider] = useState('gemini');
   useEffect(() => {
     let live = true;
-    window.api.settingsGet().then((st) => { if (live) setSavedKeys(st.serviceKeys || {}); });
+    window.api.settingsGet().then((st) => { if (live) { setSavedKeys(st.serviceKeys || {}); if (st.provider) setAiProvider(st.provider); } });
     return () => { live = false; };
   }, []);
   const CLOUD_PROVIDERS = [
@@ -1349,7 +1951,7 @@ function CaptionsTab({ onAddText, captions, project, dispatch, onSeek, onSelect 
         <div className="card-row">
           <span className="card-icon accent"><Sparkles size={18} /></span>
           <div>
-            <b>{t('captions.autoCaptions')}</b>
+            <b>{t('captions.autoCaptions')}</b> <AiBadge kind={engine === 'local' ? 'local' : 'api'} />
             <p>{engine === 'local'
               ? <>{t('captions.whisperLocal')}{needsDownload && t('captions.firstUseDownloads', { size: modelInfo.size })}</>
               : <>{t('captions.whisperCloud', { name: cloudMeta.name })}</>}</p>
@@ -1361,6 +1963,8 @@ function CaptionsTab({ onAddText, captions, project, dispatch, onSeek, onSelect 
           <button type="button" role="radio" aria-checked={engine === 'cloud'} className={engine === 'cloud' ? 'on' : ''}
             disabled={busy} onClick={() => setEngine('cloud')}>{t('captions.engineCloud')}</button>
         </div>
+        {/* AI-02: what this run costs + where the audio goes, before the user clicks Generate. */}
+        <AiCostBadge featureId={engine === 'local' ? 'captions-local' : cloudCaptionFeature(provider)} minutes={projectDuration(project) / 60} />
         <label className="field">
           <span>{t('settings.language')}</span>
           <select value={modelInfo.arabicOnly && engine === 'local' ? 'ar' : lang} disabled={busy || (engine === 'local' && modelInfo.arabicOnly)} onChange={(e) => setLang(e.target.value)}>
@@ -1387,6 +1991,12 @@ function CaptionsTab({ onAddText, captions, project, dispatch, onSeek, onSelect 
               <input type="text" value={cloudModel} disabled={busy} placeholder={cloudMeta.def} aria-label={t('captions.providerModel', { name: cloudMeta.name })}
                 onChange={(e) => setCloudModel(e.target.value)} />
             </label>
+            {provider === 'deepgram' && (
+              <label className="field check">
+                <input type="checkbox" checked={diarize} disabled={busy} onChange={(e) => setDiarize(e.target.checked)} />
+                <span>{t('captions.diarize')}</span>
+              </label>
+            )}
             {savedHint && !keyEdit ? (
               <p className="cap-connected">
                 <Check size={15} /> {t('captions.connected', { name: cloudMeta.name })}
@@ -1440,7 +2050,7 @@ function CaptionsTab({ onAddText, captions, project, dispatch, onSeek, onSelect 
         </label>
         <button className="btn btn-primary btn-block" disabled={busy || !(project.videoClips.length || project.audioClips.length) || (engine === 'cloud' && !savedHint)}
           onClick={() => (engine === 'cloud'
-            ? captions.run({ engine: 'cloud', provider, model: cloudModel.trim() || undefined, language: lang, maxLen: len, wordsPerLine: wpl, source, style: { ...tpl.patch, template: tpl.id } })
+            ? captions.run({ engine: 'cloud', provider, model: cloudModel.trim() || undefined, language: lang, maxLen: len, wordsPerLine: wpl, source, diarize, style: { ...tpl.patch, template: tpl.id } })
             : captions.run({ language: modelInfo.arabicOnly ? 'ar' : lang, maxLen: len, wordsPerLine: wpl, source, model, style: { ...tpl.patch, template: tpl.id } }))}>
           {busy ? t('captions.working') : count ? t('captions.regenerate') : t('captions.generate')}
         </button>
@@ -1459,6 +2069,7 @@ function CaptionsTab({ onAddText, captions, project, dispatch, onSeek, onSelect 
       {capTab === 'transcript' && (
       <>
       <TranscriptCard project={project} dispatch={dispatch} onSeek={onSeek} onSelect={onSelect} />
+      <BrollCard project={project} dispatch={dispatch} onSeek={onSeek} />
       <Accordion title={t('captions.silencesTitle')}>
         <SilencesBlock project={project} dispatch={dispatch} />
       </Accordion>
@@ -1475,6 +2086,9 @@ function CaptionsTab({ onAddText, captions, project, dispatch, onSeek, onSelect 
       </Accordion>
       <Accordion title={t('captions.subFindReplace')}>
         <FindReplaceCard bare project={project} dispatch={dispatch} />
+      </Accordion>
+      <Accordion title={t('captions.proofreadTitle')}>
+        <CaptionProofreadCard bare project={project} dispatch={dispatch} />
       </Accordion>
       </>
       )}
@@ -1766,9 +2380,17 @@ function LutBrowser({ target, updateTarget, dispatch, project, current }) {
   );
 }
 
-function AdjustTab({ media: library = [], target, updateTarget, dispatch, selectedCount = 0, onApplyLookToAll }) {
+function AdjustTab({ media: library = [], project, target, updateTarget, dispatch, selectedCount = 0, onApplyLookToAll }) {
   const t = useT();
   const media = target && library.find((m) => m.id === target.clip.mediaId);
+  // P2-19: shot-match references — the other picture clips in the project,
+  // same list the clip inspector's GradePanel gets.
+  const mediaById = Object.fromEntries((project?.media || []).map((m) => [m.id, m]));
+  const shotMatch = target?.track === 'video' ? {
+    refs: (project?.videoClips || []).filter((c) => !c.gap && c.id !== target.clip.id)
+      .map((c) => ({ id: c.id, name: mediaById[c.mediaId]?.name || c.id, media: mediaById[c.mediaId], clip: c }))
+      .filter((r) => r.media),
+  } : undefined;
   return (
     <>
       <Head title={t('panel.tab.adjust')} hint={t('panel.adjust.hint')} />
@@ -1778,6 +2400,7 @@ function AdjustTab({ media: library = [], target, updateTarget, dispatch, select
         <div className="pad-block">
           <GradePanel grade={target.clip.grade} adjust={target.clip.adjust} dispatch={dispatch}
             autoFrom={media ? { media, clip: target.clip } : undefined}
+            shotMatch={shotMatch}
             onGrade={(grade) => updateTarget({ grade })} onAdjust={(adjust) => updateTarget({ adjust })}
             onApplyAll={onApplyLookToAll ? () => onApplyLookToAll(target.clip) : undefined} />
         </div>
@@ -1785,3 +2408,7 @@ function AdjustTab({ media: library = [], target, updateTarget, dispatch, select
     </>
   );
 }
+
+
+
+

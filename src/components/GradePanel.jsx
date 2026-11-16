@@ -5,9 +5,13 @@ import { coarseRangeKeyDown } from './Slider.jsx';
 import Scopes from './Scopes.jsx';
 import { Loader2, RotateCcw, Wand2 } from '../icons.jsx';
 import { autoGrade } from '../fx/autocolor.js';
+import { frameStats, matchGrade } from '../fx/shotmatch.js';
+import { skinOf } from '../fx/skin.js';
 import { DEFAULT_ADJUST } from '../effects.js';
 import { DEFAULT_GRADE, GRADE_GROUPS } from '../fx/grade.js';
 import { BUNDLED_LUTS, LUT_CREDIT_URL, loadLut, lutKey } from '../fx/lut.js';
+import { gradeToCube } from '../fx/lutExport.js';
+import { colourSpaceLabel, colourAction } from '../colour.js';
 import { useT, tr } from '../i18n/index.jsx';
 import { libName } from '../i18n/libNames.js';
 
@@ -38,7 +42,7 @@ function Row({ item, value, onChange, dispatch }) {
 }
 
 // LUT: a bundled look or the user's own .cube file, with an intensity.
-function LutSection({ lut, onChange, dispatch }) {
+function LutSection({ lut, onChange, dispatch, lutDuplicate }) {
   const [error, setError] = React.useState('');
   const [imported, setImported] = React.useState([]);
   const current = lut && lut.ref ? lutKey(lut.ref) : '';
@@ -101,6 +105,7 @@ function LutSection({ lut, onChange, dispatch }) {
             onChange={(e) => onChange({ ...lut, intensity: Number(e.target.value) })} />
         </div>
       )}
+      {current && lutDuplicate && <p className="dim small">{tr('grade.lutDuplicate')}</p>}
       {lut?.ref?.bundled && BUNDLED_LUTS.find((b) => b.file === lut.ref.bundled)?.credit && (
         <p className="dim small">{tr('grade.lutBy1')}<button className="link-inline" type="button" onClick={() => window.api.openHelp(LUT_CREDIT_URL)}>slay</button>{tr('grade.lutBy2')}</p>
       )}
@@ -111,10 +116,26 @@ function LutSection({ lut, onChange, dispatch }) {
 // Adjust > Basic: Color, Lightness and Effects, plus the older Hue / Blur settings.
 // grade / adjust: the clip's values; onGrade / onAdjust get the whole new object.
 // autoFrom: { media, clip } of the clip, for the Auto button (left out where there is no single clip).
-export default function GradePanel({ grade = {}, adjust = {}, onGrade, onAdjust, dispatch, onApplyAll, autoFrom }) {
+// shotMatch: { refs: [{ id, name, media, clip }] } — other picture clips to match this clip to (P2-19).
+export default function GradePanel({ grade = {}, adjust = {}, onGrade, onAdjust, dispatch, onApplyAll, autoFrom, lutDuplicate, shotMatch }) {
   const t = useT();
   const [tab, setTab] = useState('basic');
   const [auto, setAuto] = useState(null); // 'busy' | { error }
+  const [match, setMatch] = useState(null); // 'busy' | { error } | { patch }
+  const [matchRef, setMatchRef] = useState('');
+  const [lutNote, setLutNote] = useState('');
+  // LUT export (spec matrix): bake the current grade sliders into a .cube file
+  // (17^3) with the same pointwise math the preview/export grade uses. HSL,
+  // sharpen, clarity, vignette and particles are NOT baked — see lutExport.js.
+  const exportLut = async () => {
+    const res = await window.api.saveTextFile({
+      title: 'Export grade as LUT',
+      defaultName: 'grade.cube',
+      content: gradeToCube(g),
+      filters: [{ name: '3D LUT (.cube)', extensions: ['cube'] }],
+    });
+    setLutNote(res?.ok ? `Saved to ${res.path}` : res?.error || '');
+  };
   const g = { ...DEFAULT_GRADE, ...grade };
   const tabs = (
     <div className="seg-tabs small grade-tabs" role="tablist" aria-label={t('grade.adjust')}>
@@ -151,9 +172,42 @@ export default function GradePanel({ grade = {}, adjust = {}, onGrade, onAdjust,
     setAuto(null);
     onGrade({ ...g, ...autoGrade(res.frames) });
   };
+  // Shot match (P2-19): sample the reference clip and this clip, compute the
+  // Basic sliders that move this clip toward the reference, and apply them
+  // (one undo step; HSL/curves/LUT stay as they are). Sampling reuses the
+  // colorSample IPC the Auto button already uses.
+  const refs = shotMatch?.refs || [];
+  const runMatch = async () => {
+    const ref = refs.find((r) => r.id === matchRef);
+    if (!ref || !canAuto) return;
+    setMatch('busy');
+    const c = autoFrom.clip;
+    const [refRes, srcRes] = await Promise.all([
+      window.api.colorSample({ path: ref.media.path, type: ref.media.type, duration: ref.media.duration, hdr: ref.media.hdr }, ref.clip.in || 0, ref.clip.out ?? ref.media.duration),
+      window.api.colorSample({ path: m.path, type: m.type, duration: m.duration, hdr: m.hdr }, c.in || 0, c.out ?? m.duration),
+    ]);
+    if (refRes.error || srcRes.error) return setMatch({ error: refRes.error || srcRes.error });
+    const patch = matchGrade(frameStats(refRes.frames), frameStats(srcRes.frames));
+    if (!patch) return setMatch({ error: t('grade.matchNoFrames') });
+    setMatch({ patch });
+    onGrade({ ...g, ...patch });
+  };
+  // Skin (P2-19): the orange HSL band, exposed as skin-tone sliders — the
+  // same grade engine the preview and export share, so it cannot diverge.
+  const skin = skinOf(g);
+  const setSkin = (key, v) => {
+    const o = { ...(g.hsl?.orange || {}), [key]: v };
+    onGrade({ ...g, hsl: { ...(g.hsl || {}), orange: o } });
+  };
   return (
     <div className="grade">
       {tabs}
+      {(() => {
+        const label = colourSpaceLabel(autoFrom?.media);
+        if (!label) return null;
+        const action = colourAction(autoFrom.media) === 'tonemap' ? t('grade.sourceTonemap') : t('grade.sourceConvert');
+        return <p className="dim small">{t('grade.sourceColour', { label, action })}</p>;
+      })()}
       {canAuto && (
         <div className="grade-auto">
           <button className="btn btn-sm btn-primary" onClick={runAuto} disabled={auto === 'busy'}
@@ -163,11 +217,39 @@ export default function GradePanel({ grade = {}, adjust = {}, onGrade, onAdjust,
           {auto?.error && <span className="error-text small">{auto.error}</span>}
         </div>
       )}
+      {refs.length > 0 && canAuto && (
+        <section className="grade-group">
+          <div className="grade-title">{t('grade.matchTitle')}</div>
+          <div className="grade-match">
+            <select value={matchRef} onChange={(e) => setMatchRef(e.target.value)} aria-label={t('grade.matchRefAria')}>
+              <option value="">{t('grade.matchPick')}</option>
+              {refs.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+            </select>
+            <button className="btn btn-sm" disabled={!matchRef || match === 'busy'} onClick={runMatch}>
+              {match === 'busy' ? <Loader2 size={14} className="spin" /> : null} {t('grade.match')}
+            </button>
+          </div>
+          {match?.error && <span className="error-text small">{match.error}</span>}
+          {match?.patch && <p className="dim small">{t('grade.matchDone', { patch: Object.entries(match.patch).filter(([, v]) => v).map(([k, v]) => `${k} ${v > 0 ? '+' : ''}${v}`).join(', ') || '0' })}</p>}
+          <p className="dim small">{t('grade.matchNote')}</p>
+        </section>
+      )}
+      <section className="grade-group">
+        <div className="grade-title">{t('grade.skinTitle')}</div>
+        <Row item={{ id: 'skinSat', name: t('grade.skinSat'), min: -100, max: 100 }} value={skin.saturation} dispatch={dispatch} onChange={(v) => setSkin('s', v)} />
+        <Row item={{ id: 'skinHue', name: t('grade.skinHue'), min: -100, max: 100 }} value={skin.hue} dispatch={dispatch} onChange={(v) => setSkin('h', v)} />
+        <Row item={{ id: 'skinLight', name: t('grade.skinLight'), min: -100, max: 100 }} value={skin.lightness} dispatch={dispatch} onChange={(v) => setSkin('l', v)} />
+        <p className="dim small">{t('grade.skinNote')}</p>
+      </section>
       <div className="grade-actions">
         <button className="btn btn-ghost btn-sm" disabled={!changed} onClick={() => { onGrade({ hsl: g.hsl, curves: g.curves }); onAdjust({}); }}><RotateCcw size={13} /> {t('hsl.resetAll')}</button>
         {onApplyAll && <button className="btn btn-sm" onClick={onApplyAll} title={t('grade.applyAllTitle2')}>{t('grade.applyAll')}</button>}
       </div>
-      <LutSection lut={g.lut} dispatch={dispatch} onChange={(lut) => onGrade({ ...g, lut })} />
+      <LutSection lut={g.lut} dispatch={dispatch} lutDuplicate={lutDuplicate} onChange={(lut) => onGrade({ ...g, lut })} />
+      <div className="grade-actions">
+        <button className="btn btn-sm" onClick={exportLut} title="Save the current grade sliders as a .cube LUT file">Export grade as .cube</button>
+        {lutNote && <span className="dim small">{lutNote}</span>}
+      </div>
       <div className="grade-group">
         <div className="grade-group-title">{t('grade.scopes')}</div>
         <Scopes />

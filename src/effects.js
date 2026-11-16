@@ -11,7 +11,7 @@ export const FILTERS = FILTER_LOOKS.map(({ id, name, cat }) => ({ id, name, cat 
 export const EFFECT_GROUPS = ['Glitch & Digital', 'Blur & Focus', 'Distortion & Mirror', 'Film & Vintage', 'Light & Glow', 'Particles & Weather', 'Motion'];
 const PIXEL_GROUPS = { fx_vhs: 'Film & Vintage', fx_striped: 'Glitch & Digital', fx_bwgrit: 'Film & Vintage', fx_zoomblast: 'Motion',
   // The expanded library (src/fx/catalog.js pixelLibrary()).
-  fx_rgb2: 'Glitch & Digital', fx_rgb6: 'Glitch & Digital', fx_rgb8: 'Glitch & Digital', fx_rgbv: 'Glitch & Digital',
+  fx_rgb2: 'Glitch & Digital', fx_rgb6: 'Glitch & Digital', fx_rgb8: 'Glitch & Digital', fx_rgbv: 'Glitch & Digital', fx_burnleak: 'Film & Vintage',
   fx_slices: 'Glitch & Digital', fx_slicesbig: 'Glitch & Digital', fx_mosh: 'Glitch & Digital',
   fx_mosaic60: 'Glitch & Digital', fx_mosaic24: 'Glitch & Digital', fx_mosaic10: 'Glitch & Digital',
   fx_poster4: 'Glitch & Digital', fx_poster6: 'Glitch & Digital', fx_solar: 'Glitch & Digital', fx_invert: 'Glitch & Digital',
@@ -23,6 +23,7 @@ const PIXEL_GROUPS = { fx_vhs: 'Film & Vintage', fx_striped: 'Glitch & Digital',
   fx_mirrorquad: 'Distortion & Mirror', fx_twirl1: 'Distortion & Mirror', fx_twirl2: 'Distortion & Mirror',
   fx_bulge: 'Distortion & Mirror', fx_pinch: 'Distortion & Mirror', fx_squeeze: 'Distortion & Mirror', fx_stretchx: 'Distortion & Mirror',
   fx_wavewarp: 'Distortion & Mirror', fx_tunnel: 'Distortion & Mirror', fx_prism: 'Distortion & Mirror',
+  fx_jelly: 'Distortion & Mirror', fx_heathaze: 'Distortion & Mirror',
   fx_fisheye: 'Distortion & Mirror', fx_stainedglass: 'Distortion & Mirror',
   fx_grainfine: 'Film & Vintage', fx_grainheavy: 'Film & Vintage', fx_sepia: 'Film & Vintage', fx_faded: 'Film & Vintage',
   fx_bleach: 'Film & Vintage', fx_infrared: 'Film & Vintage', fx_duotone: 'Film & Vintage', fx_halftone: 'Film & Vintage',
@@ -46,8 +47,14 @@ const PIXEL_GROUPS = { fx_vhs: 'Film & Vintage', fx_striped: 'Glitch & Digital',
   fx_deepsepia: 'Film & Vintage', fx_softmono: 'Film & Vintage', fx_technicolor: 'Film & Vintage', fx_filmborder: 'Film & Vintage', fx_agedpaper: 'Film & Vintage',
   fx_leakstrip: 'Light & Glow', fx_leakdiag: 'Light & Glow', fx_sunglow: 'Light & Glow', fx_halo: 'Light & Glow',
   fx_starburst: 'Light & Glow', fx_prismglow: 'Light & Glow', fx_fogglow: 'Light & Glow', fx_moonlight: 'Light & Glow', fx_candle: 'Light & Glow',
+  // Creative Composer stream A (CC-01 + CC-09).
+  fx_bloom_clean: 'Light & Glow', fx_bloom_halation: 'Light & Glow', fx_bloom_cool: 'Light & Glow', fx_bloom_neon: 'Light & Glow',
+  fx_bloom_edge: 'Light & Glow', fx_bloom_dream: 'Light & Glow', fx_bloom_color: 'Light & Glow', fx_bloom_chroma: 'Light & Glow',
+  fx_bloom_halo: 'Light & Glow', fx_bloom_textpulse: 'Light & Glow', fx_bloom_sweep: 'Light & Glow',
+  fx_crtvhs: 'Film & Vintage', fx_glassprism: 'Distortion & Mirror',
+  fx_strokereveal: 'Motion', fx_shapemorph: 'Motion',
   fx_rollshake: 'Motion', fx_quake: 'Motion', fx_zoomburst: 'Motion', fx_panleft: 'Motion',
-  fx_tiltup2: 'Motion', fx_orbit: 'Motion', fx_glitchshake: 'Motion', fx_heartbeat: 'Motion', fx_spinpulse: 'Motion' };
+  fx_tiltup2: 'Motion', fx_orbit: 'Motion', fx_glitchshake: 'Motion', fx_heartbeat: 'Motion', fx_spinpulse: 'Motion', fx_motionecho: 'Motion' };
 
 const OVERLAY_GROUPS = { fx_snow: 'Particles & Weather', fx_fire: 'Particles & Weather', fx_limelight: 'Light & Glow', fx_burning: 'Light & Glow',
   fx_snowlight: 'Particles & Weather', fx_blizzard: 'Particles & Weather', fx_rain: 'Particles & Weather', fx_downpour: 'Particles & Weather',
@@ -103,17 +110,3 @@ export const DEFAULT_ADJUST = { brightness: 0, contrast: 1, saturation: 1, hue: 
 // effects are shader passes in the shared renderer (src/fx/adjust.js, src/fx/apply.js),
 // so the preview and the export draw the same picture. (clipCss, the CSS approximation
 // this file used to export, was removed in the Sprint 6 unification.)
-
-// Opacity / transform for a text clip's in/out animation at local time lt (seconds into the clip).
-export function textAnim(clip, lt) {
-  const d = Math.min(0.4, clip.duration / 2);
-  const kin = Math.min(1, lt / d);
-  const kout = Math.min(1, (clip.duration - lt) / d);
-  const k = Math.max(0, Math.min(kin, kout));
-  switch (clip.anim) {
-    case 'fade': return { opacity: k, transform: '' };
-    case 'pop': return { opacity: k, transform: `scale(${0.6 + 0.4 * k})` };
-    case 'slideup': return { opacity: k, transform: `translateY(${(1 - k) * 40}%)` };
-    default: return { opacity: 1, transform: '' };
-  }
-}

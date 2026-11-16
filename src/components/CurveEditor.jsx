@@ -7,7 +7,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useT } from '../i18n/index.jsx';
 import { libName } from '../i18n/libNames.js';
 import { Pause, Play, RotateCcw } from '../icons.jsx';
-import { EASE_PRESETS, bezierSolver, easeValue, isCustomEase, ptsOf } from '../fx/easing.js';
+import { EASE_PRESETS, PHYSICS_EASES, bezierSolver, easeValue, isCustomEase, isPhysicsEase, physicsDefaults, physicsIdOf, physicsParamsOf, ptsOf } from '../fx/easing.js';
 
 const PX0 = 14; const PX1 = 114; // plot x range (viewBox units); t 0..1 maps across it
 const PY0 = 4; const PY1 = 72; // plot y range (svg coords, top..bottom)
@@ -20,8 +20,37 @@ const curvePath = (solve, n = 49) => Array.from({ length: n }, (_, i) => {
   return `${i ? 'L' : 'M'}${XV(t).toFixed(1)},${YV(solve(t)).toFixed(1)}`;
 }).join(' ');
 
-// Tiny sparkline of a preset's own curve, drawn from its real bezier values.
-function Glyph({ pts, dashed = false }) {
+// Tiny sparkline of a physics ease's real curve, sampled from easeValue.
+function GlyphFn({ fn }) {
+  const gy = (v) => 16 - (v + 0.3) * (14 / 1.7); // range -0.3..1.4 -> svg y 16..2
+  const d = Array.from({ length: 17 }, (_, i) => {
+    const t = i / 16;
+    return `${i ? 'L' : 'M'}${(2 + t * 32).toFixed(1)},${gy(fn(t)).toFixed(1)}`;
+  }).join(' ');
+  return (
+    <svg className="curve-glyph" viewBox="0 0 36 18" aria-hidden="true">
+      <line x1="2" x2="34" y1={gy(0)} y2={gy(0)} className="curve-glyph-base" />
+      <path d={d} className="curve-glyph-line" fill="none" />
+    </svg>
+  );
+}
+
+// Physics parameters per ease (P3-06): the sliders write an ease object
+// { physics, ...params }; back at defaults the stored value is the plain id.
+const PHYS_PARAMS = {
+  springPhysics: [
+    { key: 'stiffness', min: 20, max: 400, step: 5 },
+    { key: 'damping', min: 0, max: 40, step: 1 },
+    { key: 'mass', min: 0.5, max: 3, step: 0.1 },
+  ],
+  gravityBounce: [
+    { key: 'gravity', min: 1, max: 40, step: 1 },
+    { key: 'restitution', min: 0, max: 0.9, step: 0.05 },
+  ],
+};
+
+// Tiny sparkline of a bezier preset's curve.
+function Glyph({ pts, dashed }) {
   const solve = bezierSolver(...pts);
   const gy = (v) => 16 - (v + 0.3) * (14 / 1.7); // range -0.3..1.4 -> svg y 16..2
   const d = Array.from({ length: 17 }, (_, i) => {
@@ -46,9 +75,12 @@ export default function CurveEditor({ value, onChange, compact = false, resetVal
   const ghostRef = useRef(null);
   const rafRef = useRef(0);
   const custom = isCustomEase(value);
+  const phys = isPhysicsEase(value);
   const pts = ptsOf(value);
-  const activeId = custom ? 'custom' : (typeof value === 'string' ? value : (!value ? 'linear' : 'custom'));
-  const solve = bezierSolver(...pts);
+  const activeId = custom ? 'custom' : phys ? physicsIdOf(value) : (typeof value === 'string' ? value : (!value ? 'linear' : 'custom'));
+  // The graph draws the real curve: the bezier solver for presets/custom,
+  // easeValue itself for a physics ease (no bezier can draw a spring).
+  const solve = phys ? (tt) => easeValue(value, tt) : bezierSolver(...pts);
   const line = curvePath(solve);
   const fill = `${line} L${XV(1).toFixed(1)},${YV(0).toFixed(1)} L${XV(0).toFixed(1)},${YV(0).toFixed(1)} Z`;
 
@@ -70,6 +102,14 @@ export default function CurveEditor({ value, onChange, compact = false, resetVal
   const pick = (id) => {
     if (id === 'custom') onChange({ p1x: pts[0], p1y: pts[1], p2x: pts[2], p2y: pts[3] });
     else onChange(id === 'linear' ? undefined : id);
+  };
+  // A physics parameter change stores an object; back at defaults it stores
+  // the plain preset id, so old projects and the plain id stay clean.
+  const setPhysParam = (key, v) => {
+    const id = physicsIdOf(value);
+    const next = { physics: id === 'springPhysics' ? 'spring' : 'bounce', ...physicsParamsOf(value), [key]: v };
+    const def = physicsDefaults(id);
+    onChange(Object.keys(def).every((k) => next[k] === def[k]) ? id : next);
   };
   const toData = (ev) => {
     const r = svgRef.current.getBoundingClientRect();
@@ -134,11 +174,29 @@ export default function CurveEditor({ value, onChange, compact = false, resetVal
             <span>{libName('ease', p.id, p.name)}</span>
           </button>
         ))}
+        {PHYSICS_EASES.map((p) => (
+          <button key={p.id} type="button" className={`curve-chip ${activeId === p.id ? 'on' : ''}`} onClick={() => pick(p.id)}>
+            <GlyphFn fn={(tt) => easeValue(p.id, tt)} />
+            <span>{libName('ease', p.id, p.name)}</span>
+          </button>
+        ))}
         <button type="button" className={`curve-chip ${activeId === 'custom' ? 'on' : ''}`} onClick={() => pick('custom')}>
           <Glyph pts={[0.3, 0.05, 0.7, 0.95]} dashed />
           <span>{t('curve.custom')}</span>
         </button>
       </div>
+      {phys && (
+        <div className="curve-phys" role="group" aria-label={t('curve.physics')}>
+          {(PHYS_PARAMS[physicsIdOf(value)] || []).map((p) => (
+            <label className="curve-phys-row" key={p.key}>
+              <span>{t(`curve.${p.key}`)}</span>
+              <input type="range" min={p.min} max={p.max} step={p.step} aria-label={t(`curve.${p.key}`)}
+                value={physicsParamsOf(value)[p.key]} onChange={(e) => setPhysParam(p.key, Number(e.target.value))} />
+              <b>{physicsParamsOf(value)[p.key]}</b>
+            </label>
+          ))}
+        </div>
+      )}
       <svg ref={svgRef} className="curve-graph" viewBox="0 0 120 84" role="img" aria-label={t('curve.easing')}
         onPointerMove={onMove} onPointerUp={endDrag} onPointerLeave={endDrag}>
         <defs>

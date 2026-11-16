@@ -3,6 +3,7 @@
 // export all behave exactly as for a manual edit. Tools return small JSON results (or { error }) so the
 // model can read them and correct itself.
 import { clipLen, projectDuration, videoLayout, uid } from '../store.js';
+import { nearestFrameRate } from '../frames.js';
 import { hasCurve, sourceOffsetAt, speedAtSource } from '../speedCurve.js';
 import { FILTERS, EFFECTS, TRANSITIONS, RATIOS, DEFAULT_ADJUST, sizeFor } from '../effects.js';
 import { ANIM_IN, ANIM_LOOP, ANIM_OUT, BUBBLES, HIGHLIGHTS, TEXT_EFFECTS, TEXT_TEMPLATES } from '../text/catalog.js';
@@ -314,13 +315,106 @@ export function complementRanges(keep, total) {
   return out;
 }
 
+// Tools that REMOVE content: they go through the confirm gate in run() (P1-30) —
+// the user sees what will be removed (how much, what moves with it, the new length)
+// and can decline before anything is touched. Everything else applies directly;
+// one request is still a single undo step (CraftPilot collapses it).
+export const DESTRUCTIVE = ['cut_range', 'keep_ranges', 'remove_silences', 'delete_clip'];
+export const isDestructive = (name) => DESTRUCTIVE.includes(name);
+
 // ctx: { getProject(), dispatch(action), api, settle() }. settle() waits for the UI state to catch up after dispatches.
+export const NON_MUTATING_TOOLS = ['get_project', 'list_options', 'motion_guide', 'edit_style', 'transcribe', 'search_sounds', 'list_voices', 'search_stock', 'export_video'];
+export const mutatesTool = (name) => !NON_MUTATING_TOOLS.includes(name);
+
+// What one tool call would do, in plain words, against a GIVEN project — for
+// plan review (P1-31). Destructive calls reuse the confirm-gate description
+// (numbers included); anything else returns null and the caller falls back to
+// describeCall. Built on a throwaway runner so the description logic lives in
+// exactly one place; the throwaway dispatch/settle never touch anything.
+export async function describeStepFor(project, api, name, args) {
+  if (!isDestructive(name)) return null;
+  const runner = createToolRunner({ getProject: () => project, api: api || {}, dispatch: () => {}, settle: async () => {} });
+  return runner.describeDestructive(name, args || {});
+}
+
 export function createToolRunner(ctx) {
   const { dispatch, api } = ctx;
   const project = () => ctx.getProject();
+  // Silence detection the gate already ran for remove_silences: reuse it instead of
+  // detecting twice (slow on long videos). Keyed by the detection params; cleared
+  // after one use so a stale detection is never applied.
+  let pendingSilences = null;
   const after = async (extra = {}) => {
     await ctx.settle();
     return { ok: true, duration_sec: r2(projectDuration(project())), ...extra };
+  };
+  // What a destructive call would remove, in plain words + numbers, computed from
+  // the CURRENT project — shown to the user before anything changes. Returns
+  // { text, removedSec, newDurationSec } or { error } when the call is invalid, or
+  // { empty: true } when there is nothing to remove (the gate then steps aside and
+  // lets the tool report that itself).
+  const describeDestructive = async (name, args) => {
+    const p = project();
+    const total = r2(projectDuration(p));
+    const freeOverlaps = (list, start, end) => (list || []).filter((c) => {
+      const s = c.start ?? 0;
+      return s < end && s + clipLen(c) > start;
+    }).length;
+    const videoOverlaps = (start, end) => videoLayout(p.videoClips).filter((l) => l.start < end && l.end > start).length;
+    if (name === 'cut_range') {
+      const a = Number(args.start_sec);
+      const b = Number(args.end_sec);
+      if (!Number.isFinite(a) || !Number.isFinite(b)) return { error: 'start_sec and end_sec must be numbers.' };
+      if (a < 0 || b > total) return { error: `That range is outside the video (0–${total}s).` };
+      if (b <= a) return { error: 'end_sec must be greater than start_sec.' };
+      if (b - a >= total - 0.05) return { error: 'That would remove (almost) the whole video. Delete the clips instead, or keep the part you want with keep_ranges.' };
+      const removed = r2(b - a);
+      return {
+        text: `Removes ${removed}s from the main track (from ${total}s to ${r2(total - removed)}s). ${videoOverlaps(a, b)} main clip(s), ${freeOverlaps(p.textClips, a, b)} caption(s), ${freeOverlaps(p.audioClips, a, b)} audio clip(s) and ${freeOverlaps(p.overlayClips, a, b)} overlay(s) overlap the cut — only the main track moves, the rest keep their times.`,
+        removedSec: removed, newDurationSec: r2(total - removed),
+      };
+    }
+    if (name === 'keep_ranges') {
+      const list = (args.ranges || []).map((r) => ({ start: Number(r.start_sec), end: Number(r.end_sec) }));
+      if (!list.length) return { error: 'Give at least one range.' };
+      for (const r of list) {
+        if (!Number.isFinite(r.start) || !Number.isFinite(r.end) || r.end <= r.start) return { error: 'Every range needs start_sec < end_sec.' };
+        if (r.start < 0 || r.end > total) return { error: `Every range must sit inside the video (0–${total}s).` };
+      }
+      const kept = r2(list.reduce((n, r) => n + (r.end - r.start), 0));
+      if (kept <= 0.05) return { error: 'The kept ranges add up to nothing — that would delete the whole video.' };
+      return {
+        text: `Keeps ${kept}s in ${list.length} range(s) and removes ${r2(total - kept)}s (from ${total}s to ${kept}s). Only the main track is cut; text, audio and overlays keep their times.`,
+        removedSec: r2(total - kept), newDurationSec: kept,
+      };
+    }
+    if (name === 'remove_silences') {
+      if (!p.videoClips.length) return { error: 'The main track is empty.' };
+      const key = JSON.stringify([Number(args.min_silence_sec ?? 0.6), Number(args.threshold_db ?? -35)]);
+      const res = await api.agentSilences(p, { minDur: Number(args.min_silence_sec ?? 0.6), noiseDb: Number(args.threshold_db ?? -35) });
+      if (!res.ok) return { error: res.error };
+      const pad = Math.max(0, Number(args.keep_padding_sec ?? 0.12));
+      const ranges = res.silences
+        .map((s) => ({ start: s.start + pad, end: Math.min(s.end, total) - pad }))
+        .filter((s) => s.end - s.start > 0.05);
+      if (!ranges.length) return { empty: true };
+      const removed = r2(ranges.reduce((n, r) => n + (r.end - r.start), 0));
+      pendingSilences = { key, res };
+      return {
+        text: `Removes ${ranges.length} silent stretch(es), ${removed}s in total (from ${total}s to ${r2(total - removed)}s). Only the main track moves.`,
+        removedSec: removed, newDurationSec: r2(total - removed),
+      };
+    }
+    if (name === 'delete_clip') {
+      const f = findClip(args.clip_id);
+      if (!f) return { error: `No clip with id "${args.clip_id}". Call get_project to see the real ids.` };
+      const media = (p.media || []).find((m) => m.id === f.clip.mediaId);
+      return {
+        text: `Deletes "${media?.name || f.clip.id}" from the ${f.track} track (${r2(clipLen(f.clip))}s long).`,
+        removedSec: 0, newDurationSec: total,
+      };
+    }
+    return { error: `No description for "${name}".` };
   };
   const findClip = (id) => {
     const p = project();
@@ -489,7 +583,12 @@ export function createToolRunner(ctx) {
     async remove_silences({ min_silence_sec = 0.6, threshold_db = -35, keep_padding_sec = 0.12 } = {}) {
       const p = project();
       if (!p.videoClips.length) return { error: 'The main track is empty.' };
-      const res = await api.agentSilences(p, { minDur: Number(min_silence_sec), noiseDb: Number(threshold_db) });
+      // The gate already detected the silences to describe the change: reuse that
+      // detection instead of running it twice (slow on long videos).
+      const key = JSON.stringify([Number(min_silence_sec), Number(threshold_db)]);
+      let res;
+      if (pendingSilences && pendingSilences.key === key) { res = pendingSilences.res; pendingSilences = null; }
+      else res = await api.agentSilences(p, { minDur: Number(min_silence_sec), noiseDb: Number(threshold_db) });
       if (!res.ok) return { error: res.error };
       const total = projectDuration(p);
       const pad = Math.max(0, Number(keep_padding_sec));
@@ -507,6 +606,11 @@ export function createToolRunner(ctx) {
       const b = num(end_sec, 'end_sec');
       if (a.error || b.error) return a.error ? a : b;
       if (b <= a) return { error: 'end_sec must be greater than start_sec.' };
+      // Bounds are rejected here as well as in the gate, so a headless caller (no
+      // confirm dialog) still cannot cut outside the video or delete it wholesale.
+      const total = projectDuration(project());
+      if (a < 0 || b > total) return { error: `That range is outside the video (0–${r2(total)}s).` };
+      if (b - a >= total - 0.05) return { error: 'That would remove (almost) the whole video. Delete the clips instead, or keep the part you want with keep_ranges.' };
       dispatch({ type: 'cutRanges', ranges: [{ start: a, end: b }] });
       return after({ removed_sec: r2(b - a) });
     },
@@ -515,6 +619,11 @@ export function createToolRunner(ctx) {
       const total = projectDuration(project());
       const list = (ranges || []).map((r) => ({ start: Number(r.start_sec), end: Number(r.end_sec) })).filter((r) => Number.isFinite(r.start) && Number.isFinite(r.end));
       if (!list.length) return { error: 'Give at least one range.' };
+      for (const r of list) {
+        if (r.end <= r.start) return { error: 'Every range needs start_sec < end_sec.' };
+        if (r.start < 0 || r.end > total) return { error: `Every range must sit inside the video (0–${r2(total)}s).` };
+      }
+      if (list.reduce((n, r) => n + (r.end - r.start), 0) <= 0.05) return { error: 'The kept ranges add up to nothing — that would delete the whole video.' };
       const cuts = complementRanges(list, total);
       if (cuts.length) dispatch({ type: 'cutRanges', ranges: cuts });
       return after({ kept_ranges: list.length });
@@ -1004,9 +1113,11 @@ export function createToolRunner(ctx) {
         Object.assign(patch, { resolution: r, ...sizeFor(p.ratio, r) });
       }
       if (fps !== undefined) {
-        const r = Number(fps);
-        if (![24, 25, 30, 50, 60].includes(r)) return { error: 'fps must be 24, 25, 30, 50 or 60.' };
-        patch.fps = r;
+        // Frame timebase (P1-04): NTSC rates are accepted and stored as
+        // their exact rationals, so 29.97 lands on 30000/1001, never on 30.
+        const rate = nearestFrameRate(Number(fps));
+        if (!rate) return { error: 'fps must be 23.976, 24, 25, 29.97, 30, 50, 59.94 or 60.' };
+        patch.fps = rate;
       }
       if (name !== undefined && String(name).trim()) patch.name = String(name).trim().slice(0, 120);
       if (!Object.keys(patch).length) return { error: 'Nothing to change.' };
@@ -1067,6 +1178,17 @@ export function createToolRunner(ctx) {
     async run(name, args) {
       const fn = tools[name];
       if (!fn) return { error: `Unknown tool "${name}".` };
+      // Confirm gate (P1-30): a destructive call shows the user what it would
+      // remove and waits for their say-so. No onConfirm (headless callers, tests)
+      // means no gate — the bounds checks inside the tools still apply.
+      if (isDestructive(name) && typeof ctx.onConfirm === 'function') {
+        const desc = await describeDestructive(name, args || {});
+        if (desc.error) return desc;
+        if (!desc.empty) {
+          const ok = await ctx.onConfirm({ tool: name, summary: desc.text, removedSec: desc.removedSec, newDurationSec: desc.newDurationSec });
+          if (!ok) return { error: 'The user declined this change. Nothing was changed — suggest a smaller change or ask what they want instead.' };
+        }
+      }
       try {
         return await fn(args || {});
       } catch (e) {
@@ -1074,6 +1196,8 @@ export function createToolRunner(ctx) {
       }
     },
     // True for tools that change the project (used to decide whether there is anything to undo).
-    mutates: (name) => !['get_project', 'list_options', 'motion_guide', 'edit_style', 'transcribe', 'search_sounds', 'list_voices', 'search_stock', 'export_video'].includes(name),
+    mutates: (name) => mutatesTool(name),
+    // The plain-words description of a destructive call, for plan review.
+    describeDestructive,
   };
 }

@@ -22,14 +22,31 @@ export const gifLimitMessage = (seconds) => `GIF export is limited to ${GIF_MAX_
 
 // The phases of a video export, in pipeline order. `stage` is the sentence the
 // tray shows while the phase runs (the wording the modal flow used before R4).
+// The master-loudness phase runs only when mastering is on AND the timeline
+// has audible sound — a silent project never enters it, and a GIF has no
+// audio to master.
+export function projectHasAudio(project) {
+  const byId = new Map((project.media || []).map((m) => [m.id, m]));
+  const audible = (c) => c && !c.muted && byId.get(c.mediaId)?.hasAudio;
+  return (project.videoClips || []).some(audible)
+    || (project.overlayClips || []).some(audible)
+    || (project.audioClips || []).some(audible);
+}
 export function videoPhases(project, eff, hasFx) {
   const phases = [];
   if ((project.textClips || []).length) phases.push({ id: 'text', label: 'Text', stage: 'Rendering text' });
   if (hasFx) phases.push({ id: 'effects', label: 'Effects', stage: 'Rendering effects' });
   phases.push({ id: 'encode', label: 'Encoding', stage: 'Encoding video' });
+  if (eff && eff.loudness !== 'off' && eff.format !== 'gif' && projectHasAudio(project)) {
+    phases.push({ id: 'loudness', label: 'Loudness', stage: 'Mastering loudness' });
+  }
   if (typeof project.posterAt === 'number' && (eff.format === 'mp4' || eff.format === 'mov')) {
     phases.push({ id: 'cover', label: 'Cover', stage: 'Embedding cover' });
   }
+  // P1-57: the automatic quality check runs on every video export, after
+  // the encode (and the loudness master) — the tray shows it as the last
+  // phase before the done card.
+  phases.push({ id: 'qc', label: 'Quality', stage: 'Checking export quality' });
   return phases;
 }
 
@@ -42,6 +59,9 @@ export function audioPhases() {
   return [
     { id: 'mix', label: 'Mixdown', stage: 'Mixing audio' },
     { id: 'master', label: 'Master & encode', stage: 'Mastering & encoding audio' },
+    // P1-57: the automatic quality check (silence + duration) runs on every
+    // audio export too, after the encode.
+    { id: 'qc', label: 'Quality', stage: 'Checking export quality' },
   ];
 }
 
@@ -76,3 +96,34 @@ export function phaseStates(phases, activeId, status) {
 // How many jobs are ahead of a new export (running + queued) — the dialog's
 // queue hint and the tray's ordering both read this, so they cannot disagree.
 export const jobsAhead = (jobs) => jobs.filter((j) => j.status === 'running' || j.status === 'queued').length;
+
+// P1-52 — queue controls (pure, unit-tested in test-export-queue.mjs).
+//
+// The pump starts the first job that is queued AND not paused. A paused job
+// holds its place; everything behind it may run. (Pause is per-job, never
+// global — one long export must not freeze the whole queue.)
+export const pickNextJob = (jobs) => jobs.find((j) => j.status === 'queued' && !j.paused) || null;
+
+// The field patch that re-queues a failed job for another attempt. The job
+// keeps its id, project snapshot and target, so the retry is the same export
+// run again — not a new job. The settle promise is replaced by the caller
+// (the old one already resolved on failure). Video jobs start with phase
+// null (the text phase is optional); the other kinds start at their first
+// listed phase.
+export function retryPatch(job) {
+  return {
+    status: 'queued', progress: 0,
+    phase: job.kind === 'video' ? null : (job.phases?.[0]?.id || null),
+    error: null, attempts: (job.attempts || 1) + 1, paused: false, settled: false,
+    cancelled: { current: false },
+  };
+}
+
+// Which kinds support pausing WHILE RUNNING. Video and audio exports pause
+// in both places that matter: the renderer frame loops wait (see the
+// isPaused callbacks) and the live ffmpeg children are SIGSTOP'd. Enhance
+// runs a long-lived external engine child with its own staging, and the ZIP
+// runs in-process through archiver — neither has a safe stop point, so a
+// running enhance/zip job can only be paused while it is still queued, and
+// can otherwise only be cancelled.
+export const canPauseRunning = (job) => job.kind === 'video' || job.kind === 'audio';

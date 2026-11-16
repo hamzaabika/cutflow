@@ -1,28 +1,38 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FIT_VIEW, QUALITY_LABELS, QUALITY_MAX_SIDE, applyZoomChoice, clipLen, formatTime, freeLen, getPlaybackQuality, levelCopyState, needsPreviewCopy, previewPath, toFileUrl, videoLayout, zoomByFactor, zoomTransform } from '../store.js';
 import { hasMotion } from '../anim.js';
 import { mismatchFor } from '../sequence.js';
 import { fitFactors, mediaToStage, pinOffsetAt, stageToMedia, stateAtPinned } from '../track.js';
 import { aspectRatioOf, dragCrop, moveCrop } from '../cropMath.js';
-import { pictureGeometry, stageToSource } from '../pictureGeometry.js';
-import { Check, ChevronLeft, ChevronRight, ChevronUp, Gauge, LoaderCircle, Maximize, Minimize, Pause, Play, SkipBack, SkipForward, Unlink, Zap, ZoomIn } from '../icons.jsx';
-import { textAnim } from '../effects.js';
+import { keptFitFactors, pictureGeometry, stageToSource } from '../pictureGeometry.js';
+import { Check, ChevronLeft, ChevronRight, ChevronUp, Gauge, LoaderCircle, Maximize, Minimize, Pause, Play, SkipBack, SkipForward, SquareDashed, Unlink, Zap, ZoomIn } from '../icons.jsx';
+import { SAFE_ZONES, actionSafeZone, aspectKey, safeZoneRect } from '../text/responsive.js';
 import { drawTextLayer } from '../text/render.js';
 import { applyElementVolume, resumeAudioGraph, wireElement } from '../audioTap.js';
-import { fontsReady, onFontsChanged } from '../fonts.js';
+import { ensureFontsForProject, onFontsChanged } from '../fonts.js';
 import { isInternal, readPayload } from '../dnd.js';
 import { applyChromaKey, blendOf, chromaOf, cropOf, customMaskCanvas, decoStyle, hasCrop, hasCustomMask, layerStyle, transformOf } from '../visual.js';
 import TransformBox from './TransformBox.jsx';
 import MediaPeek from './MediaPeek.jsx';
+import { analyseCanvasPair, morphCacheKey, renderMorphFrame } from '../fx/morph.js';
 import { fxTransition } from '../fx/catalog.js';
+import { smoothCutPreviewHard } from '../smoothCut.js';
+import { transitionExpr } from '../fx/params.js';
 import { easeValue } from '../fx/easing.js';
 import { fxGL } from '../fx/gl.js';
 import { drawOverlayPasses, pixelPasses } from '../fx/apply.js';
-import { audioFxPathOf, enhancePathOf } from '../fx/audioFxPreview.js';
+import { audioFxPathOf, audioFxSliceValid, substitutedSoundOf } from '../fx/audioFxPreview.js';
+import { cleanVoiceChain, hasAudioFx, hasCleanVoice } from '../fx/audioFxChain.js';
+import { resolveTrackMatte } from '../trackMatte.js';
 import { anchorCorrection, interpolateTime } from '../playbackClock.js';
-import { sourceOffsetAt, speedAtTime, timelineOffsetAt } from '../speedCurve.js';
+import { recordFrame } from '../previewProfile.js';
+import { holdSourceOffsetAt, sourceOffsetAt, speedAtTime, timelineOffsetAt, validFrameHold } from '../speedCurve.js';
 import { clipGainAt } from '../volKeys.js';
+import { duckFactorAt, duckSpansFor } from '../duckKeys.js';
+import { busGainLinear, gainDbToLinear, masterGainDb } from '../mixer.js';
 import { actionForEvent, firstBinding, getCurrentKeymap, isKeyCaptureActive } from '../keymap.js';
+import { fpsLabel, isNewFrame } from '../frames.js';
+import { createPerfTrace, noteSeek, samplePlaybackQuality, setPerfTraceEnabled } from '../perfTrace.js';
 import { tr, useT } from '../i18n/index.jsx';
 
 
@@ -91,6 +101,43 @@ export function RegionOverlay({ region, write, dispatch }) {
 // export; opts.custom: the painted keep-map canvas in source geometry.
 // Every removal multiplies the alpha, so chroma + matte + custom union, as in electron/layers.cjs.
 const matteCv = typeof document !== 'undefined' ? document.createElement('canvas') : null;
+// Track matte (P2-12): the source clip's current picture becomes this
+// layer's alpha, in picture space (exact when both clips are full-frame).
+// Luma mode turns brightness into alpha; alpha mode uses the source's alpha.
+const trackMatteCv = typeof document !== 'undefined' ? document.createElement('canvas') : null;
+function applyTrackMatte(cv, srcCv, mode) {
+  // A <video> element has no .width unless the width attribute is set
+  // (it is 0 here) — read its decoded size via videoWidth, like the
+  // natural size of an image, or the guard below silently skips every
+  // plain video source (caught live 2026-11-15: matte never applied).
+  const sw = srcCv.videoWidth || srcCv.naturalWidth || srcCv.width;
+  const sh = srcCv.videoHeight || srcCv.naturalHeight || srcCv.height;
+  if (!cv || !srcCv || !sw || !sh || !cv.width) return;
+  const ctx = cv.getContext('2d', { willReadFrequently: true });
+  try {
+    if (mode === 'luma') {
+      if (trackMatteCv.width !== cv.width || trackMatteCv.height !== cv.height) {
+        trackMatteCv.width = cv.width;
+        trackMatteCv.height = cv.height;
+      }
+      const mctx = trackMatteCv.getContext('2d', { willReadFrequently: true });
+      mctx.drawImage(srcCv, 0, 0, cv.width, cv.height);
+      const frame = mctx.getImageData(0, 0, cv.width, cv.height);
+      const d = frame.data;
+      for (let i = 0; i < d.length; i += 4) d[i + 3] = Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
+      mctx.putImageData(frame, 0, 0);
+      ctx.save();
+      ctx.globalCompositeOperation = 'destination-in';
+      ctx.drawImage(trackMatteCv, 0, 0);
+      ctx.restore();
+    } else {
+      ctx.save();
+      ctx.globalCompositeOperation = 'destination-in';
+      ctx.drawImage(srcCv, 0, 0, cv.width, cv.height);
+      ctx.restore();
+    }
+  } catch { /* source frame not decoded yet; the next redraw retries */ }
+}
 function drawKeyed(cv, src, w, h, chroma, passes = [], matte = null, opts = {}) {
   if (!w || !h) return;
   const crop = opts.crop || null;
@@ -208,11 +255,9 @@ function syncMatte(mv, url, lead, playing, rate) {
 }
 const usesMatte = (c, m) => !!(c.bgRemove && m && m.type === 'video' && m.matte);
 
-// The file that replaces a picture clip's own sound, when one is current: the AudioFx
-// derivative first, else the Voice Enhancer's file (fx/audioFxPreview.js mirrors the
-// export's resolution in electron/ffmpeg.cjs). Either file covers [clip.in, clip.out],
-// so its timeline starts at 0.
-const enhPath = enhancePathOf;
+// Which file replaces a picture clip's own sound, and at what offset, now lives in
+// fx/audioFxPreview.js (substitutedSoundOf): the AudioFx derivative first, then a
+// covering audition slice, then the Voice Enhancer's file.
 
 // The CSS shapes for the transitions the export renders with FFmpeg's xfade — the five
 // whose xfade behaviour was measured to match these formulas exactly (Sprint 6, pinned
@@ -235,11 +280,12 @@ function transitionStyles(type, p) {
 
 export default function Preview({
   project, editProject, selection, onSelect, dispatch, time, seekVer, playing, duration, onTime, onEnd, onTogglePlay, onSeek, onDropItem,
-  peek, onClosePeek, onAddPeek, quality = 'full', onQualityChange, perfMode = 'balanced', onPerfToggle, clockRef,
+  peek, onClosePeek, onAddPeek, quality = 'full', onQualityChange, perfMode = 'balanced', onPerfToggle, clockRef, shuttleRate = 1,
   trackPick, onTrackPoint,
   cropEdit, onCropDraft,
   colorPick, onColorPicked,
   onMatchSequence,
+  audioPreview, // FB-30: { pendingIds, renderingIds, failedIds } — clips whose processed audio is not ready
 }) {
   const t = useT();
   const [dropOver, setDropOver] = useState(false);
@@ -252,11 +298,31 @@ export default function Preview({
   const keyed = [useRef(null), useRef(null)];
   const lastApply = useRef({ t: 0, playing: false });
   const leadRef = useRef(null); // the main-track video element the playback clock anchors to
+  // B-F08: the last time published to React via onTime — the rAF loop runs
+  // at display rate, the project only has fps frames/s, so onTime fires
+  // only when the frame index actually changes (see isNewFrame).
+  const lastOnTimeRef = useRef(null);
+  // A-15: opt-in playback trace (dropped frames + seek latency), sampled
+  // from the lead video element. The object lives on window so a rig can
+  // read it without any UI; sampling is gated on the flag, zero-cost off.
+  const perfTraceRef = useRef(null);
+  if (perfTraceRef.current === null) perfTraceRef.current = createPerfTrace();
+  const seekStampRef = useRef(0);
+  const lastSampleRef = useRef(0);
+  useEffect(() => {
+    window.__fvePerfTrace = perfTraceRef.current;
+    window.__fvePerfTraceEnable = (on) => { setPerfTraceEnabled(on); perfTraceRef.current.enabled = !!on; };
+    return () => { delete window.__fvePerfTrace; delete window.__fvePerfTraceEnable; };
+  }, []);
   const trCanvas = useRef(null);
   const trBufs = useRef({ a: null, b: null });
   const flashRef = useRef(null);
   const audioEls = useRef({});
   const enhEls = useRef({}); // clip id -> hidden <audio> playing a picture clip's substituted sound (effected / enhanced render)
+  // AU-02: the duck spans, re-derived whenever the project changes — the
+  // preview ducks the music live, the same curve the export renders.
+  const duckSpans = useMemo(() => duckSpansFor(project.videoClips, project.audioClips,
+    (id) => videoLayout(project.videoClips).find((l) => l.clip.id === id)?.start ?? NaN), [project]);
   const overlayEls = useRef({}); // clip id -> { slot, layer, v, img, cv }
   const stickerEls = useRef({}); // sticker clip id -> { slot, layer, img }
   const stickerPaths = useRef({}); // bundled sticker file name -> absolute path
@@ -300,7 +366,19 @@ export default function Preview({
     else playerRef.current?.requestFullscreen().catch(() => {});
   };
   // Transport menus (playback quality, zoom): at most one open; closes on outside click / Escape.
-  const [menu, setMenu] = useState(null); // 'quality' | 'zoom' | null
+  const [menu, setMenu] = useState(null); // 'quality' | 'zoom' | 'safezones' | null
+  // Preview safe zones (P1-51): view-only toggles, persisted across sessions
+  // like the recents list — they never touch clips or export. The rectangles
+  // reuse the responsive-titles SAFE_ZONES math (src/text/responsive.js).
+  const [safeZones, setSafeZones] = useState(() => {
+    try {
+      const s = JSON.parse(localStorage.getItem('cutflow.safeZones') || '{}');
+      return { title: !!s.title, action: !!s.action };
+    } catch { return { title: false, action: false }; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('cutflow.safeZones', JSON.stringify(safeZones)); } catch { /* not persisted */ }
+  }, [safeZones]);
   useEffect(() => {
     if (!menu) return;
     const down = (e) => { if (!e.target.closest('.transport-menu-wrap')) setMenu(null); };
@@ -405,6 +483,23 @@ export default function Preview({
     if (time >= (c.start || 0) && time < (c.start || 0) + len) { const s = chipFor(mediaById[c.mediaId]); if (s) chipStates.push(s); }
   }
   const stageChip = chipStates.find((s) => s.kind === 'failed') || chipStates[0] || null;
+  // FB-30: audio source badge — a clip at the playhead has an audio effect
+  // (or Clean Voice) but no valid processed derivative, so what you hear is
+  // the original audio. The video equivalent is the stage chip above.
+  let audioBadge = null;
+  if (audioPreview) {
+    const atPlayhead = [];
+    for (const l of videoLayout(project.videoClips)) if (time >= l.start && time < l.end) atPlayhead.push(l.clip);
+    for (const c of project.overlayClips || []) { const len = freeLen('overlay', c); if (time >= (c.start || 0) && time < (c.start || 0) + len) atPlayhead.push(c); }
+    for (const c of project.audioClips || []) { const len = clipLen(c); if (time >= (c.start || 0) && time < (c.start || 0) + len) atPlayhead.push(c); }
+    for (const c of atPlayhead) {
+      const m = mediaById[c.mediaId];
+      if (!m || !m.hasAudio || m.type === 'image' || c.gap) continue;
+      if ((!hasAudioFx(c.audioFx) && !hasCleanVoice(c.cleanVoice)) || audioFxPathOf(c, m)) continue;
+      audioBadge = audioPreview.renderingIds?.has(c.id) ? 'rendering' : audioPreview.failedIds?.has(c.id) ? 'failed' : 'pending';
+      break;
+    }
+  }
   // Lost main-track media at the playhead (Part 3, 2026-11-10): the stage
   // shows the Media Not Found frame for it (rendered below).
   let lostMain = null;
@@ -422,6 +517,29 @@ export default function Preview({
     const layout = videoLayout(project.videoClips);
     const active = layout.filter((l) => t >= l.start && t < l.end && mediaById[l.clip.mediaId]);
     const incoming = active.length === 2 ? active[1] : null;
+    // Track matte (P2-12): the source clip's current picture, by clip id
+    // (video slots are shared, so the map is rebuilt from the active clips
+    // each frame). A processed clip offers its keyed canvas; a plain clip
+    // offers its video / image element, which drawImage reads directly.
+    const videoSrcById = new Map(active.map((l) => {
+      const k = l.index % 2;
+      return [l.clip.id, { cv: keyed[k].current, v: vids[k].current, img: imgs[k].current }];
+    }));
+    const matteSrcCanvas = (sourceId) => {
+      const ov = overlayEls.current[sourceId];
+      if (ov) {
+        if (ov.cv && ov.cv.style.display === 'block' && ov.cv.width) return ov.cv;
+        if (ov.v && ov.v.readyState >= 2) return ov.v;
+        if (ov.img && ov.img.complete) return ov.img;
+      }
+      const vs = videoSrcById.get(sourceId);
+      if (vs) {
+        if (vs.cv && vs.cv.style.display === 'block' && vs.cv.width) return vs.cv;
+        if (vs.v && vs.v.readyState >= 2) return vs.v;
+        if (vs.img && vs.img.complete) return vs.img;
+      }
+      return null;
+    };
     const fxTr = incoming && incoming.trans > 0 ? fxTransition(incoming.clip.transition.type) : null;
     const tr = incoming && incoming.trans > 0 && !fxTr ? transitionStyles(incoming.clip.transition.type, (t - incoming.start) / incoming.trans) : null;
 
@@ -458,8 +576,8 @@ export default function Preview({
       slot.style.visibility = 'visible';
       slot.style.zIndex = item === incoming ? 2 : 1;
       slot.style.mixBlendMode = blendOf(c).css;
-      const motionNow = (hasMotion(c) || c.pin) ? stateAtPinned(project, { track: 'video', clip: c }, t - item.start, clipLen(c)) : undefined;
-      Object.assign(layer.style, layerStyle(c, project.width, project.height, motionNow));
+      const motionNow = (hasMotion(c) || c.pin) ? stateAtPinned(project, { track: 'video', clip: c }, t - item.start, clipLen(c), { skipSmoothCut: smoothCutPreviewHard(project, c) }) : undefined;
+      Object.assign(layer.style, layerStyle(c, project.width, project.height, motionNow, keptFitFactors(project, m, c)));
       if (decos[k].current) Object.assign(decos[k].current.style, decoStyle(c, project.width, project.height, motionNow));
       const chroma = chromaOf(c);
       if (tr) Object.assign(slot.style, item === incoming ? tr.in : tr.out);
@@ -474,28 +592,38 @@ export default function Preview({
         v.style.display = 'block';
         // Source position and instantaneous rate through the speed sampler:
         // lt * speed for a constant clip, the curve integral / derivative for a
-        // ramped one — the same map the export graph is built from.
+        // ramped one — the same map the export graph is built from. A frame
+        // hold (P1-50) freezes the source at the hold point for the hold
+        // window and pauses the element there, so its sound stops too —
+        // the export renders silence over the same span.
         const lt = t - item.start;
-        const srcOff = sourceOffsetAt(c, lt);
-        const rate = speedAtTime(c, lt);
-        // Substituted sound (AudioFx derivative, else Voice Enhancer): the video element
-        // goes silent and a hidden audio element plays the rendered file (which starts
-        // at the clip's in-point, so its time is the local time).
-        const sp = audioFxPathOf(c, m) || enhPath(c);
+        const hold = validFrameHold(c);
+        const inHold = !!hold && lt >= hold.at && lt < hold.at + hold.duration;
+        const srcOff = holdSourceOffsetAt(c, lt);
+        const rate = speedAtTime(c, lt) * shuttleRate;
+        // Substituted sound (AudioFx derivative, else a covering audition slice,
+        // else Voice Enhancer): the video element goes silent and a hidden audio
+        // element plays the rendered file (which starts at the clip's in-point,
+        // so its time is the local time; a slice starts srcOff0 in, so it plays
+        // at srcOff + delta).
+        const sp = substitutedSoundOf(c, m, srcOff);
         // The clip's gain at this frame: volume keyframes (or plain volume)
         // times the fade envelope — the one trace the export renders too
         // (src/volKeys.js clipGainAt; electron/volkeys.cjs is its mirror).
-        const gain = c.muted ? 0 : clipGainAt(c, lt, clipLen(c));
-        syncMedia(v, toFileUrl(previewPath(m)), c.in + srcOff, isPlaying, sp ? 0 : gain, rate);
+        // P2-23: the mix bus multiplies it (role gain × master); element
+        // volume caps at 1, so +dB bus gain is capped in preview but exact
+        // in export.
+        const gain = c.muted ? 0 : clipGainAt(c, lt, clipLen(c)) * busGainLinear(project, c, 'video') * gainDbToLinear(masterGainDb(project));
+        syncMedia(v, toFileUrl(previewPath(m)), c.in + srcOff, isPlaying && !inHold, sp ? 0 : gain, rate);
         if (sp && enhEls.current[c.id]) {
           enhSounding.add(c.id);
-          syncMedia(enhEls.current[c.id], toFileUrl(sp), srcOff, isPlaying, gain, rate);
+          syncMedia(enhEls.current[c.id], toFileUrl(sp.path), srcOff + sp.delta, isPlaying && !inHold, gain, rate);
         }
         // The playback clock anchors to the lead (non-incoming) clip's element.
         if (item !== incoming || !leadRef.current) leadRef.current = { el: v, item, clip: c };
       }
       const matte = usesMatte(c, m);
-      if (matte) syncMatte(mv, toFileUrl(m.matte), v, isPlaying, speedAtTime(c, t - item.start));
+      if (matte) syncMatte(mv, toFileUrl(m.matte), v, isPlaying, speedAtTime(c, t - item.start) * shuttleRate);
       else if (!mv.paused) mv.pause();
       // Chroma key / matte: the media element stays (it plays the sound and decodes), the keyed canvas is what shows.
       const src = m.type === 'image' ? img : v;
@@ -504,12 +632,17 @@ export default function Preview({
       // crop frame can be dragged over the whole picture; the crop applies again on Done.
       const crop = cropEdit && c.id === cropEdit.id ? null : (hasCrop(c) ? cropOf(c) : null);
       const custom = hasCustomMask(c) ? customMaskCanvas(c, m.width || project.width, m.height || project.height) : null;
-      const processed = chroma.on || pfx.length > 0 || matte || !!crop || !!custom;
+      const trackMatte = c.matte?.sourceId ? resolveTrackMatte(project, c, 'video') : null;
+      const processed = chroma.on || pfx.length > 0 || matte || !!crop || !!custom || !!trackMatte?.ok;
       cv.style.display = processed ? 'block' : 'none';
       src.style.visibility = processed ? 'hidden' : ''; // '' inherits: 'visible' would show through a hidden slot
       if (processed) {
         if (m.type === 'image') { if (img.complete) drawKeyed(cv, img, img.naturalWidth, img.naturalHeight, chroma, pfx, null, { crop, custom }); }
         else if (v.readyState >= 2) drawKeyed(cv, v, v.videoWidth, v.videoHeight, chroma, pfx, matte && mv.readyState >= 2 ? mv : null, { crop, custom });
+        if (trackMatte?.ok) {
+          const sCv = matteSrcCanvas(c.matte.sourceId);
+          if (sCv) applyTrackMatte(cv, sCv, trackMatte.mode);
+        }
       }
     });
 
@@ -540,7 +673,21 @@ export default function Preview({
       };
       const a = frameOf(outgoing, 'a');
       const b = frameOf(incoming, 'b');
-      const out = fxGL().transition(a, b, pw, ph, easeValue(incoming.clip.transition?.ease, (t - incoming.start) / incoming.trans), fxTr.expr);
+      const P = easeValue(incoming.clip.transition?.ease, (t - incoming.start) / incoming.trans);
+      let out;
+      if (fxTr.morph) {
+        // P3-03: real morph — the flow is analysed once per clip pair (cached
+        // in morph.js, same key the export uses) and the warp renders here;
+        // a failed analysis falls back to dissolve inside renderMorphFrame
+        // and the decision is reported in the Transition panel.
+        const key = morphCacheKey(`${outgoing.clip.id}:${outgoing.clip.mediaId}`, `${incoming.clip.id}:${incoming.clip.mediaId}`);
+        const analysis = analyseCanvasPair(a, b, key);
+        const gl = fxGL();
+        renderMorphFrame(gl, a, b, pw, ph, P, analysis, incoming.clip.transition, key);
+        out = gl.canvas;
+      } else {
+        out = fxGL().transition(a, b, pw, ph, P, transitionExpr(incoming.clip.transition));
+      }
       tc.getContext('2d').drawImage(out, 0, 0);
       tc.style.display = 'block';
       slots.forEach((s) => { s.current.style.opacity = '0'; });
@@ -589,8 +736,8 @@ export default function Preview({
         return;
       }
       el.slot.style.mixBlendMode = blendOf(c).css;
-      const motionNow = (hasMotion(c) || c.pin) ? stateAtPinned(project, { track: 'overlay', clip: c }, lt, clipLen(c)) : undefined;
-      Object.assign(el.layer.style, layerStyle(c, project.width, project.height, motionNow));
+      const motionNow = (hasMotion(c) || c.pin) ? stateAtPinned(project, { track: 'overlay', clip: c }, lt, clipLen(c), { skipSmoothCut: smoothCutPreviewHard(project, c) }) : undefined;
+      Object.assign(el.layer.style, layerStyle(c, project.width, project.height, motionNow, keptFitFactors(project, m, c)));
       if (el.deco) Object.assign(el.deco.style, decoStyle(c, project.width, project.height, motionNow));
       const chroma = chromaOf(c);
       const src = m.type === 'image' ? el.img : el.v;
@@ -598,28 +745,36 @@ export default function Preview({
         const url = toFileUrl(m.path);
         if (el.img.dataset.src !== url) { el.img.dataset.src = url; el.img.src = url; }
       } else {
-        const srcOff = sourceOffsetAt(c, lt);
-        const rate = speedAtTime(c, lt);
-        const sp = audioFxPathOf(c, m) || enhPath(c);
-        const gain = c.muted ? 0 : clipGainAt(c, lt, clipLen(c));
-        syncMedia(el.v, toFileUrl(previewPath(m)), c.in + srcOff, isPlaying, sp ? 0 : gain, rate);
+        // Frame hold (P1-50): same freeze-and-pause as the main track.
+        const oHold = validFrameHold(c);
+        const oInHold = !!oHold && lt >= oHold.at && lt < oHold.at + oHold.duration;
+        const srcOff = holdSourceOffsetAt(c, lt);
+        const rate = speedAtTime(c, lt) * shuttleRate;
+        const sp = substitutedSoundOf(c, m, srcOff);
+        const gain = c.muted ? 0 : clipGainAt(c, lt, clipLen(c)) * busGainLinear(project, c, 'overlay') * gainDbToLinear(masterGainDb(project));
+        syncMedia(el.v, toFileUrl(previewPath(m)), c.in + srcOff, isPlaying && !oInHold, sp ? 0 : gain, rate);
         if (sp && enhEls.current[c.id]) {
           enhSounding.add(c.id);
-          syncMedia(enhEls.current[c.id], toFileUrl(sp), srcOff, isPlaying, gain, rate);
+          syncMedia(enhEls.current[c.id], toFileUrl(sp.path), srcOff + sp.delta, isPlaying && !oInHold, gain, rate);
         }
       }
       const matte = usesMatte(c, m) && el.mv;
-      if (matte) syncMatte(el.mv, toFileUrl(m.matte), el.v, isPlaying, speedAtTime(c, lt));
+      if (matte) syncMatte(el.mv, toFileUrl(m.matte), el.v, isPlaying, speedAtTime(c, lt) * shuttleRate);
       else if (el.mv && !el.mv.paused) el.mv.pause();
       const pfx = pixelPasses(project, c, c.start, lt);
       const crop = cropEdit && c.id === cropEdit.id ? null : (hasCrop(c) ? cropOf(c) : null);
       const custom = hasCustomMask(c) ? customMaskCanvas(c, m.width || project.width, m.height || project.height) : null;
-      const processed = chroma.on || pfx.length > 0 || !!matte || !!crop || !!custom;
+      const trackMatte = c.matte?.sourceId ? resolveTrackMatte(project, c, 'overlay') : null;
+      const processed = chroma.on || pfx.length > 0 || !!matte || !!crop || !!custom || !!trackMatte?.ok;
       el.cv.style.display = processed ? 'block' : 'none';
       src.style.visibility = processed ? 'hidden' : ''; // '' inherits: 'visible' would show through a hidden slot
       if (processed) {
         if (m.type === 'image') { if (el.img.complete) drawKeyed(el.cv, el.img, el.img.naturalWidth, el.img.naturalHeight, chroma, pfx, null, { crop, custom }); }
         else if (el.v.readyState >= 2) drawKeyed(el.cv, el.v, el.v.videoWidth, el.v.videoHeight, chroma, pfx, matte && el.mv.readyState >= 2 ? el.mv : null, { crop, custom });
+        if (trackMatte?.ok) {
+          const sCv = matteSrcCanvas(c.matte.sourceId);
+          if (sCv) applyTrackMatte(el.cv, sCv, trackMatte.mode);
+        }
       }
     });
 
@@ -632,10 +787,16 @@ export default function Preview({
       const len = freeLen('audio', c);
       const lt = t - c.start;
       if (lt >= 0 && lt < len) {
-        const g = clipGainAt(c, lt, len);
-        const sp = audioFxPathOf(c, m) || enhPath(c);
+        // Checklist #19: a muted audio clip is silent in preview, like the
+        // video and overlay tracks already are (their gain lines guard on
+        // c.muted); clipGainAt itself knows nothing about muted.
+        // P2-23: the mix bus multiplies it (role gain × master).
+        // AU-02: the music ducks live under voice spans (the same curve the
+        // export renders) — unless its ducking was baked into volume keys.
+        const g = c.muted ? 0 : clipGainAt(c, lt, len) * busGainLinear(project, c, 'audio') * gainDbToLinear(masterGainDb(project)) * (c.duckBaked ? 1 : duckFactorAt(duckSpans, t, c.id));
         const srcOff = sourceOffsetAt(c, lt);
-        syncMedia(el, toFileUrl(sp || m.path), sp ? srcOff : c.in + srcOff, isPlaying, g, speedAtTime(c, lt));
+        const sp = substitutedSoundOf(c, m, srcOff);
+        syncMedia(el, toFileUrl(sp ? sp.path : m.path), sp ? srcOff + sp.delta : c.in + srcOff, isPlaying, g, speedAtTime(c, lt) * shuttleRate);
       } else if (!el.paused) el.pause();
     });
 
@@ -650,11 +811,25 @@ export default function Preview({
     if (!lastApply.current.playing) apply(lastApply.current.t, false);
   };
 
+  // A-15: stamp every seek; the paused draw below measures how long the
+  // frame took to land. (seekVer bumps only on a real seek; the mount run
+  // is skipped, or the first sample would be the whole app startup.)
+  const seekStampInit = useRef(false);
+  useEffect(() => {
+    if (!seekStampInit.current) { seekStampInit.current = true; return; }
+    seekStampRef.current = performance.now();
+  }, [seekVer]);
+
   // Paused: show the frame at `time`.
   useEffect(() => {
     if (!playing) {
       apply(time, false);
       if (clockRef) clockRef.current = { time, stamp: performance.now(), playing: false, rate: 1 };
+      const trace = perfTraceRef.current;
+      if (trace?.enabled && seekStampRef.current) {
+        noteSeek(trace, performance.now() - seekStampRef.current);
+        seekStampRef.current = 0;
+      }
     }
   });
 
@@ -665,12 +840,23 @@ export default function Preview({
   // (wall clock runs on, then a jump-cut seek when the drift threshold trips). The clock
   // is also published to clockRef every frame: the timeline's playhead reads it directly
   // from the DOM side, so it glides even when React renders drop frames.
+  // The interpolation rate is the shuttle rate (J/K/L): at 2×/4× the media
+  // elements play faster and the anchor corrections keep the playhead on them.
   useEffect(() => {
     if (!playing) return;
     const master = { time, stamp: performance.now() };
+    lastOnTimeRef.current = null; // a seek or replay re-publishes its first frame
     let raf;
+    let lastTick = performance.now();
     const tick = () => {
-      let t = interpolateTime(master.time, master.stamp, performance.now(), 1);
+      // FB-16 (P1-21): frame-latency trace for the rAF -> onTime(t) path.
+      // rafDelta paces the loop; applyMs is the synchronous draw; onTimeMs
+      // is the synchronous dispatch; toPaintMs (measured at the next rAF)
+      // is dispatch + React commit + paint as observed from the loop.
+      const tickStart = performance.now();
+      const rafDelta = tickStart - lastTick;
+      lastTick = tickStart;
+      let t = interpolateTime(master.time, master.stamp, performance.now(), shuttleRate);
       const lead = leadRef.current;
       if (lead?.el && lead.el.readyState >= 2 && !lead.el.paused && t >= lead.item.start && t < lead.item.end) {
         const mt = lead.item.start + timelineOffsetAt(lead.clip, lead.el.currentTime - lead.clip.in);
@@ -678,22 +864,42 @@ export default function Preview({
         if (fix) { master.time = fix.time; master.stamp = performance.now(); t = fix.time; }
       }
       if (t >= duration) {
+        lastOnTimeRef.current = null;
         onTime(duration);
         onEnd();
         apply(duration, false);
         if (clockRef) clockRef.current = { time: duration, stamp: performance.now(), playing: false, rate: 1 };
         return;
       }
+      const tApply0 = performance.now();
       apply(t, true);
-      onTime(t);
-      if (clockRef) clockRef.current = { time: t, stamp: performance.now(), playing: true, rate: 1 };
+      const applyMs = performance.now() - tApply0;
+      const tOn0 = performance.now();
+      // B-F08: the timeline playhead already glides off clockRef every
+      // frame — React only needs the time when the frame index moves, so a
+      // 60 Hz display no longer re-renders the app 60×/s for a 30 fps
+      // timecode. The end-of-track call above still publishes exactly.
+      if (isNewFrame(lastOnTimeRef.current, t, project.fps)) {
+        lastOnTimeRef.current = t;
+        onTime(t);
+      }
+      const onTimeMs = performance.now() - tOn0;
+      requestAnimationFrame(() => recordFrame({ rafDelta, applyMs, onTimeMs, toPaintMs: performance.now() - tOn0 }));
+      // A-15: once a second, note what the decoder actually dropped.
+      const trace = perfTraceRef.current;
+      if (trace?.enabled && performance.now() - lastSampleRef.current >= 1000) {
+        lastSampleRef.current = performance.now();
+        samplePlaybackQuality(trace, lead?.el);
+      }
+      if (clockRef) clockRef.current = { time: t, stamp: performance.now(), playing: true, rate: shuttleRate };
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-    // Restart the loop when play state toggles, the user seeks (seekVer bumps) or the project changes.
+    // Restart the loop when play state toggles, the user seeks (seekVer bumps), the shuttle rate
+    // changes, or the project changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playing, seekVer, project, duration]);
+  }, [playing, seekVer, project, duration, shuttleRate]);
 
   // Scale overlays from project pixels (e.g. 1280x720) to the on-screen stage.
   useEffect(() => {
@@ -708,9 +914,13 @@ export default function Preview({
   const textCanvas = useRef(null);
   const [fontTick, setFontTick] = useState(0);
   useEffect(() => {
-    fontsReady().then(() => setFontTick((n) => n + 1));
-    return onFontsChanged(() => setFontTick((n) => n + 1));
-  }, []);
+    // FB-33: load only the fonts this project uses (the gate confirms
+    // them before the frame draws); the tick re-draws once they land.
+    let live = true;
+    ensureFontsForProject(project).then(() => { if (live) setFontTick((n) => n + 1); });
+    const off = onFontsChanged(() => setFontTick((n) => n + 1));
+    return () => { live = false; off(); };
+  }, [project]);
   useEffect(() => {
     const cv = textCanvas.current;
     const stage = stageRef.current;
@@ -739,8 +949,8 @@ export default function Preview({
         <span className="panel-title">{t('player.title')}</span>
         {peek ? <span className="pill peek-pill" title={peek.name}>{peek.assetPath ? t('player.asset') : t('player.media')} · {peek.name}</span>
           : seqMismatch && onMatchSequence ? (
-            <button type="button" className="pill pill-btn" title={t('seq.matchClip')} onClick={onMatchSequence}>{project.ratio} · {project.width}×{project.height} · {project.fps} {t('player.fpsUnit')}</button>
-          ) : <span className="pill">{project.ratio} · {project.width}×{project.height} · {project.fps} {t('player.fpsUnit')}</span>}
+            <button type="button" className="pill pill-btn" title={t('seq.matchClip')} onClick={onMatchSequence}>{project.ratio} · {project.width}×{project.height} · {fpsLabel(project.fps)} {t('player.fpsUnit')}</button>
+          ) : <span className="pill">{project.ratio} · {project.width}×{project.height} · {fpsLabel(project.fps)} {t('player.fpsUnit')}</span>}
       </div>
       {peek && <MediaPeek m={peek} fps={project.fps} onClose={onClosePeek} onAdd={onAddPeek} />}
       <div className={`stage-wrap ${view.z > 1 ? 'zoomed' : ''}`} ref={wrapRef} onMouseDown={onStageMouseDown}>
@@ -772,6 +982,11 @@ export default function Preview({
               ) : (
                 <span>{t('player.preparing', { name: stageChip.m.name })}</span>
               )}
+            </div>
+          )}
+          {audioBadge && (
+            <div className={`stage-note audio ${audioBadge}`} role="status">
+              <span>{audioBadge === 'rendering' ? t('player.audioRendering') : audioBadge === 'failed' ? t('player.audioFailed') : t('player.audioOriginal')}</span>
             </div>
           )}
           {(project.overlayClips || []).map((c) => {
@@ -811,10 +1026,23 @@ export default function Preview({
           {project.audioClips.map((c) => (
             <audio key={c.id} ref={(el) => { if (el) audioEls.current[c.id] = el; else delete audioEls.current[c.id]; }} preload="auto" />
           ))}
-          {[...project.videoClips, ...(project.overlayClips || [])].filter((c) => enhPath(c) || audioFxPathOf(c, mediaById[c.mediaId])).map((c) => (
+          {[...project.videoClips, ...(project.overlayClips || [])].filter((c) => audioFxSliceValid(c, mediaById[c.mediaId]) || substitutedSoundOf(c, mediaById[c.mediaId], 0)).map((c) => (
             <audio key={`enh-${c.id}`} ref={(el) => { if (el) enhEls.current[c.id] = el; else delete enhEls.current[c.id]; }} preload="auto" />
           ))}
           <canvas ref={textCanvas} className="text-layer" />
+          {(safeZones.title || safeZones.action) && (
+            <div className="safe-zones" aria-hidden="true">
+              {safeZones.action && (() => {
+                const r = safeZoneRect(actionSafeZone(project.width, project.height), project.width, project.height);
+                return <div className="safe-zone action" style={{ left: `${(r.x / project.width) * 100}%`, top: `${(r.y / project.height) * 100}%`, width: `${(r.w / project.width) * 100}%`, height: `${(r.h / project.height) * 100}%` }}><span>{t('player.actionSafe')}</span></div>;
+              })()}
+              {safeZones.title && (() => {
+                const zone = SAFE_ZONES[aspectKey(project.width, project.height)] || SAFE_ZONES.other;
+                const r = safeZoneRect(zone, project.width, project.height);
+                return <div className="safe-zone title" style={{ left: `${(r.x / project.width) * 100}%`, top: `${(r.y / project.height) * 100}%`, width: `${(r.w / project.width) * 100}%`, height: `${(r.h / project.height) * 100}%` }}><span>{t('player.titleSafe')}</span></div>;
+              })()}
+            </div>
+          )}
           {!cropEdit && !colorPick && (
             <TransformBox project={editProject || project} time={time} selection={selection} onSelect={onSelect} dispatch={dispatch}
               sw={project.width * scale} sh={project.height * scale} />
@@ -968,6 +1196,27 @@ export default function Preview({
               </div>
             )}
           </span>
+          <span className="transport-menu-wrap">
+            <button className={`proxy-btn zoom-btn ${(safeZones.title || safeZones.action) ? 'on' : ''}`} onClick={() => setMenu(menu === 'safezones' ? null : 'safezones')}
+              aria-haspopup="menu" aria-expanded={menu === 'safezones'}
+              aria-label={t('player.safeZones')} title={t('player.safeZonesTitle')}>
+              <SquareDashed size={12} /> {t('player.safeZones')} <ChevronUp size={11} />
+            </button>
+            {menu === 'safezones' && (
+              <div className="transport-menu zoom-menu" role="menu" aria-label={t('player.safeZones')}>
+                {[
+                  ['title', t('player.titleSafe'), t('player.titleSafeDesc')],
+                  ['action', t('player.actionSafe'), t('player.actionSafeDesc')],
+                ].map(([key, label, desc]) => (
+                  <button key={key} className={`transport-menu-item ${safeZones[key] ? 'active' : ''}`} role="menuitemcheckbox" aria-checked={safeZones[key]}
+                    onClick={() => setSafeZones((s) => ({ ...s, [key]: !s[key] }))}>
+                    <span className="tm-check">{safeZones[key] ? <Check size={14} /> : null}</span>
+                    <span className="tm-text"><b>{label}</b><small>{desc}</small></span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </span>
           <button className="icon-btn" onClick={toggleFull} aria-label={full ? t('player.exitFull') : (firstBinding(getCurrentKeymap(), 'fullscreen') ? t('player.fullScreenKey', { key: firstBinding(getCurrentKeymap(), 'fullscreen') }) : t('player.fullScreen'))} title={full ? t('player.exitFull') : (firstBinding(getCurrentKeymap(), 'fullscreen') ? t('player.fullScreenKey', { key: firstBinding(getCurrentKeymap(), 'fullscreen') }) : t('player.fullScreen'))}>
             {full ? <Minimize size={16} /> : <Maximize size={16} />}
           </button>
@@ -1022,7 +1271,7 @@ function CropEditOverlay({ project, clip, media, value, aspectId, onDraft, time 
   }
   const lt = Math.min(len, Math.max(0, time - startTl));
   const tNow = (hasMotion(clip) || clip.pin)
-    ? stateAtPinned(project, { track: (project.overlayClips || []).some((c) => c.id === clip.id) ? 'overlay' : 'video', clip }, lt, len).transform
+    ? stateAtPinned(project, { track: (project.overlayClips || []).some((c) => c.id === clip.id) ? 'overlay' : 'video', clip }, lt, len, { skipSmoothCut: smoothCutPreviewHard(project, clip) }).transform
     : transformOf(clip);
   // The clip renders UNCROPPED in this mode, so the geometry must describe the full
   // source's fitted box — pass a crop-less view of the clip (pictureGeometry is otherwise
@@ -1142,7 +1391,7 @@ async function pickColorAt({ project, clip, media, track, time, sx, sy, overlayE
   }
   const lt = Math.min(len, Math.max(0, time - start));
   const t = (hasMotion(clip) || clip.pin)
-    ? stateAtPinned(project, { track, clip }, lt, len).transform
+    ? stateAtPinned(project, { track, clip }, lt, len, { skipSmoothCut: smoothCutPreviewHard(project, clip) }).transform
     : transformOf(clip);
   // The mapping is the shared displayed-picture geometry (src/pictureGeometry.js) — the
   // same one the crop overlay and the transform box consume.
@@ -1174,7 +1423,7 @@ async function pickColorAt({ project, clip, media, track, time, sx, sy, overlayE
   }
   // Route 2: a full-res frame grab of the same source instant via IPC.
   try {
-    const at = media.type === 'video' ? (clip.in || 0) + sourceOffsetAt(clip, lt) : 0;
+    const at = media.type === 'video' ? (clip.in || 0) + (frameHoldSourceOffset(clip, lt) ?? sourceOffsetAt(clip, lt)) : 0;
     const res = await window.api.frameGrab(media.path, at);
     if (res && res.ok) {
       const img = new Image();

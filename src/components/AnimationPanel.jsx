@@ -3,13 +3,14 @@ import { useT } from '../i18n/index.jsx';
 import { libName, slugifyPhrase } from '../i18n/libNames.js';
 import { Ban } from '../icons.jsx';
 import { ANIMATIONS, DEFAULT_ANIM_DURATION, animOf, previewState } from '../anim.js';
+import { MOTION_PRESETS, PREMIUM_MOVEMENT_PACK, applyMotionPreset, clearMotionPreset } from '../fx/motionPresets.js';
 import { samplePhotoUrl, samplePictureUrl } from '../fx/previews.jsx';
 import Slider from './Slider.jsx';
 
 const KINDS = [['in', 'In'], ['out', 'Out'], ['combo', 'Combo']];
 
 // Tile picture: the sample photo moving like the animation, playing while the pointer is over the tile.
-function AnimThumb({ kind, id }) {
+export function AnimThumb({ kind, id }) {
   const ref = useRef(null);
   useEffect(() => {
     const el = ref.current;
@@ -70,8 +71,50 @@ export default function AnimationPanel({ clip, len, set, dispatch }) {
   };
   const cats = [...new Set(ANIMATIONS[kind].map((a) => a.cat))];
   const dur = current[kind]?.duration;
+  // P2-18 motion presets: normalised keyframe recipes (rate-independent) plus
+  // the handheld combo. A preset writes real keyframes, so the Keyframe Graph
+  // and the transform sliders stay the handles for tweaking it.
+  const activePreset = clip.motionPreset || null;
+  const applyPreset = (id) => {
+    const patch = applyMotionPreset(clip, id);
+    if (patch) set(patch);
+  };
+  const removePreset = () => {
+    const patch = clearMotionPreset(clip);
+    if (patch) set(patch);
+  };
+  const presetGroups = [
+    { title: t('anim.motionCore'), presets: MOTION_PRESETS.filter((p) => p.pack === 'core') },
+    { title: PREMIUM_MOVEMENT_PACK.name, presets: MOTION_PRESETS.filter((p) => p.pack === 'premium-movement') },
+  ];
   return (
     <div className="anim-panel">
+      <div className="anim-cat">
+        <div className="anim-cat-title">{t('anim.motionPresets')}</div>
+        <p className="dim small">{t('anim.motionPresetsNote')}</p>
+        {presetGroups.map((g) => (
+          <div key={g.title} className="anim-cat">
+            <div className="anim-cat-title">{g.title}</div>
+            <div className="anim-grid">
+              {g.presets.map((p) => (
+                <button key={p.id} className={`tile ${activePreset === p.id ? 'on' : ''}`} aria-pressed={activePreset === p.id}
+                  title={libName('motion', p.id, p.name)} onClick={() => applyPreset(p.id)}>
+                  <span className="tile-label">{libName('motion', p.id, p.name)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+        {activePreset && (
+          <button className="btn btn-sm" onClick={removePreset}>{t('anim.motionRemove')}</button>
+        )}
+        <label className="field check">
+          <input type="checkbox" checked={!!clip.motionBlur} disabled={!activePreset}
+            onChange={(e) => set({ motionBlur: e.target.checked })} />
+          <span>{t('anim.motionBlur')}</span>
+        </label>
+        <p className="dim small">{t('anim.motionBlurNote')}</p>
+      </div>
       <div className="seg-tabs small" role="tablist" aria-label={t('anim.type')}>
         {KINDS.map(([id, name]) => (
           <button key={id} role="tab" aria-selected={kind === id} className={kind === id ? 'on' : ''} onClick={() => setKind(id)}>
@@ -83,6 +126,12 @@ export default function AnimationPanel({ clip, len, set, dispatch }) {
         {t(kind === 'in' ? 'anim.inNote' : kind === 'out' ? 'anim.outNote' : 'anim.loopNote')}
         {' '}{t('anim.hoverPreview')}
       </p>
+      {clip.adaptReport && (clip.adaptReport.scaled?.length || clip.adaptReport.unhandled?.length) ? (
+        <div className="adapt-report" role="status">
+          {clip.adaptReport.scaled?.map((e, i) => (<div key={i} className="dim small">{t('prim.adapted', { line: t(e.key, e.params || {}) })}</div>))}
+          {clip.adaptReport.unhandled?.map((e, i) => (<div key={i} className="dim small">{t('prim.adaptUnhandled', { line: t(e.key, e.params || {}) })}</div>))}
+        </div>
+      ) : null}
       <div className="anim-grid">
         <button className={`tile ${!chosen ? 'on' : ''}`} aria-pressed={!chosen} onClick={() => pick(null)}>
           <span className="tile-preview anim-none"><Ban size={22} /></span>
@@ -102,7 +151,7 @@ export default function AnimationPanel({ clip, len, set, dispatch }) {
           </div>
         </div>
       ))}
-      {chosen && kind !== 'combo' && (
+      {chosen && kind !== 'combo' && Number.isFinite(dur) && (
         <Slider dispatch={dispatch} label={t('insp.duration')} value={dur} min={0.1} max={Math.max(0.2, Math.min(5, len))} step={0.1}
           fmt={(v) => `${v.toFixed(1)}s`} onChange={(d) => set({ anim: { ...clip.anim, [kind]: { ...clip.anim[kind], duration: d } } })} />
       )}

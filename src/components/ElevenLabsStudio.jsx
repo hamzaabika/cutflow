@@ -5,6 +5,8 @@ import Dropdown from './Dropdown.jsx';
 import Toggle from '../ui/Toggle.jsx';
 import { STAGE_LABELS, clampOpts, createJobRunner, defaultOpts, genKind, modelDef, modelOptions } from '../genStudio.js';
 import { useT, tr, getLanguage } from '../i18n/index.jsx';
+import AiBadge from './AiBadge.jsx';
+import AiCostBadge from './AiCostBadge.jsx';
 
 // ElevenLabs studio — the gen.cjs backend's surface, living inside the Forge panel
 // (one generation home, two engines). What it adds over Forge: talking avatars from a
@@ -101,9 +103,11 @@ export default function ElevenLabsStudio(props) {
   return (
     <div className="el-studio">
       <div className="tpl-sec-head store">
-        <span className="tab-title"><Sparkles size={15} /> {t('el.title')}</span>
+        <span className="tab-title"><Sparkles size={15} /> {t('el.title')} <AiBadge kind="api" /></span>
       </div>
       <p className="muted small">{t('el.note1')}<b>{t('el.noteKey')}</b>{t('el.note2')}</p>
+      {/* AI-02: generation here is a cloud call on the user's ElevenLabs key, billed against the plan quota. */}
+      <AiCostBadge featureId="tts-elevenlabs" detail={status?.left != null && status?.limit > 0 ? t('el.credits', { left: status.left.toLocaleString(NUM_LOCALES[getLanguage()] || 'en-US'), limit: status.limit.toLocaleString(NUM_LOCALES[getLanguage()] || 'en-US') }) : undefined} />
 
       {status && !status.hasKey ? (
         <div className="forge-nokey">

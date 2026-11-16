@@ -1,8 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { AudioLines, Cable, CircleAlert, CircleCheck, Copy, ExternalLink, Eye, EyeOff, Film, Gauge, Keyboard, Languages, Loader2, RotateCcw, Server, ShieldCheck, Sparkles, Trash2, X } from '../icons.jsx';
 import Toggle from '../ui/Toggle.jsx';
+import { isPerfTraceEnabled, setPerfTraceEnabled } from '../perfTrace.js';
 import { KEY_ACTIONS, actionLabel, applyKeymapOverrides, chordFromEvent, diffOverrides, formatChord, resolveKeymap, setKeyCaptureActive } from '../keymap.js';
 import { useLang, useT } from '../i18n/index.jsx';
+import AiBadge from './AiBadge.jsx';
+import { badgeForProvider } from '../ai/badges.js';
+import { applyAccessibilitySettings } from '../accessibility.js';
 
 const PROVIDERS = [
   { id: 'gemini', name: 'Google Gemini', needsKey: true, hint: 'set.prov.gemini.hint', keyUrl: 'https://aistudio.google.com/app/apikey', keyUrlLabel: 'set.prov.gemini.keyLabel' },
@@ -130,12 +134,96 @@ const PERF_MODE_OPTIONS = [
   ['balanced', 'set.perf.balanced', 'set.perfHint.balanced'],
   ['high-performance', 'set.perf.high', 'set.perfHint.high'],
 ];
+// FB-17 (P1-22): video decode choice. Applies on next launch — the decode
+// switch is set before the first window's GPU process starts.
+const VIDEO_DECODE_OPTIONS = [
+  ['auto', 'set.decode.auto', 'set.decodeHint.auto'],
+  ['cpu', 'set.decode.cpu', 'set.decodeHint.cpu'],
+  ['hardware', 'set.decode.hardware', 'set.decodeHint.hardware'],
+];
+// Accessibility (P2-39, UX-07): Reduce Motion stills UI animation and
+// degrades flicker/glitch text motion to fades; Reduce Flashing also hides
+// the transition flash overlay. Either switch left unset follows the OS
+// "Reduce motion" setting; the "Follow system" button clears an explicit
+// choice back to unset.
+function AccessibilitySettings() {
+  const t = useT();
+  const [motion, setMotion] = useState(null);
+  const [flashing, setFlashing] = useState(null);
+  const osReduced = typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  useEffect(() => {
+    window.api.settingsGet?.().then((s) => {
+      setMotion(s.reduceMotion ?? null);
+      setFlashing(s.reduceFlashing ?? null);
+    }).catch(() => {});
+  }, []);
+  const setMotionChoice = async (on) => {
+    setMotion(on);
+    try {
+      const s = await window.api.settingsSetReduceMotion(on);
+      applyAccessibilitySettings(s);
+      setMotion(s.reduceMotion ?? null);
+    } catch { setMotion(motion); }
+  };
+  const setFlashingChoice = async (on) => {
+    setFlashing(on);
+    try {
+      const s = await window.api.settingsSetReduceFlashing(on);
+      applyAccessibilitySettings(s);
+      setFlashing(s.reduceFlashing ?? null);
+    } catch { setFlashing(flashing); }
+  };
+  const followSystem = async () => {
+    try {
+      await window.api.settingsSetReduceMotion(null);
+      await window.api.settingsSetReduceFlashing(null);
+    } catch { /* choice stays */ }
+    setMotion(null);
+    setFlashing(null);
+    applyAccessibilitySettings({ reduceMotion: null, reduceFlashing: null });
+  };
+  return (
+    <section className="settings-section">
+      <div className="settings-title"><Eye size={16} /> {t('set.a11yTitle')}</div>
+      <p className="muted">{t('set.a11yNote')}</p>
+      <label className="field row">
+        <span>{t('set.reduceMotionLabel')}<small className="muted"> {t('set.reduceMotionNote')}</small></span>
+        <Toggle checked={motion ?? osReduced} onChange={(e) => setMotionChoice(e.target.checked)} />
+      </label>
+      <label className="field row">
+        <span>{t('set.reduceFlashingLabel')}<small className="muted"> {t('set.reduceFlashingNote')}</small></span>
+        <Toggle checked={flashing ?? osReduced} onChange={(e) => setFlashingChoice(e.target.checked)} />
+      </label>
+      {(motion !== null || flashing !== null) && (
+        <div className="settings-actions">
+          <button className="btn btn-sm" type="button" onClick={followSystem}>{t('set.a11ySystem')}</button>
+        </div>
+      )}
+      {motion === null && flashing === null && (
+        <p className="muted small">{t('set.a11ySystemNote')}</p>
+      )}
+    </section>
+  );
+}
+
 function ProxySettings({ onCleared }) {
+  // A-15: opt-in playback tracing (localStorage flag, src/perfTrace.js).
+  const [perfTrace, setPerfTrace] = useState(() => isPerfTraceEnabled());
   const t = useT();
   const [st, setSt] = useState(null);
   const [mode, setMode] = useState(null);
+  const [exportSound, setExportSound] = useState(true);
+  const [videoDecode, setVideoDecode] = useState('auto');
+  const [safeMode, setSafeMode] = useState(false);
+  const [decodeDecision, setDecodeDecision] = useState(null);
   useEffect(() => { window.api.proxyStatus().then(setSt).catch(() => {}); }, []);
   useEffect(() => { window.api.perfGetMode?.().then(setMode).catch(() => {}); }, []);
+  useEffect(() => { window.api.settingsGet?.().then((s) => setExportSound(s.exportSound !== false)).catch(() => {}); }, []);
+  useEffect(() => {
+    window.api.settingsGet?.().then((s) => { setVideoDecode(s.videoDecode || 'auto'); setSafeMode(s.safeMode === true); }).catch(() => {});
+    window.api.decodeDecision?.().then(setDecodeDecision).catch(() => {});
+  }, []);
   if (!st) return null;
   const mb = (b) => (b >= 1073741824 ? `${(b / 1073741824).toFixed(1)} GB` : `${Math.max(0, Math.round(b / 1048576))} MB`);
   const clear = async () => {
@@ -177,6 +265,29 @@ function ProxySettings({ onCleared }) {
           </div>
         </>
       )}
+      {st.mediaCache && (
+        <>
+          <div className="settings-title" style={{ marginTop: 22 }}><Gauge size={16} /> {t('set.mediaCacheTitle')}</div>
+          <p className="muted">{t('set.mediaCacheNote')} {st.mediaCache.files
+              ? t(st.mediaCache.files > 1 ? 'set.mediaCacheCount' : 'set.mediaCacheCountOne', { count: st.mediaCache.files, size: mb(st.mediaCache.bytes) })
+              : t('set.noMediaCache')}</p>
+          <div className="seg-tabs small" role="radiogroup" aria-label={t('set.mediaCacheLimitAria')}>
+            {[1024, 2048, 4096, 8192, 16384].map((capMB) => (
+              <button key={capMB} type="button" role="radio" aria-checked={st.mediaCache.capMB === capMB} className={st.mediaCache.capMB === capMB ? 'on' : ''}
+                title={t('set.mediaCacheCapTitle')}
+                onClick={async () => setSt(await window.api.proxySetMediaCacheCap(capMB))}>{capMB >= 1024 ? `${capMB / 1024} GB` : `${capMB} MB`}</button>
+            ))}
+          </div>
+          <div className="proxy-store" style={{ marginTop: 8 }}>
+            <span className="muted">{t('set.mediaCacheClearNote')}</span>
+            <button className="btn btn-ghost btn-sm" type="button" disabled={st.mediaCache.files === 0 || st.quality !== 'full'}
+              title={st.quality !== 'full' ? t('set.chooseFullFirst') : t('set.mediaCacheClearTitle')}
+              onClick={async () => setSt(await window.api.proxyClearMediaCache())}>
+              <Trash2 size={13} /> {t('set.mediaCacheClear')}
+            </button>
+          </div>
+        </>
+      )}
       <div className="settings-title" style={{ marginTop: 22 }}><Gauge size={16} /> {t('set.perfModeTitle')}</div>
       <p className="muted">{t('set.perfNote')}</p>
       <div className="seg-tabs small" role="radiogroup" aria-label={t('set.perfModeAria')}>
@@ -185,6 +296,45 @@ function ProxySettings({ onCleared }) {
             title={t(hint)} onClick={async () => { const r = await window.api.perfSetMode(id); setMode(r.mode); setSt(r); }}>{t(label)}</button>
         ))}
       </div>
+      <div className="settings-title" style={{ marginTop: 22 }}><Gauge size={16} /> {t('set.decodeTitle')}</div>
+      <p className="muted">{t('set.decodeNote')}</p>
+      <div className="seg-tabs small" role="radiogroup" aria-label={t('set.decodeAria')}>
+        {VIDEO_DECODE_OPTIONS.map(([id, label, hint]) => (
+          <button key={id} type="button" role="radio" aria-checked={videoDecode === id} className={videoDecode === id ? 'on' : ''}
+            title={t(hint)} onClick={async () => { const s = await window.api.settingsSetVideoDecode(id); setVideoDecode(s.videoDecode || id); }}>{t(label)}</button>
+        ))}
+      </div>
+      <label className="field row">
+        <span>{t('set.safeModeLabel')}</span>
+        <Toggle checked={safeMode} onChange={async (e) => {
+          const on = e.target.checked;
+          setSafeMode(on);
+          try { const s = await window.api.settingsSetSafeMode(on); setSafeMode(s.safeMode === true); } catch { setSafeMode(!on); }
+        }} />
+      </label>
+      <p className="muted">{t('set.safeModeHint')}</p>
+      {decodeDecision && (
+        <p className="muted">{t('set.decodeNow', { mode: decodeDecision.mode === 'hardware' ? t('set.decode.hardware') : t('set.decode.cpu'), reason: decodeDecision.reason || '' })}</p>
+      )}
+      <label className="field row" style={{ marginTop: 12 }}>
+        <span>{t('set.perfTraceLabel')}<small className="muted"> {t('set.perfTraceNote')}</small></span>
+        <Toggle checked={perfTrace} onChange={(e) => {
+          const on = e.target.checked;
+          setPerfTrace(on);
+          setPerfTraceEnabled(on);
+          if (window.__fvePerfTraceEnable) window.__fvePerfTraceEnable(on);
+        }} />
+      </label>
+      <div className="settings-title" style={{ marginTop: 22 }}><AudioLines size={16} /> {t('set.exportSoundTitle')}</div>
+      <p className="muted">{t('set.exportSoundNote')}</p>
+      <label className="field row">
+        <span>{t('set.exportSoundLabel')}</span>
+        <Toggle checked={exportSound} onChange={async (e) => {
+          const on = e.target.checked;
+          setExportSound(on);
+          try { const s = await window.api.settingsSetExportSound(on); setExportSound(s.exportSound !== false); } catch { setExportSound(!on); }
+        }} />
+      </label>
     </section>
   );
 }
@@ -381,6 +531,7 @@ const SECTIONS = [
   { id: 'mcp', label: 'set.sec.mcp', icon: Server },
   { id: 'bridge', label: 'set.sec.bridge', icon: Cable },
   { id: 'quality', label: 'set.sec.quality', icon: Gauge },
+  { id: 'accessibility', label: 'set.sec.accessibility', icon: Eye },
   { id: 'keys', label: 'set.sec.keys', icon: Keyboard },
   { id: 'stock', label: 'set.sec.stock', icon: Film },
 ];
@@ -398,6 +549,11 @@ export default function SettingsDialog({ onClose, onProxiesCleared }) {
   const [busy, setBusy] = useState(null); // 'save' | 'test' | 'models'
   const [models, setModels] = useState([]); // model ids offered by the provider
   const [result, setResult] = useState(null); // { ok, text }
+  // Ollama free path (P1-30): { running, models } from the local server, or null
+  // before the first check. The pull state carries the live progress line.
+  const [ollama, setOllama] = useState(null);
+  const [pulling, setPulling] = useState(null); // { model, line } | null
+  const OLLAMA_FREE_MODEL = 'qwen2.5:3b'; // small (~2 GB), tool-capable: the one-click free model
 
   const load = (s, p = s.provider) => {
     setSaved(s);
@@ -417,6 +573,23 @@ export default function SettingsDialog({ onClose, onProxiesCleared }) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
+
+  // Ollama status (P1-30 free path): checked whenever the AI section shows the
+  // Ollama provider. The pulled models feed the model datalist.
+  // NOTE: this effect MUST stay above the `if (!saved) return null` below —
+  // a hook after an early return changes the hook count between renders and
+  // React throws #310 (more hooks than during the previous render).
+  const checkOllama = async (d) => {
+    if (!window.api.ollamaStatus) return;
+    const s = await window.api.ollamaStatus(d).catch(() => null);
+    if (!s) return;
+    setOllama(s);
+    if (s.running && s.models.length) setModels(s.models);
+  };
+  useEffect(() => {
+    if (section === 'ai' && provider === 'ollama') { setOllama(null); checkOllama({ provider, model, baseUrl }); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [section, provider]);
 
   if (!saved) return null;
   const info = PROVIDERS.find((p) => p.id === provider);
@@ -463,6 +636,19 @@ export default function SettingsDialog({ onClose, onProxiesCleared }) {
     load(await window.api.settingsClearKey(provider), provider);
   };
 
+  const pullOllamaModel = async () => {
+    if (pulling || !window.api.ollamaPull) return;
+    setPulling({ model: OLLAMA_FREE_MODEL, line: '' });
+    const off = window.api.onOllamaPullProgress?.((p) => setPulling((cur) => (cur ? { ...cur, line: p.line } : cur)));
+    const r = await window.api.ollamaPull(OLLAMA_FREE_MODEL);
+    off?.();
+    setPulling(null);
+    if (!r.ok) return setResult({ ok: false, text: r.error });
+    setModel(OLLAMA_FREE_MODEL);
+    await checkOllama({ provider, model: OLLAMA_FREE_MODEL, baseUrl });
+    setResult({ ok: true, text: t('set.ollamaPulled', { model: OLLAMA_FREE_MODEL }) });
+  };
+
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="settings-title" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal settings settings2">
@@ -506,11 +692,48 @@ export default function SettingsDialog({ onClose, onProxiesCleared }) {
               {PROVIDERS.map((p) => <option key={p.id} value={p.id}>{p.name}{saved.keys[p.id] ? '  ✓' : ''}</option>)}
             </select>
           </label>
+          <p><AiBadge kind={badgeForProvider(provider)} /></p>
           <p className="muted">{t(info.hint)}</p>
           {info.keyUrl && (
             <button className="btn btn-ghost btn-sm link-btn" type="button" onClick={() => window.api.openHelp(info.keyUrl)}>
               <ExternalLink size={13} /> {t(info.keyUrlLabel)}
             </button>
+          )}
+
+          {provider === 'ollama' && (
+            <div className="ollama-box" role="status">
+              {!ollama && <p className="muted">{t('set.ollamaChecking')}</p>}
+              {ollama && !ollama.running && (
+                <>
+                  <p><b>{t('set.ollamaNotRunning')}</b></p>
+                  <p className="muted">{t('set.ollamaNotRunningNote')}</p>
+                  <button className="btn btn-sm" type="button" onClick={() => window.api.openHelp('https://ollama.com/download')}>
+                    <ExternalLink size={13} /> {t('set.prov.ollama.keyLabel')}
+                  </button>
+                </>
+              )}
+              {ollama?.running && !ollama.models.length && (
+                <>
+                  <p><b>{t('set.ollamaNoModels')}</b></p>
+                  <p className="muted">{t('set.ollamaNoModelsNote', { model: OLLAMA_FREE_MODEL })}</p>
+                  <button className="btn btn-primary btn-sm" type="button" onClick={pullOllamaModel} disabled={!!pulling}>
+                    {pulling ? <Loader2 size={13} className="spin" /> : null} {pulling ? t('set.ollamaPulling', { model: pulling.model }) : t('set.ollamaPull', { model: OLLAMA_FREE_MODEL })}
+                  </button>
+                  {pulling?.line && <p className="muted small">{pulling.line}</p>}
+                </>
+              )}
+              {ollama?.running && !!ollama.models.length && (
+                <>
+                  <p><b>{t('set.ollamaReady', { count: ollama.models.length })}</b></p>
+                  <div className="ollama-models">
+                    {ollama.models.map((m) => (
+                      <button key={m} type="button" className={`chip ${model === m ? 'on' : ''}`} onClick={() => setModel(m)}>{m}</button>
+                    ))}
+                  </div>
+                  <p className="muted">{t('set.ollamaReadyNote')}</p>
+                </>
+              )}
+            </div>
           )}
 
           {info.needsKey && (
@@ -588,6 +811,7 @@ export default function SettingsDialog({ onClose, onProxiesCleared }) {
         {section === 'mcp' && <McpSettings saved={saved} onSaved={(st) => setSaved(st)} />}
         {section === 'bridge' && <BridgeSettings />}
         {section === 'quality' && <ProxySettings onCleared={onProxiesCleared} />}
+        {section === 'accessibility' && <AccessibilitySettings />}
         {section === 'keys' && <ShortcutsSettings saved={saved} onSaved={(st) => setSaved(st)} />}
         {section === 'stock' && (
           <>
