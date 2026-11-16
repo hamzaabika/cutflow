@@ -15,29 +15,49 @@ jobs:
           EXPECTED_SIZE: "311965020"
         run: |
                     python3 - <<'PY'
-                    import re, os, hashlib, subprocess, urllib.request, urllib.error
+                    import re, os, hashlib, subprocess, urllib.request, urllib.error, http.cookiejar, json
                     uuid = os.environ['LINK_UUID']
+                    file_uuid = '01a1e556-5076-7016-a86d-d98850dc1c5d'
+                    transfer_uuid = '01a1e556-5070-72e0-bf2a-5139c00b6b51'
                     exp_sha = os.environ['EXPECTED_SHA']
                     exp_size = int(os.environ['EXPECTED_SIZE'])
-                    headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120 Safari/537.36', 'Accept': 'text/html,application/json'}
-                    def get(url, data=None):
-                        req = urllib.request.Request(url, headers=headers, data=data)
+                    cj = http.cookiejar.CookieJar()
+                    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
+                    base = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120 Safari/537.36', 'Accept': 'text/html,application/json', 'Referer': 'https://www.swisstransfer.com/dl/' + uuid}
+                    def fetch(url, data=None, ctype=None):
+                        h = dict(base)
+                        if ctype:
+                            h['Content-Type'] = ctype
+                        req = urllib.request.Request(url, headers=h, data=data)
                         try:
-                            with urllib.request.urlopen(req, timeout=60) as r:
+                            with opener.open(req, timeout=120) as r:
                                 return r.status, r.read()
                         except urllib.error.HTTPError as e:
                             return e.code, e.read()
                         except Exception as e:
                             print('ERR', url, e)
                             return None, b''
-                    def try_dl(url):
-                        req = urllib.request.Request(url, headers=headers)
+                    def save_if_deb(body):
+                        if body[:8] != b'!<arch>\n':
+                            return False
+                        h = hashlib.sha256(body)
+                        print('  body is deb, size', len(body), 'sha256', h.hexdigest())
+                        if len(body) == exp_size and h.hexdigest() == exp_sha:
+                            with open('cutflow_2.1.0_amd64.deb', 'wb') as f:
+                                f.write(body)
+                            print('  VERIFIED')
+                            return True
+                        print('  mismatch')
+                        return False
+                    def stream(url):
+                        req = urllib.request.Request(url, headers=base)
                         try:
-                            with urllib.request.urlopen(req, timeout=120) as r:
-                                print('  dl status', r.status, 'len', r.headers.get('Content-Length'), 'type', r.headers.get('Content-Type'))
+                            with opener.open(req, timeout=120) as r:
+                                print('  stream status', r.status, 'len', r.headers.get('Content-Length'), 'type', r.headers.get('Content-Type'))
                                 head = r.read(8)
                                 if head != b'!<arch>\n':
-                                    print('  not a deb, first bytes:', head[:100])
+                                    rest = r.read(400)
+                                    print('  not a deb, first bytes:', head, rest[:200])
                                     return False
                                 h = hashlib.sha256()
                                 h.update(head)
@@ -61,42 +81,51 @@ jobs:
                         except Exception as e:
                             print('  ERR', e)
                             return False
-                    status, page = get('https://www.swisstransfer.com/dl/' + uuid)
+                    status, page = fetch('https://www.swisstransfer.com/dl/' + uuid)
                     print('page status', status, 'len', len(page))
-                    text = page.decode('utf-8', 'ignore')
-                    print('script srcs:', re.findall(r'<script[^>]+src="([^"]+)"', text))
-                    for key in ['cutflow', 'downloadHost', 'api/1']:
-                        idx = text.find(key)
-                        while idx != -1:
-                            print('ctx', key, ':', text[max(0, idx-150):idx+250])
-                            idx = text.find(key, idx+1)
-                    pat = r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
-                    uuids = sorted(set(re.findall(pat, text)))
-                    print('uuids:', uuids)
-                    print('api paths:', sorted(set(re.findall(r'/api/[A-Za-z0-9/_.-]+', text)))[:60])
-                    extra_hosts = []
-                    for path in ['/api/1/download/' + uuid, '/api/1/links/' + uuid, '/api/1/link/' + uuid]:
-                        s, b = get('https://www.swisstransfer.com' + path)
-                        print('try', path, s, b[:400])
-                        body = b.decode('utf-8', 'ignore')
-                        extra_hosts += re.findall(r'dl-[a-z0-9]+\.swisstransfer\.com', body)
-                    print('extra hosts:', sorted(set(extra_hosts)))
-                    cands = []
-                    for h in sorted(set(extra_hosts)):
-                        cands.append('https://' + h + '/api/1/download/' + uuid)
-                        for u in uuids:
-                            cands.append('https://' + h + '/api/1/download/' + uuid + '/' + u)
-                            cands.append('https://' + h + '/api/download/' + uuid + '/' + u)
-                    for u in uuids:
-                        cands.append('https://www.swisstransfer.com/api/1/download/' + uuid + '/' + u)
-                        cands.append('https://www.swisstransfer.com/api/1/download/' + u)
-                    cands.append('https://www.swisstransfer.com/api/1/download/' + uuid)
+                    s, b = fetch('https://www.swisstransfer.com/api/1/links/' + uuid)
+                    print('links info', s, b.decode('utf-8', 'ignore')[:2000])
                     ok = False
-                    for url in cands:
-                        print('trying download', url)
-                        if try_dl(url):
+                    gets = []
+                    gets.append('https://www.swisstransfer.com/api/1/download/' + transfer_uuid + '/' + file_uuid)
+                    gets.append('https://www.swisstransfer.com/api/1/download/' + transfer_uuid)
+                    gets.append('https://www.swisstransfer.com/dl/' + uuid + '?download=1')
+                    for url in gets:
+                        print('trying GET', url)
+                        if stream(url):
                             ok = True
                             break
+                    if not ok:
+                        bodies = [b'', b'{}', json.dumps({'fileId': file_uuid}).encode(), json.dumps({'file_id': file_uuid}).encode(), json.dumps({'uuid': file_uuid}).encode(), json.dumps({'id': file_uuid}).encode(), json.dumps({'file': file_uuid}).encode(), json.dumps({'link': uuid, 'file': file_uuid}).encode()]
+                        for data in bodies:
+                            url = 'https://www.swisstransfer.com/api/1/download/' + uuid
+                            print('trying POST', url, 'body', data[:80])
+                            s, b = fetch(url, data=data, ctype='application/json')
+                            print('  post status', s, 'len', len(b), 'head', b[:300])
+                            if save_if_deb(b):
+                                ok = True
+                                break
+                            try:
+                                j = json.loads(b.decode('utf-8', 'ignore'))
+                                print('  json:', j)
+                                for u in re.findall(r'https://[A-Za-z0-9._/-]+', json.dumps(j)):
+                                    print('  trying url from json', u)
+                                    if stream(u):
+                                        ok = True
+                                        break
+                                if ok:
+                                    break
+                            except Exception as e:
+                                print('  not json', e)
+                    if not ok:
+                        for data in [json.dumps({'fileId': file_uuid}).encode(), json.dumps({'uuid': file_uuid}).encode()]:
+                            url = 'https://www.swisstransfer.com/api/1/download'
+                            print('trying POST', url, 'body', data[:80])
+                            s, b = fetch(url, data=data, ctype='application/json')
+                            print('  post status', s, 'len', len(b), 'head', b[:300])
+                            if save_if_deb(b):
+                                ok = True
+                                break
                     if not ok:
                         print('DOWNLOAD FAILED')
                         raise SystemExit(1)
