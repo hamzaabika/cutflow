@@ -6,7 +6,6 @@
 
 import { ratioFor } from './store.js';
 import { RATIOS, sizeFor } from './effects.js';
-import { nearestFrameRate } from './frames.js';
 
 const ratioOf = (w, h) => (w && h ? ratioFor(w, h) : null);
 
@@ -36,12 +35,6 @@ export function sequencePatchFor(media) {
   const [a, b] = RATIOS[ratio];
   const shortSide = a >= b ? media.height : media.width;
   const patch = { ratio, ...sizeFor(ratio, shortSide), resolution: shortSide, ratioLocked: true };
-  // Frame timebase (P1-04): adopt the media's EXACT rate from the probe
-  // (fpsExact is the rational avg_frame_rate, e.g. 30000/1001), never the
-  // rounded UI fps — Math.round turned every 29.97 clip into a 30 fps
-  // project, and every later cut drifted by a frame every ~33 seconds.
-  const rate = nearestFrameRate(media.fpsExact || media.fps);
-  if (rate) patch.fps = rate;
-  else if (media.fps) patch.fps = Math.round(media.fps);
+  if (media.fps) patch.fps = Math.round(media.fps);
   return patch;
 }

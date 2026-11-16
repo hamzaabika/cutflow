@@ -47,14 +47,11 @@ export function runEffect(src, out, W, H, T, exprSrc) {
 // Transition: out = expr mixing a (outgoing) and b (incoming) at progress P (0..1).
 export function runTransition(a, b, out, W, H, P, exprSrc) {
   const fn = compiled(exprSrc);
-  const env = { X: 0, Y: 0, W, H, T: 0, P, ch: 0, reg: [], A: null, B: null, LA: null, LB: null };
-  const lum = (buf, x, y) => 0.299 * at(buf, W, H, x, y, 0) + 0.587 * at(buf, W, H, x, y, 1) + 0.114 * at(buf, W, H, x, y, 2);
+  const env = { X: 0, Y: 0, W, H, T: 0, P, ch: 0, reg: [], A: null, B: null };
   for (let ch = 0; ch < 3; ch++) {
     env.ch = ch;
     env.A = (x, y) => at(a, W, H, x, y, ch);
     env.B = (x, y) => at(b, W, H, x, y, ch);
-    env.LA = (x, y) => lum(a, x, y);
-    env.LB = (x, y) => lum(b, x, y);
     for (let y = 0; y < H; y++) {
       env.Y = y;
       for (let x = 0; x < W; x++) {

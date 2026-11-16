@@ -1,11 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { FX_TRANSITIONS, OVERLAY_EFFECTS, PIXEL_EFFECTS } from './catalog.js';
-import { transitionExpr } from './params.js';
-import { analyseCanvasPair, morphCacheKey, renderMorphFrame } from './morph.js';
 import { FX_THUMB } from './thumbIndex.js';
 import { fxGL } from './gl.js';
-import { grabFrame, thumbTimeFor } from './frameGrab.js';
-import { toFileUrl } from '../store.js';
 
 // Thumbnails for the Effects and Transitions panels: two REAL photographs (bundled in public/preview/,
 // Unsplash via picsum — see public/preview/CREDITS.txt) go through the real effect or transition.
@@ -233,23 +229,13 @@ function basicEffect(ctx, id, t, a) {
 
 // Draws one frame. kind 'transition': u = progress 0..1; kind 'effect': u = seconds into the clip.
 // pair picks which two real photos the transition runs between (effects run on photo A).
-// source (FB-28 / FX-03): a canvas of the user's own clip frame — effects
-// run on it instead of the sample photo. Transitions ignore it (they need
-// two frames, so they keep the sample pair).
-export function drawPreview(ctx, kind, id, u, pair = 0, source = null) {
+export function drawPreview(ctx, kind, id, u, pair = 0) {
   ctx.clearRect(0, 0, W, H);
-  const [a, b] = source && kind === 'effect' ? [source, source] : photoPair(pair);
+  const [a, b] = photoPair(pair);
   try {
     if (kind === 'transition') {
       const fx = FX_TRANSITIONS.find((t) => t.id === id);
-      if (fx?.morph) {
-        // P3-03: the tile plays the real morph over the sample pair (falling
-        // back to dissolve when the two photos cannot morph, like the editor).
-        const gl = fxGL();
-        const key = morphCacheKey(`thumb:${id}`, String(pair));
-        renderMorphFrame(gl, a, b, W, H, ease(u), analyseCanvasPair(a, b, key), { type: id }, key);
-        ctx.drawImage(gl.canvas, 0, 0);
-      } else if (fx) ctx.drawImage(fxGL().transition(a, b, W, H, ease(u), transitionExpr({ type: id })), 0, 0);
+      if (fx) ctx.drawImage(fxGL().transition(a, b, W, H, ease(u), fx.expr), 0, 0);
       else classicTransition(ctx, id, u, a, b);
       return;
     }
@@ -272,132 +258,45 @@ export function drawPreview(ctx, kind, id, u, pair = 0, source = null) {
 // which plays the real thing exactly as before. Overlay effects have no
 // still (2D canvas paintings), so their tiles are the live canvas at rest
 // too — itself a real render, never a placeholder.
-// FX-03 — one frame of the selected clip, shared by every effect tile.
-// Returns { frame, on, setOn, available }: frame is the grabbed canvas (null
-// until grabbed, or when there is no usable clip); `on` is the user's toggle
-// (my footage vs the standard sample pair). The frame is grabbed once per
-// clip selection at the playhead time (else the clip midpoint) — it is a
-// representative still, not a live follow of the playhead.
-export function useLiveThumbFrame(target, media, time) {
-  const [frame, setFrame] = useState(null);
-  const [on, setOn] = useState(true);
-  const clip = target?.clip;
-  const m = media?.find((x) => x.id === clip?.mediaId);
-  const available = !!clip && !!m && !m.missing && m.type !== 'audio';
-  const key = clip ? `${clip.id}:${m?.path || ''}` : '';
-  useEffect(() => {
-    let live = true;
-    setFrame(null);
-    if (!on || !available) return undefined;
-    const at = (clip.in || 0) + thumbTimeFor(clip, time, target.start);
-    grabFrame({ url: toFileUrl(m.path), at, isImage: m.type === 'image' }).then((cv) => { if (live) setFrame(cv); });
-    return () => { live = false; };
-  }, [key, on]); // eslint-disable-line react-hooks/exhaustive-deps
-  return { frame, on, setOn, available };
-}
-
-// `footage` (FB-28, stage capture) and `source` (FX-03, grabbed frame)
-// are the same idea from two paths — the stage capture wins when present.
-export function FxThumb({ kind, id, duration = 1, pair = 0, footage = null, source = null }) {
-  const liveSource = footage || source;
-  const stillUrl = liveSource ? null : FX_THUMB[`${kind}:${id}`] || null;
+export function FxThumb({ kind, id, duration = 1, pair = 0 }) {
+  const stillUrl = FX_THUMB[`${kind}:${id}`] || null;
   const [hover, setHover] = useState(false);
-  if (liveSource) {
-    return <FxThumbLive kind={kind} id={id} duration={duration} pair={pair} source={liveSource} />;
-  }
   if (stillUrl && !hover) {
     return <img src={stillUrl} alt="" draggable={false} className="fx-thumb" aria-hidden="true"
       onPointerEnter={() => setHover(true)} />;
   }
-  return <FxThumbLive kind={kind} id={id} duration={duration} pair={pair} source={liveSource} onRest={stillUrl ? () => setHover(false) : undefined} />;
-}
-
-// Capture the frame the preview stage is showing right now (the selected
-// clip at the playhead) into a small canvas, for real-footage effect tiles
-// (FB-28). Reads the stage's own <video> element (or, for a photo clip, the
-// stage canvas) — no extra decode, no network. Returns null until a frame
-// is available; callers fall back to the stock-photo tiles.
-export function useFootageCanvas(clipId) {
-  const [footage, setFootage] = useState(null);
-  useEffect(() => {
-    if (!clipId) { setFootage(null); return undefined; }
-    let alive = true;
-    const capture = () => {
-      try {
-        const stage = document.querySelector('.stage');
-        if (!stage) return;
-        const vid = [...stage.querySelectorAll('video')].find((v) => v.readyState >= 2 && v.videoWidth > 0);
-        const cv = !vid && [...stage.querySelectorAll('canvas')].find((c) => c.width > 0);
-        const src = vid || cv;
-        if (!src) return;
-        const sw = src.videoWidth || src.width;
-        const sh = src.videoHeight || src.height;
-        if (!sw || !sh) return;
-        const c = document.createElement('canvas');
-        c.width = W; c.height = H;
-        const ctx = c.getContext('2d');
-        const s = Math.max(W / sw, H / sh);
-        const dw = sw * s; const dh = sh * s;
-        ctx.drawImage(src, (W - dw) / 2, (H - dh) / 2, dw, dh);
-        if (alive) setFootage(c);
-      } catch { /* keep the stock-photo tiles */ }
-    };
-    capture();
-    const t = setTimeout(capture, 600); // let the stage settle after a seek
-    return () => { alive = false; clearTimeout(t); };
-  }, [clipId]);
-  return footage;
+  return <FxThumbLive kind={kind} id={id} duration={duration} pair={pair} onRest={stillUrl ? () => setHover(false) : undefined} />;
 }
 
 // The live tile: a still frame, playing while the pointer is over the tile (the tile is the parent button).
-function FxThumbLive({ kind, id, duration = 1, pair = 0, source = null, onRest }) {
+function FxThumbLive({ kind, id, duration = 1, pair = 0, onRest }) {
   const ref = useRef(null);
   useEffect(() => {
     const cv = ref.current;
     const ctx = cv.getContext('2d');
     let alive = true;
     // Still frame: the middle of a transition (fades are solid there, so a bit earlier), or 0.9 s into an effect.
-    const still = () => drawPreview(ctx, kind, id, kind === 'transition' ? (/^fade(black|white)$/.test(id) ? 0.3 : 0.5) : 0.9, pair, source);
+    const still = () => drawPreview(ctx, kind, id, kind === 'transition' ? (/^fade(black|white)$/.test(id) ? 0.3 : 0.5) : 0.9, pair);
     still();
     // Once the real photos arrive, redraw the still with them (the drawn samples stood in until then).
-    // With a user-footage source there are no sample photos to wait for.
-    if (!source) ensurePhotos().then(() => { if (alive) still(); });
+    ensurePhotos().then(() => { if (alive) still(); });
     const tile = cv.closest('.tile') || cv;
     let raf = 0;
-    // CSV §6.3 hover-scrub: a still hover autoplays as before, but a deliberate
-    // horizontal move across the tile scrubs the preview instead — the pointer's
-    // x maps to the transition progress (0..1) or the effect's 4 s loop — and
-    // scrubbing holds that frame until the pointer leaves. A small dead zone
-    // (4% of the tile) keeps ordinary hover jitter from killing the autoplay.
-    let enterX = null;
-    let scrubbing = false;
     const play = () => {
-      scrubbing = false;
-      enterX = null;
       const t0 = performance.now();
       const loop = () => {
         const s = (performance.now() - t0) / 1000;
         // Transitions: hold A, play the transition, hold B. Effects: just run.
         const u = kind === 'transition' ? (s % (duration + 1)) / duration - 0.5 / duration : s % 4;
-        drawPreview(ctx, kind, id, u, pair, source);
+        drawPreview(ctx, kind, id, u, pair);
         raf = requestAnimationFrame(loop);
       };
       cancelAnimationFrame(raf);
       loop();
     };
     const stop = () => { cancelAnimationFrame(raf); still(); onRest?.(); };
-    const onMove = (e) => {
-      const r = tile.getBoundingClientRect();
-      const x = (e.clientX - r.left) / Math.max(1, r.width);
-      if (enterX === null) enterX = x;
-      if (!scrubbing && Math.abs(x - enterX) < 0.04) return;
-      scrubbing = true;
-      cancelAnimationFrame(raf);
-      drawPreview(ctx, kind, id, kind === 'transition' ? Math.min(1, Math.max(0, x)) : Math.min(4, Math.max(0, x * 4)), pair, source);
-    };
     tile.addEventListener('pointerenter', play);
     tile.addEventListener('pointerleave', stop);
-    tile.addEventListener('pointermove', onMove);
     // Mounted in place of the generated still (a hover swap): the pointer is
     // already over the tile, so play now instead of waiting for a re-entry.
     if (onRest) play();
@@ -406,8 +305,7 @@ function FxThumbLive({ kind, id, duration = 1, pair = 0, source = null, onRest }
       cancelAnimationFrame(raf);
       tile.removeEventListener('pointerenter', play);
       tile.removeEventListener('pointerleave', stop);
-      tile.removeEventListener('pointermove', onMove);
     };
-  }, [kind, id, duration, pair, source]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [kind, id, duration, pair]); // eslint-disable-line react-hooks/exhaustive-deps
   return <canvas ref={ref} width={W} height={H} className="fx-thumb" aria-hidden="true" />;
 }

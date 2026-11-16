@@ -7,36 +7,10 @@
 // Overlay clips (picture-in-picture) are videos / photos with a free `start` drawn above the main track.
 
 import { RATIOS, sizeFor } from './effects.js';
-import { adaptClipPresets } from './anim.js';
 import { cleanPins } from './track.js';
-import {
-  canNest, createSequence, deleteSequence, ensureSequences, newSequenceClip, newSequenceId,
-  renameSequence, sequenceById, sequenceDuration, switchSequence, syncActiveSequence,
-  timelineOf, validSequenceEntry,
-} from './sequences.js';
-import { clipDuration, edgeRate, hasCurve, holdSourceOffsetAt, pieceFrameHold, sliceCurve, sourceOffsetAt, speedAtSource, splitFrameHold, timelineOffsetAt, validFrameHold } from './speedCurve.js';
-import { rollEdit, slipClip, slideClip, rateStretch } from './trimTools.js';
-import {
-  applyJCut, applyLCut, moveFx, pasteFxStack,
-  panZoomPatch, setFxBypass, splitScreenPatches, trimLinkedAudio,
-} from './gapB.js';
-import { groupIdOf } from './groups.js';
-import { beatGrid, clampBpm } from './beats.js';
-import { DEFAULT_MIXER, busAudible, clampGainDb, isRole, roleOf, sanitizeMixer } from './mixer.js';
-import { effectiveFps, nearestFrameRate, quantize } from './frames.js';
-import { MARKER_COLORS, markerColorHex, markerColorId, markerNear } from './markers.js';
+import { clipDuration, hasCurve, sliceCurve, sourceOffsetAt, speedAtSource, timelineOffsetAt } from './speedCurve.js';
 
-// Re-exported so existing `from './store.js'` import sites keep working;
-// new code should import markers from './markers.js' directly.
-export { MARKER_COLORS, markerColorHex, markerColorId, markerNear } from './markers.js';
-import { cutBeforeFn, normalizeCutRanges } from './intervals.js';
-
-// ids must never collide inside one project (clips, media, markers share one
-// id space): a per-process counter + millisecond timestamp + random tail. The
-// old 8-char random-only form had a real birthday-paradox surface at project
-// scale (36^8 ≈ 2.8e12, ~1.8e-5 for 10k ids in one session).
-let uidCounter = 0;
-export const uid = () => `u${(uidCounter++).toString(36)}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+export const uid = () => Math.random().toString(36).slice(2, 10);
 export const MIN_CLIP = 0.1;
 
 // The project format closest to a width x height picture, or null when its size is unknown.
@@ -53,24 +27,8 @@ export function emptyProject() {
     // mints one for older files), and keys the project's slot on the Home switchboard.
     id: uid(),
     name: 'Untitled', ratio: '16:9', resolution: 720, width: 1280, height: 720, fps: 30, background: '#000000',
-    // Multiple sequences (P2-02): the flat timeline fields below are ALWAYS
-    // the active sequence's timeline; sequences[] holds every sequence's
-    // snapshot (see src/sequences.js for the invariant).
-    sequences: [], activeSequenceId: null,
     media: [], videoClips: [], overlayClips: [], textClips: [], audioClips: [], stickerClips: [],
-    // Effects on the Effects track: a free pixel effect { id, kind: 'fx', fx, start, duration,
-    // strength?, params?, region? } or a grade layer { id, kind: 'grade', start, duration,
-    // grade?, filter?, filterIntensity?, adjust?, strength?, region? }. A grade layer grades
-    // every picture clip under its span (pre-composite: each source separately, before
-    // compositing; text and stickers are never graded) — see gradeLayerPasses in fx/apply.js.
-    effectClips: [],
-    // Ripple mode (P1-02): which tracks a ripple cut moves — 'main' (main
-    // track only), 'linked' (+ captions and linked partners), 'all' (+ every
-    // unlocked free-track clip). TL-02: linked ripple is opt-in only and
-    // default-off — 'main' is the long-standing behaviour; a direct
-    // cutRanges call with opts.rippleLinked maps to 'all' (every free
-    // track moves with the picture). See RIPPLE_MODES / cutRanges.
-    rippleMode: 'main',
+    effectClips: [], // effects on the Effects track: { id, fx, start, duration }
     // Text clips are time-anchored overlays (e.g. captions), so they start with the magnet off.
     magnet: { video: true, overlay: false, audio: true, text: false },
     // Per-layer state (lock / hide / mute / solo), keyed "track:layer" — see layerStateOf.
@@ -78,30 +36,16 @@ export function emptyProject() {
     // toggling a lock must never be an undoable document edit (industry standard).
     layerState: {},
     markers: [], // [{ id, time, label, color }] timeline flags — colour is a MARKER_COLORS id
-    // AI-03 speaker names: { S1: 'Hamza', S2: 'Guest' } — labels for the
-    // speaker ids stored on caption clips (transcript labelling). Empty =
-    // the panel shows "Speaker 1", "Speaker 2", …
-    speakers: {},
-    beats: null, // { bpm, times: [seconds], offset, manual, source } — the soundtrack's beat grid (Beat cuts); snapping uses it too
+    beats: null, // { bpm, times: [seconds] } — the soundtrack's beat grid (Beat cuts); snapping uses it too
     snapping: true, // drags snap to clip edges, the playhead and markers
-    beatSnap: true, // P2-22: drags and the playhead also snap to the beat grid
-    // P2-23 — track mixer: per-role bus gains in dB (smart defaults), master
-    // gain, and per-bus mute / solo. See src/mixer.js.
-    mixer: { ...DEFAULT_MIXER, muted: {}, solo: {} },
   };
 }
 
 // Older project files lack the newer fields.
 export function normalizeProject(p) {
   const base = emptyProject();
-  const out = {
+  return {
     ...base, ...p,
-    // Frame timebase (P1-04): the stored rate is snapped to the nearest
-    // supported rate when it is within 0.02 fps of one — a hand-typed 29.97
-    // becomes the exact rational 30000/1001, so the picker, the frame-step
-    // keys and the export all agree on the same rate. Anything else (an
-    // old integer, an odd rate like 48) is kept verbatim.
-    fps: nearestFrameRate(p.fps) ?? (Number.isFinite(Number(p.fps)) && Number(p.fps) > 0 ? Number(p.fps) : 30),
     // Stickers (removed in R1, restored 10/10 step 3): clips referencing the bundled
     // sticker set survive loading again. Entries are sanitized to the clip shape the
     // lane, preview and export all read; anything malformed is dropped, never fatal.
@@ -116,74 +60,16 @@ export function normalizeProject(p) {
         opacity: typeof c.opacity === 'number' ? Math.min(1, Math.max(0, c.opacity)) : 1,
         w: Number(c.w) || 480, h: Number(c.h) || 480,
       })),
-    overlayClips: (Array.isArray(p.overlayClips) ? p.overlayClips : []).map(sanitizeClipHold),
-    // Frame holds (P1-50) are sanitized on load, like the sticker/effect
-    // lists above: a stale hold never survives into the timeline.
-    videoClips: (Array.isArray(p.videoClips) ? p.videoClips : []).map(sanitizeClipHold),
-    // J/L trims (P1-03) are sanitized on load the same way: a negative or
-    // non-finite lead/trail never survives into the timeline.
-    audioClips: (Array.isArray(p.audioClips) ? p.audioClips : []).map(withSanitizedTrim),
-    // P2-16 — effectClips are sanitized, not passed through raw: a grade layer
-    // keeps only its grade payload (grade / filter / filterIntensity / adjust /
-    // strength / region, all clamped), a free effect keeps its fx + params; an
-    // entry with neither a known fx nor kind 'grade' is dropped, never fatal.
-    effectClips: (Array.isArray(p.effectClips) ? p.effectClips : []).filter((c) => c && typeof c.id === 'string').map((c) => {
-      const base = { id: c.id, start: Math.max(0, Number(c.start) || 0), duration: Math.min(120, Math.max(0.1, Number(c.duration) || 3)) };
-      if (c.kind === 'grade') return {
-        ...base, kind: 'grade', name: typeof c.name === 'string' ? c.name : 'Adjustment layer',
-        grade: c.grade && typeof c.grade === 'object' ? c.grade : {},
-        filter: typeof c.filter === 'string' ? c.filter : 'none',
-        filterIntensity: typeof c.filterIntensity === 'number' ? Math.min(100, Math.max(0, c.filterIntensity)) : 100,
-        adjust: c.adjust && typeof c.adjust === 'object' ? c.adjust : {},
-        ...(typeof c.strength === 'number' ? { strength: Math.min(1, Math.max(0, c.strength)) } : {}),
-        ...(c.region && typeof c.region === 'object' ? { region: c.region } : {}),
-        ...(c.disabled ? { disabled: true } : {}),
-      };
-      return { ...base, kind: 'fx', fx: typeof c.fx === 'string' ? c.fx : '', ...(c.strength !== undefined ? { strength: c.strength } : {}), ...(c.params ? { params: c.params } : {}), ...(c.region ? { region: c.region } : {}), ...(Array.isArray(c.keys) ? { keys: c.keys.filter((k) => k && Number.isFinite(Number(k.t)) && Number.isFinite(Number(k.v))).map((k) => ({ t: Math.max(0, Number(k.t)), v: Math.min(1, Math.max(0, Number(k.v))) })) } : {}), ...(c.disabled ? { disabled: true } : {}) };
-    }).filter((c) => c.kind === 'grade' || c.fx),
+    overlayClips: p.overlayClips || [],
+    effectClips: p.effectClips || [],
     magnet: { ...base.magnet, ...(p.magnet || {}) },
     markers: (Array.isArray(p.markers) ? p.markers : [])
       .filter((m) => m && Number.isFinite(Number(m.time)))
       .map((m, i) => ({ id: m.id || `mk${i}`, time: Math.max(0, Number(m.time)), label: typeof m.label === 'string' ? m.label : '', color: markerColorId(m.color) }))
       .sort((x, y) => x.time - y.time),
-    beats: p.beats && Array.isArray(p.beats.times) && p.beats.times.length
-      ? {
-        bpm: p.beats.bpm || 0, times: p.beats.times,
-        // P2-22: a manual grid keeps its offset + provenance through a reload.
-        offset: Number.isFinite(Number(p.beats.offset)) ? Number(p.beats.offset) : 0,
-        manual: !!p.beats.manual,
-        source: typeof p.beats.source === 'string' ? p.beats.source : 'detected',
-      } : null,
+    beats: p.beats && Array.isArray(p.beats.times) && p.beats.times.length ? { bpm: p.beats.bpm || 0, times: p.beats.times } : null,
     snapping: p.snapping ?? true,
-    beatSnap: p.beatSnap ?? true,
-    // Ripple mode (P1-02): an unknown stored value falls back to 'main'.
-    rippleMode: RIPPLE_MODES.includes(p.rippleMode) ? p.rippleMode : 'main',
-    mixer: sanitizeMixer(p.mixer),
   };
-  // Multiple sequences (P2-02): an old file with no sequences[] becomes one
-  // default sequence holding its timeline; a file that has them keeps each
-  // entry (sanitized). The flat fields are the active sequence's timeline
-  // and WIN over a stale stored copy of that entry, so a save written
-  // mid-edit can never lose the active timeline on reload.
-  const stored = (Array.isArray(p.sequences) ? p.sequences : []).filter(validSequenceEntry);
-  let sequences = stored.length
-    ? stored.map((s) => ({ id: s.id, name: s.name, timeline: normalizeSequenceTimeline(s.timeline) }))
-    : [{ id: newSequenceId(), name: 'Sequence 1', timeline: timelineOf(out) }];
-  const activeId = sequences.some((s) => s.id === p.activeSequenceId) ? p.activeSequenceId : sequences[0].id;
-  sequences = sequences.map((s) => (s.id === activeId ? { ...s, timeline: timelineOf(out) } : s));
-  out.sequences = sequences;
-  out.activeSequenceId = activeId;
-  return out;
-}
-
-// Sanitizes one stored sequence timeline through the same normalizer the flat
-// fields go through (a timeline is just the flat fields, so normalizing a
-// merge of an empty project with it applies every clip sanitizer). The inner
-// call's sequences are empty, so it builds a throwaway default entry and
-// never recurses back here.
-function normalizeSequenceTimeline(t) {
-  if (!t || typeof t !== 'object') return timelineOf(emptyProject());
-  return timelineOf(normalizeProject({ ...emptyProject(), ...t, sequences: [], activeSequenceId: null }));
 }
 
 export const isGap = (c) => !!c.gap;
@@ -217,119 +103,6 @@ export const freeLen = (track, c) => (track === 'audio' || track === 'overlay' ?
 
 export const clipLen = (c) => clipDuration(c);
 
-// Frame hold (P1-50): a stored hold that no longer fits its clip (stale
-// at/duration after a load, a speed change, a trim) is normalized to the
-// valid window or dropped — the use sites treat a missing hold as no hold,
-// so a stale one can never freeze the wrong frames.
-export function sanitizeClipHold(c) {
-  if (!c || !c.frameHold) {
-    if (c && 'frameHold' in c) { const n = { ...c }; delete n.frameHold; return n; }
-    return c;
-  }
-  const h = validFrameHold(c);
-  if (!h) { const n = { ...c }; delete n.frameHold; return n; }
-  if (c.frameHold.at === h.at && c.frameHold.duration === h.duration) return c;
-  return { ...c, frameHold: h };
-}
-
-// J-cuts / L-cuts (P1-03): the audio member of a linked pair may start
-// before its picture (lead — a J-cut: you hear the next scene before you
-// see it) or end after it (trail — an L-cut). The trims live on the AUDIO
-// clip as timeline seconds; the clip's own start/in/out stay the
-// authoritative window, so preview and export need no change — they play
-// the window as stored. syncLinked keeps the window in step with the
-// picture (see audioWindowForPair), and a direct audio trim is read back
-// into lead/trail there instead of moving the picture.
-export function audioTrimOf(c) {
-  const t = c?.audioTrim;
-  if (!t || typeof t !== 'object') return { lead: 0, trail: 0 };
-  const lead = Number(t.lead);
-  const trail = Number(t.trail);
-  return {
-    lead: Number.isFinite(lead) && lead > 0 ? lead : 0,
-    trail: Number.isFinite(trail) && trail > 0 ? trail : 0,
-  };
-}
-export function sanitizeAudioTrim(trim) {
-  const { lead, trail } = audioTrimOf({ audioTrim: trim });
-  return lead || trail ? { ...(lead ? { lead } : {}), ...(trail ? { trail } : {}) } : undefined;
-}
-function withSanitizedTrim(c) {
-  if (!c || !('audioTrim' in c)) return c;
-  const t = sanitizeAudioTrim(c.audioTrim);
-  if (t && c.audioTrim.lead === t.lead && c.audioTrim.trail === t.trail) return c;
-  const n = { ...c };
-  if (t) n.audioTrim = t; else delete n.audioTrim;
-  return n;
-}
-
-// The audio window a linked pair wants, from the picture window, the pair's
-// base alignment (linkOff / linkInOff) and the J/L trims — clamped to the
-// source media so a lead can never reveal source before 0 and a trail can
-// never run past the end. Returns the window AND the trims as actually
-// applied (a clamp shortens the trim, and the caller stores the shortened
-// one so the UI shows what held).
-export function audioWindowForPair(pic, picStart, aud, mediaDur) {
-  const trim = audioTrimOf(aud);
-  // The rates come from the PICTURE (the pair's speed): when a speed
-  // change rides along, the audio's own rate is still the old one, and
-  // the extension must be measured at the speed the pair is moving to.
-  const rateIn = edgeRate(pic, true);
-  const rateOut = edgeRate(pic, false);
-  const linkOff = aud.linkOff || 0;
-  const linkInOff = aud.linkInOff || 0;
-  const baseIn = (pic.in || 0) + linkInOff;
-  const baseOut = (pic.out ?? 0) + linkInOff;
-  let lead = trim.lead;
-  let trail = trim.trail;
-  if (rateIn > 0) lead = Math.min(lead, Math.max(0, baseIn / rateIn));
-  // ...and by the timeline itself: the audio can never start before 0.
-  lead = Math.min(lead, Math.max(0, picStart + linkOff));
-  if (Number.isFinite(mediaDur) && rateOut > 0) trail = Math.min(trail, Math.max(0, (mediaDur - baseOut) / rateOut));
-  return {
-    start: picStart + linkOff - lead,
-    in: baseIn - lead * rateIn,
-    out: baseOut + trail * rateOut,
-    lead, trail,
-  };
-}
-
-// Everything the UI needs about a linked pair, from either member: the
-// picture clip + track, its timeline window, the audio clip, and the J/L
-// trims. Null when the clip is not in a complete pair.
-export function linkedPairInfo(p, track, clip) {
-  if (!clip || !clip.linkId) return null;
-  const partner = findLinkPartner(p, clip);
-  if (!partner) return null;
-  const isAudio = track === 'audio';
-  const pic = isAudio ? partner.clip : clip;
-  const picTrack = isAudio ? partner.track : track;
-  const aud = isAudio ? clip : partner.clip;
-  if (partner.track !== 'audio' && !isAudio) return null; // picture-picture is not a pair
-  if (isAudio && partner.track === 'audio') return null;
-  const start = picStart(p, picTrack, pic);
-  if (start === null || start === undefined) return null;
-  const len = picTrack === 'video' ? clipDuration(pic) : clipLen(pic);
-  const { lead, trail } = audioTrimOf(aud);
-  return { pic, picTrack, picStart: start, picEnd: start + len, aud, lead, trail };
-}
-
-// A trim re-bases a frame hold: a left-edge trim shifts the hold point by
-// the removed length (clamped, dropping a hold that no longer fits); a
-// right-edge trim only re-validates it against the new length.
-function rebaseHoldAfterTrim(c, oldLen, newLen, edge) {
-  if (!c.frameHold) return c;
-  if (edge === 'left') {
-    const d = oldLen - newLen;
-    let at = c.frameHold.at - d;
-    let dur = c.frameHold.duration;
-    if (at < 0) { dur += at; at = 0; }
-    if (dur <= 0.01 || at + dur > newLen + 1e-9) { const n = { ...c }; delete n.frameHold; return n; }
-    return { ...c, frameHold: { at, duration: dur } };
-  }
-  return sanitizeClipHold(c);
-}
-
 // One clip patch application, shared by 'update' (and 'updateMany' through it).
 // Two timing invariants live here so every writer gets them for free:
 // - A constant-speed write replaces the timing model: a patch that sets `speed`
@@ -342,15 +115,15 @@ function rebaseHoldAfterTrim(c, oldLen, newLen, edge) {
 //   pointing at source the clip no longer shows. Paths that compute their own
 //   slice (split, trim, cut ranges) build clips directly and never come here.
 export function applyClipPatch(c, patch) {
-  const next = withSanitizedTrim({ ...c, ...patch });
-  if (!patch) return sanitizeClipHold(next);
+  const next = { ...c, ...patch };
+  if (!patch) return next;
   if ('speed' in patch && !('speedCurve' in patch) && c.speedCurve) delete next.speedCurve;
   if (('in' in patch || 'out' in patch) && !('speedCurve' in patch) && hasCurve(c)) {
     const from = (patch.in !== undefined ? patch.in : c.in) - c.in;
     const to = (patch.out !== undefined ? patch.out : c.out) - c.in;
     next.speedCurve = sliceCurve(c, from, to);
   }
-  return sanitizeClipHold(next);
+  return next;
 }
 
 // Layers: every clip of a free track sits on a layer, 0 being the one next to the main track.
@@ -472,27 +245,6 @@ export function transitionDur(clips, i) {
   return Math.max(0, Math.min(t.duration, clipLen(clips[i]) / 2, clipLen(clips[i - 1]) / 2));
 }
 
-// TR-03: transition fit against its neighbours — the single source of truth
-// for the boundary UI (Inspector Transition panel + ClipInspector) and the
-// export clamp (transitionDur, which equals min(requested, max)). A transition
-// can use at most half of each clip it joins, so:
-//   ok      — the requested duration fits both neighbours as stored.
-//   clamped — the requested duration exceeds what a neighbour allows; the
-//             transition will play at `effective` instead of `requested`.
-//   zero    — a neighbour is too short for any transition at all (max 0);
-//             the transition is skipped on export.
-//   none    — no transition on this clip.
-export function transitionFit(clips, i) {
-  const t = clips[i]?.transition;
-  if (!t || i === 0 || t.type === 'none') return { state: 'none', requested: 0, max: 0, effective: 0, prevLen: 0, nextLen: 0 };
-  const prevLen = clipLen(clips[i - 1]);
-  const nextLen = clipLen(clips[i]);
-  const max = Math.max(0, Math.min(prevLen, nextLen) / 2);
-  const effective = Math.max(0, Math.min(t.duration, max));
-  const state = effective <= 0 ? 'zero' : t.duration > max + 1e-9 ? 'clamped' : 'ok';
-  return { state, requested: t.duration, max, effective, prevLen, nextLen };
-}
-
 // Clips overlap by the length of the transition into them (FFmpeg xfade).
 export function videoLayout(videoClips) {
   let end = 0;
@@ -511,12 +263,6 @@ export function projectDuration(p) {
   p.textClips.forEach((c) => ends.push(c.start + c.duration));
   p.audioClips.forEach((c) => ends.push(c.start + freeLen('audio', c)));
   (p.overlayClips || []).forEach((c) => ends.push(c.start + freeLen('overlay', c)));
-  // P0-03: sticker and effect clips are duration-based (start + duration) like
-  // text — leaving them out made a project whose last content is a sticker or
-  // an effect report duration 0 / too short. exportDuration() below is
-  // intentionally video-only and is NOT changed.
-  (p.stickerClips || []).forEach((c) => ends.push((c.start || 0) + (c.duration || 0)));
-  (p.effectClips || []).forEach((c) => ends.push((c.start || 0) + (c.duration || 0)));
   return Math.max(0, ...ends);
 }
 
@@ -532,9 +278,7 @@ export function exportDuration(p) {
   // project carrying such a clip used to show a Duration longer than the
   // encode's own total — the % denominator. Filter the same way here.
   const mediaIds = new Set((p.media || []).map((m) => m.id));
-  // A nested sequence clip has no mediaId of its own: it still occupies
-  // exported time (flattenProject expands it before the encode).
-  const clips = (p.videoClips || []).filter((c) => c.gap || c.sequenceId || mediaIds.has(c.mediaId));
+  const clips = (p.videoClips || []).filter((c) => c.gap || mediaIds.has(c.mediaId));
   const v = videoLayout(clips);
   return v.length ? v[v.length - 1].end : 0;
 }
@@ -552,7 +296,6 @@ export function newVideoClip(id, m) {
   return {
     id, mediaId: m.id, in: 0, out: m.type === 'image' ? IMAGE_DEFAULT : m.duration, speed: 1, volume: 1, muted: false,
     filter: 'none', adjust: {}, effects: [], transition: null,
-    role: 'dialogue', // P2-23: picture clips carry dialogue by default
   };
 }
 
@@ -567,38 +310,6 @@ export function canvasFor(p, m) {
 function reduceProjectInner(p, a) {
   switch (a.type) {
     case 'load':
-      return normalizeProject(a.project);
-    // Multiple sequences (P2-02): create/rename/delete/switch go through
-    // src/sequences.js (create + switch are one undo step; a switch on its
-    // own is made non-undoable in historyReducer below, like a selection).
-    case 'createSequence':
-      return createSequence(p, a.name);
-    case 'renameSequence':
-      return renameSequence(p, a.id, a.name);
-    case 'deleteSequence':
-      return deleteSequence(p, a.id);
-    case 'switchSequence':
-      return switchSequence(p, a.id);
-    case 'addSequenceClip': {
-      // A sequence as a nested clip on the main track, at the end (or
-      // a.index). The insert guard refuses unknown sources, empty sources
-      // and anything that would close a cycle; the UI pre-checks the same
-      // and disables those entries, so this is a backstop, not the message.
-      const source = sequenceById(ensureSequences(p), a.sequenceId);
-      if (!source) return p;
-      if (!canNest(p, a.sequenceId)) return p;
-      const dur = sequenceDuration(p, a.sequenceId);
-      if (dur < MIN_CLIP) return p;
-      const clip = newSequenceClip(a.clipId, a.sequenceId, source.name, dur);
-      const list = [...p.videoClips];
-      list.splice(a.index ?? list.length, 0, clip);
-      return { ...p, videoClips: list };
-    }
-    case 'applyPlan':
-      // A reviewed FlowAI plan (P1-31): the whole planned document replaces the
-      // present in ONE undo step — undoing returns to the exact pre-plan
-      // project. Unlike 'load' (which keeps the trail for a reloaded document),
-      // this pushes the present onto past, like any normal edit.
       return normalizeProject(a.project);
     case 'setProject':
       return { ...p, ...a.patch };
@@ -621,18 +332,12 @@ function reduceProjectInner(p, a) {
       if (!m) return p;
       if (m.type === 'video' || m.type === 'image') {
         const list = [...p.videoClips];
-        // Source Monitor (gap-build B): a source in/out window honoured here.
-        const clip = newVideoClip(a.clipId, m);
-        if (m.type === 'video' && Number.isFinite(a.in) && Number.isFinite(a.out) && a.out - a.in >= MIN_CLIP) {
-          clip.in = Math.max(0, a.in);
-          clip.out = Math.min(m.duration || a.out, a.out);
-        }
-        list.splice(a.index ?? list.length, 0, clip);
+        list.splice(a.index ?? list.length, 0, newVideoClip(a.clipId, m));
         return { ...p, videoClips: list, ...canvasFor(p, m) };
       }
       return {
         ...p,
-        audioClips: [...p.audioClips, { id: a.clipId, mediaId: m.id, start: a.at, in: 0, out: m.duration, volume: 1, fadeIn: 0, fadeOut: 0, role: 'music', ...(a.layer != null && { layer: a.layer }) }], // P2-23: audio clips carry music by default
+        audioClips: [...p.audioClips, { id: a.clipId, mediaId: m.id, start: a.at, in: 0, out: m.duration, volume: 1, fadeIn: 0, fadeOut: 0, ...(a.layer != null && { layer: a.layer }) }],
       };
     }
     case 'addOverlayClip': {
@@ -644,14 +349,9 @@ function reduceProjectInner(p, a) {
       const clip = { ...newVideoClip(a.clipId, m), start: Math.max(0, a.at), transform: { scale: 0.5, x: 0, y: 0 }, ...(a.layer != null && { layer: a.layer }) };
       return { ...p, overlayClips: [...p.overlayClips, clip] };
     }
-    case 'addEffectClip': {
-      // A free effect on the Effects track (3 s by default), or a grade layer
-      // (kind 'grade': no fx, a grade payload instead — see gradeLayerPasses).
-      const clip = a.kind === 'grade'
-        ? { id: a.clipId, kind: 'grade', name: a.name || 'Adjustment layer', start: Math.max(0, a.at), duration: a.duration || 3, grade: a.grade || {}, filter: a.filter || 'none', filterIntensity: a.filterIntensity ?? 100, adjust: a.adjust || {} }
-        : { id: a.clipId, kind: 'fx', fx: a.fx, start: Math.max(0, a.at), duration: a.duration || 3 };
-      return { ...p, effectClips: [...p.effectClips, clip] };
-    }
+    case 'addEffectClip':
+      // A free effect on the Effects track (3 s by default).
+      return { ...p, effectClips: [...p.effectClips, { id: a.clipId, fx: a.fx, start: Math.max(0, a.at), duration: a.duration || 3 }] };
     case 'addText':
       return {
         ...p,
@@ -661,10 +361,6 @@ function reduceProjectInner(p, a) {
           { id: a.clipId, text: 'Your text', start: a.at, duration: 3, y: 0.5, ...a.patch, ...(a.layer != null && { layer: a.layer }) },
         ],
       };
-    case 'addGraphicTemplate':
-      // Gap-build C: a grouped layer template (src/graphics/catalog.js) lands
-      // as one dispatch — one undo step — with all parts sharing a groupId.
-      return { ...p, textClips: [...p.textClips, ...(a.clips || [])] };
     case 'addSticker': {
       // Bundled sticker (10/10 step 3): a drawn PNG from shared/stickers/, centred at
       // 30% of the frame by default. The transform/opacity shape matches overlay clips,
@@ -676,32 +372,9 @@ function reduceProjectInner(p, a) {
       };
       return { ...p, stickerClips: [...p.stickerClips, clip] };
     }
-    case 'setAudioTrim': {
-      // J/L-cut (P1-03): set the lead/trail of a linked audio clip and
-      // rebuild its window from the picture + trims, clamped to the source
-      // media. One undo step; the stored trims are the clamped ones.
-      const aud = findClipIn(p, 'audio', a.id);
-      if (!aud || !aud.linkId) return p;
-      const info = linkedPairInfo(p, 'audio', aud);
-      if (!info) return p;
-      const mediaDur = (p.media || []).find((m) => m.id === aud.mediaId)?.duration;
-      const want = audioWindowForPair(info.pic, info.picStart, { ...aud, audioTrim: { lead: a.lead ?? info.lead, trail: a.trail ?? info.trail } }, mediaDur);
-      const trim = sanitizeAudioTrim({ lead: want.lead, trail: want.trail });
-      return { ...p, audioClips: p.audioClips.map((c) => (c.id === a.id ? withSanitizedTrim({ ...c, start: want.start, in: want.in, out: want.out, ...(trim ? { audioTrim: trim } : { audioTrim: undefined }) }) : c)) };
-    }
     case 'update': {
       const key = TRACKS[a.track];
-      // Frame timebase (P1-04): a clip's timeline geometry — start and
-      // duration — always lands on whole frames. Only those two fields are
-      // quantized: in/out are SOURCE times (the media's own rate, not the
-      // project's), and nested patches (keyframes, volKeys, fxTiming) carry
-      // their own units. updateMany reduces through here, so multi-select
-      // drags are covered too.
-      const fps = effectiveFps(p);
-      const patch = { ...a.patch };
-      if (Number.isFinite(patch.start)) patch.start = Math.max(0, quantize(patch.start, fps));
-      if (Number.isFinite(patch.duration)) patch.duration = Math.max(MIN_CLIP, quantize(patch.duration, fps));
-      return { ...p, [key]: p[key].map((c) => (c.id === a.id ? applyClipPatch(c, patch) : c)) };
+      return { ...p, [key]: p[key].map((c) => (c.id === a.id ? applyClipPatch(c, a.patch) : c)) };
     }
     case 'addLayer':
       return { ...p, layers: { ...p.layers, [a.track]: layerCount(p, a.track) + 1 } };
@@ -828,24 +501,6 @@ function reduceProjectInner(p, a) {
     case 'updateMany':
       // Several clips changed together (one undo step): updates [{ track, id, patch }].
       return a.updates.reduce((q, u) => reduceProject(q, { type: 'update', ...u }), p);
-    case 'proofreadCaptions': {
-      // FB-25: the proofread dialog's edits, applied as one undo step.
-      // Only caption text clips are touched; a patch's start/duration go
-      // through the same frame quantisation as `update`, and a `words`
-      // array (re-aligned by the dialog) replaces the clip's word timings.
-      const fps = effectiveFps(p);
-      return {
-        ...p,
-        textClips: p.textClips.map((c) => {
-          const u = (a.patches || []).find((x) => x.id === c.id);
-          if (!u || !c.caption) return c;
-          const patch = { ...u.patch };
-          if (Number.isFinite(patch.start)) patch.start = Math.max(0, quantize(patch.start, fps));
-          if (Number.isFinite(patch.duration)) patch.duration = Math.max(0.2, quantize(patch.duration, fps));
-          return { ...c, ...patch };
-        }),
-      };
-    }
     case 'setMagnet': {
       const magnet = { ...p.magnet, [a.track]: a.on };
       // Turning the main-track magnet on closes every gap.
@@ -887,11 +542,7 @@ function reduceProjectInner(p, a) {
         text: s.text,
         start: s.start,
         duration: Math.max(0.2, s.end - s.start),
-        // AI-03: word confidence (local Whisper token probabilities) and
-        // speaker labels (Deepgram diarization) ride into the clips, so the
-        // transcript panel can review and label them. Absent = unknown.
-        ...(s.speaker ? { speaker: s.speaker } : {}),
-        words: (s.words || []).map((w) => ({ text: w.text, start: Math.max(0, w.start - s.start), end: Math.max(0, w.end - s.start), ...(Number.isFinite(w.conf) ? { conf: w.conf } : {}) })),
+        words: (s.words || []).map((w) => ({ text: w.text, start: Math.max(0, w.start - s.start), end: Math.max(0, w.end - s.start) })),
         caption: true,
       }));
       // Imported .srt subtitles (source: 'srt') are the user's own files: regenerating the
@@ -965,10 +616,6 @@ function reduceProjectInner(p, a) {
       if (i < 0 || p[key][i].gap) return p;
       const c = p[key][i];
       const copy = { ...c, id: a.newId };
-      // P2-03: a duplicate is an independent clip — it does not join the
-      // original's group (otherwise selecting the copy would select the
-      // original too). Split halves keep the group; duplicates do not.
-      delete copy.groupId;
       if (a.track === 'video') copy.transition = null;
       else copy.start = c.start + freeLen(a.track, c);
       const list = [...p[key]];
@@ -991,91 +638,11 @@ function reduceProjectInner(p, a) {
         // ghost value if the same effect were re-added later (Sprint 12 fix).
         const fxParams = { ...(c.fxParams || {}) };
         delete fxParams[fx]; // …and its per-effect parameters (§5), for the same reason.
-        const fxKeys = { ...(c.fxKeys || {}) };
-        delete fxKeys[fx]; // …and its intensity keyframes (P2-20), for the same reason.
-        const fxBypass = { ...(c.fxBypass || {}) };
-        delete fxBypass[fx]; // …and its bypass flag (FB-26).
-        const fxSolo = { ...(c.fxSolo || {}) };
-        delete fxSolo[fx]; // …and its solo flag (FB-26).
-        return { ...c, effects: (c.effects || []).filter((e) => e !== fx), fxRegions, fxTiming, fxStrength, fxParams, fxKeys, fxBypass, fxSolo };
+        return { ...c, effects: (c.effects || []).filter((e) => e !== fx), fxRegions, fxTiming, fxStrength, fxParams };
       }) };
     }
     case 'split':
       return splitLinked(p, a.track, a.id, a.t, a.newId);
-    // ---- Gap-build Stream B -------------------------------------------------
-    case 'bypassEffect': {
-      // FX-01: toggle one effect's bypass (clip.fxBypass). The effect keeps
-      // its settings; src/fx/apply.js skips it in preview and export alike.
-      const { track, clipId, fx } = parseEffectKey(a.id);
-      const key = TRACKS[track];
-      if (!key) return p;
-      return { ...p, [key]: p[key].map((c) => (c.id === clipId ? setFxBypass(c, fx, a.bypassed !== false) : c)) };
-    }
-    case 'moveEffect': {
-      // FX-01: reorder one effect in the clip's stack (render order).
-      const { track, clipId, fx } = parseEffectKey(a.id);
-      const key = TRACKS[track];
-      if (!key) return p;
-      return { ...p, [key]: p[key].map((c) => (c.id === clipId ? moveFx(c, fx, a.dir || 0) : c)) };
-    }
-    case 'pasteFxStack': {
-      // FX-01: replace a clip's whole effect stack with a copied one.
-      const key = TRACKS[a.track];
-      if (!key || !a.stack) return p;
-      return { ...p, [key]: p[key].map((c) => (c.id === a.clipId ? pasteFxStack(c, a.stack) : c)) };
-    }
-    case 'jCut':
-      // TL-03: the linked audio of clip a.id starts a.delta seconds early.
-      return applyJCut(p, a.id, a.delta);
-    case 'lCut':
-      // TL-03: the linked audio of clip a.id runs a.delta seconds past the cut.
-      return applyLCut(p, a.id, a.delta);
-    case 'trimLinkedAudio':
-      // TL-03: trim a linked audio clip's own window, video partner untouched.
-      return trimLinkedAudio(p, a);
-    case 'setFrameHold': {
-      // P1-50: { at (source seconds), duration (timeline seconds) } or null.
-      const key = TRACKS[a.track];
-      if (!key) return p;
-      const hold = a.hold && Number.isFinite(a.hold.at) && Number.isFinite(a.hold.duration)
-        ? { at: a.hold.at, duration: Math.max(0.05, a.hold.duration) } : null;
-      return { ...p, [key]: p[key].map((c) => (c.id === a.id ? { ...c, frameHold: hold } : c)) };
-    }
-    case 'setCaptionSpeaker': {
-      // P1-32: speaker label on one caption clip.
-      const speaker = typeof a.speaker === 'string' ? a.speaker.trim().slice(0, 40) : '';
-      return { ...p, textClips: p.textClips.map((c) => (c.id === a.clipId ? { ...c, speaker: speaker || undefined } : c)) };
-    }
-    case 'setTranscriptSettings':
-      // P1-33: project-level transcript settings (confidence threshold).
-      return { ...p, transcript: { ...(p.transcript || {}), ...a.patch } };
-    case 'applySplitScreen': {
-      // Split Screen tool: two picture clips side by side / stacked.
-      const patches = splitScreenPatches(p, a);
-      if (!patches.length) return p;
-      return patches.reduce((q, u) => reduceProject(q, { type: 'update', ...u }), p);
-    }
-    case 'setPanZoom': {
-      // Pan-Zoom tool: adds the fx_panzoom effect with params spanning the clip.
-      const key = TRACKS[a.track];
-      if (!key) return p;
-      return { ...p, [key]: p[key].map((c) => (c.id === a.id ? { ...c, ...panZoomPatch(c, a.panZoom || {}) } : c)) };
-    }
-    case 'qwTrim': {
-      // Q/W trim (spec matrix): Q deletes everything before the playhead in
-      // the clip, W deletes everything after it. Implemented as the store's
-      // existing trimActions (split + delete one half); the track magnet is
-      // the ripple — magnet on closes the space, magnet off leaves a gap
-      // (video) / the clips stay put (free tracks). One dispatch, one undo step.
-      const side = a.which === 'q' ? 'left' : a.which === 'w' ? 'right' : null;
-      if (!side) return p;
-      const newId = a.newId || uid();
-      return trimActions(p, { track: a.track, id: a.id, t: a.t, side, newId })
-        .reduce((acc, sub) => reduceProject(acc, sub), p);
-    }
-    case 'setTrimMode':
-      // Q/W trim mode (spec matrix): the Timeline's trim tool reads this.
-      return ['ripple', 'roll', 'slip', 'slide', 'qw'].includes(a.mode) ? { ...p, trimMode: a.mode } : p;
     case 'moveToOverlay': {
       // Main clip -> overlay track at time `at` (the main track closes up or keeps a gap, per its magnet).
       const c = p.videoClips.find((x) => x.id === a.id);
@@ -1107,7 +674,7 @@ function reduceProjectInner(p, a) {
       // The copy carries the clip's whole gain model — volume, fades and
       // volume keyframes (same media file, so the keys' absolute source
       // times stay true) — so extracting never changes how the sound plays.
-      const audio = { id: a.newId, mediaId: m.id, start, in: c.in, out: c.out, speed: c.speed || 1, ...(c.speedCurve ? { speedCurve: c.speedCurve } : {}), volume: c.volume ?? 1, fadeIn: c.fadeIn || 0, fadeOut: c.fadeOut || 0, ...(c.volKeys ? { volKeys: c.volKeys } : {}), role: 'dialogue' }; // P2-23: extracted sound is the picture's dialogue
+      const audio = { id: a.newId, mediaId: m.id, start, in: c.in, out: c.out, speed: c.speed || 1, ...(c.speedCurve ? { speedCurve: c.speedCurve } : {}), volume: c.volume ?? 1, fadeIn: c.fadeIn || 0, fadeOut: c.fadeOut || 0, ...(c.volKeys ? { volKeys: c.volKeys } : {}) };
       return { ...p, [key]: p[key].map((x) => (x.id === c.id ? { ...x, muted: true } : x)), audioClips: [...p.audioClips, audio] };
     }
     case 'paste': {
@@ -1123,14 +690,7 @@ function reduceProjectInner(p, a) {
       return { ...p, [key]: [...p[key], { ...a.clip, id: a.newId, start: Math.max(0, a.at) }] };
     }
     case 'cutRanges':
-      // TL-02: a dispatched cut with rippleLinked is opt-in linked ripple
-      // (every free track moves); default 'main' behaves exactly as
-      // before. A project rippleMode of 'linked' is NOT mapped here —
-      // rippleModeOf already honours it as partners-only 'linked', which
-      // is distinct from TL-02's every-track ripple.
-      return cutRanges(p, a.ranges, { rippleText: !!a.rippleText, rippleMode: a.rippleMode || p.rippleMode, rippleLinked: !!a.rippleLinked });
-    case 'setRippleMode':
-      return { ...p, rippleMode: RIPPLE_MODES.includes(a.mode) ? a.mode : 'main' };
+      return cutRanges(p, a.ranges, { rippleText: !!a.rippleText });
     case 'cutFreeRanges':
       return cutFreeRanges(p, a.track, a.id, a.ranges);
     case 'addMarker':
@@ -1170,96 +730,7 @@ function reduceProjectInner(p, a) {
     }
     case 'setBeats':
       // The soundtrack's beat grid (Beat cuts): { bpm, times } or null to clear it.
-      return { ...p, beats: a.beats && Array.isArray(a.beats.times) && a.beats.times.length ? { bpm: a.beats.bpm || 0, times: [...a.beats.times].sort((x, y) => x - y), offset: Number.isFinite(Number(a.beats.offset)) ? Number(a.beats.offset) : 0, manual: !!a.beats.manual, source: typeof a.beats.source === 'string' ? a.beats.source : 'detected' } : null };
-    case 'setBeatGrid': {
-      // P2-22: manual tempo grid — the user names a BPM (and a first-beat
-      // offset) and the grid is generated over the whole project. This is the
-      // override for a mis-heard detection or a track with no audio to hear.
-      const bpm = clampBpm(a.bpm);
-      const offset = Math.min(1, Math.max(-1, Number(a.offset) || 0));
-      const times = beatGrid(bpm, offset, 0, projectDuration(p));
-      return { ...p, beats: times.length ? { bpm, times, offset, manual: true, source: 'manual' } : null };
-    }
-    case 'setBeatOffset': {
-      // P2-22: nudge a grid's first beat without changing its tempo — the
-      // grid regenerates from the stored BPM (detected or manual).
-      if (!p.beats || !p.beats.bpm) return p;
-      const offset = Math.min(1, Math.max(-1, Number(a.offset) || 0));
-      const times = beatGrid(p.beats.bpm, offset, 0, projectDuration(p));
-      return { ...p, beats: times.length ? { ...p.beats, times, offset } : null };
-    }
-    case 'setBeatSnap':
-      // P2-22: beat snapping on/off (independent of the general snap toggle).
-      return { ...p, beatSnap: !!a.on };
-    case 'setClipRole': {
-      // P2-23: assign an audio role to one clip (its bus). Unknown roles refuse.
-      if (!isRole(a.role)) return p;
-      const c = findClipIn(p, a.track, a.id);
-      if (!c || c.gap) return p;
-      return mapClip(p, a.track, a.id, (x) => ({ ...x, role: a.role }));
-    }
-    case 'setMixer': {
-      // P2-23: mixer patch — gains (dB), master, muted / solo maps. Mute/solo
-      // maps merge (one bus at a time); gains are clamped on the way in.
-      const patch = a.patch || {};
-      const cur = sanitizeMixer(p.mixer);
-      const next = { ...cur };
-      for (const r of ['dialogue', 'music', 'sfx', 'ambience', 'master']) {
-        if (Number.isFinite(Number(patch[r]))) next[r] = clampGainDb(patch[r]);
-      }
-      for (const k of ['muted', 'solo']) {
-        if (patch[k] && typeof patch[k] === 'object') next[k] = { ...cur[k], ...patch[k] };
-      }
-      return { ...p, mixer: sanitizeMixer(next) };
-    }
-    case 'rollEdit':
-      // P2-01: move the edit point between two adjacent clips (total fixed).
-      return rollEdit(p, a);
-    case 'slipClip':
-      // P2-01: move the source window inside the media (start/length fixed).
-      return slipClip(p, a);
-    case 'slideClip':
-      // P2-01: move the clip; neighbours absorb it (total fixed).
-      return slideClip(p, a);
-    case 'rateStretch':
-      // P2-01: change duration by changing speed; window fixed, pitch mode explicit.
-      return rateStretch(p, a);
-    case 'groupClips': {
-      // P2-03: give every named clip the same groupId (one undo step). A clip
-      // already in a group keeps its group unless a.groupId names another.
-      const gid = a.groupId || uid();
-      let out = p;
-      for (const it of a.items || []) {
-        const c = findClipIn(out, it.track, it.id);
-        if (!c || c.gap) continue;
-        if (groupIdOf(c) === gid) continue;
-        out = mapClip(out, it.track, it.id, (x) => ({ ...x, groupId: gid }));
-      }
-      return out;
-    }
-    case 'ungroupClips': {
-      // P2-03: dissolve the group of every named clip — naming one member
-      // frees the whole group (ungrouping half a group would leave a
-      // phantom group behind). Clips with no group are untouched.
-      let out = p;
-      const gids = new Set();
-      for (const it of a.items || []) {
-        const c = findClipIn(out, it.track, it.id);
-        const g = c && groupIdOf(c);
-        if (g) gids.add(g);
-      }
-      if (!gids.size) return p;
-      const strip = (list) => (list || []).map((c) => (groupIdOf(c) && gids.has(groupIdOf(c)) ? (() => { const n = { ...c }; delete n.groupId; return n; })() : c));
-      return {
-        ...out,
-        videoClips: strip(out.videoClips),
-        overlayClips: strip(out.overlayClips),
-        audioClips: strip(out.audioClips),
-        textClips: strip(out.textClips),
-        stickerClips: strip(out.stickerClips),
-        effectClips: strip(out.effectClips),
-      };
-    }
+      return { ...p, beats: a.beats && Array.isArray(a.beats.times) && a.beats.times.length ? { bpm: a.beats.bpm || 0, times: [...a.beats.times].sort((x, y) => x - y) } : null };
     case 'splitAtBeats':
       return splitClipAtBeats(p, a.id, a.newIds || []);
     case 'splitAtTimes':
@@ -1276,12 +747,8 @@ function reduceProjectInner(p, a) {
 // Every reduction funnels through here so a motion-tracking pin can never dangle: deleting a clip (or
 // a whole layer of clips) or clearing a clip's track takes the pin off every follower that used it.
 function reduceProject(p, a) {
-  let next = reduceProjectInner(p, a);
+  const next = reduceProjectInner(p, a);
   if (next === p) return next;
-  // The active sequence entry mirrors the flat timeline after every
-  // reduction (see src/sequences.js): saves and switches can never see a
-  // stale active entry, and undo snapshots stay self-consistent.
-  next = syncActiveSequence(next);
   if (a.type === 'delete') return cleanPins(next, new Set([a.id]));
   if (a.type === 'deleteLayer' || a.type === 'load') return cleanPins(next);
   if (a.type === 'update' && 'track' in (a.patch || {}) && !a.patch.track) return cleanPins(next);
@@ -1295,39 +762,9 @@ function reduceProject(p, a) {
 // uses up the neighbouring gap. Free tracks (magnet on): the trimmed clip keeps its start and later clips
 // shift by the length change (ripple).
 export function trimClip(p, { track, id, edge, delta }) {
-  // Duration-adaptive presets (P2-11): a trim that shortens the clip rescales
-  // its stored preset timing (anim in/out, text anims, transition) instead of
-  // leaving long durations to be silently clamped at playback, and records
-  // what could not be adapted on clip.adaptReport.
-  const key = TRACKS[track];
-  const before = p[key]?.find((c) => c.id === id);
-  const lenOf = (c) => (track === 'video' || track === 'overlay' || track === 'audio' ? clipLen(c) : c.duration);
-  const oldLen = before ? lenOf(before) : 0;
-  const next = trimClipRaw(p, { track, id, edge, delta });
-  if (next === p || !before) return next;
-  const after = next[key]?.find((c) => c.id === id);
-  if (!after) return next;
-  const newLen = lenOf(after);
-  if (Math.abs(newLen - oldLen) < 1e-6) return next;
-  // A trim re-bases a frame hold (P1-50): the hold point moves with the
-  // clip's local time, and a hold that no longer fits is dropped.
-  const held = rebaseHoldAfterTrim(after, oldLen, newLen, edge);
-  const heldNext = held === after ? next : { ...next, [key]: next[key].map((c) => (c.id === id ? held : c)) };
-  const { patch } = adaptClipPresets(held, oldLen, newLen);
-  if (!patch) return heldNext;
-  return { ...heldNext, [key]: heldNext[key].map((c) => (c.id === id ? { ...c, ...patch } : c)) };
-}
-
-function trimClipRaw(p, { track, id, edge, delta }) {
   const key = TRACKS[track];
   const idx = p[key].findIndex((c) => c.id === id);
   if (idx < 0) return p;
-  // Frame timebase (P1-04): the drag delta is in timeline seconds — snap it
-  // to whole frames first, so a trim moves a clip edge by whole frames and
-  // the ripple that follows keeps every later boundary on the grid. The
-  // gap bookkeeping below derives everything from this delta, so it stays
-  // consistent; the source window follows through the speed mapping.
-  delta = quantize(delta, effectiveFps(p));
   const c = p[key][idx];
 
   if (track === 'video') {
@@ -1465,21 +902,8 @@ function trimClipRaw(p, { track, id, edge, delta }) {
       next = { ...c, out: newOut };
     }
   } else {
-    // Duration-based clips (text / effect / sticker): a right trim only
-    // shortens the clip. A left trim moves the START later and shortens the
-    // clip — the end is preserved — and frees space BEFORE the clip, so the
-    // followers (which start at the preserved end) do not shift: d is 0 for
-    // the ripple below. Before this fix the branch never moved `start`, so a
-    // left trim shortened the clip from the wrong end (and the ripple then
-    // dragged the followers onto the shortened tail).
-    if (edge === 'left') {
-      d = Math.min(Math.max(delta, -c.start), len - MIN_CLIP);
-      next = { ...c, start: c.start + d, duration: len - d };
-      d = 0;
-    } else {
-      d = Math.min(delta, len - MIN_CLIP);
-      next = { ...c, duration: len - d };
-    }
+    d = Math.min(delta, len - MIN_CLIP);
+    next = { ...c, duration: len - d };
   }
   const oldEnd = c.start + len;
   const out = p[key].map((x) => {
@@ -1490,14 +914,32 @@ function trimClipRaw(p, { track, id, edge, delta }) {
   return { ...p, [key]: out };
 }
 
+// The marker closest to time t within `eps` seconds, or null.
+// Marker colours (10/10 step 5): a small named palette — a marker's colour is
+// one of these ids (amber is the historical default, so old projects render
+// exactly as they always did). Colour per marker + bulk delete close the
+// parity row CapCut covers with its coloured chapter/marker flags.
+export const MARKER_COLORS = [
+  { id: 'amber', name: 'Amber', hex: '#fbbf24' },
+  { id: 'violet', name: 'Violet', hex: '#825cfb' },
+  { id: 'teal', name: 'Teal', hex: '#14b8a6' },
+  { id: 'coral', name: 'Coral', hex: '#f97066' },
+  { id: 'sky', name: 'Sky', hex: '#38bdf8' },
+  { id: 'pink', name: 'Pink', hex: '#ec4899' },
+];
+export const markerColorId = (id) => (MARKER_COLORS.some((c) => c.id === id) ? id : 'amber');
+export const markerColorHex = (id) => MARKER_COLORS.find((c) => c.id === id)?.hex || MARKER_COLORS[0].hex;
+
+export function markerNear(markers, t, eps = 0.05) {
+  let best = null;
+  for (const m of markers) if (Math.abs(m.time - t) <= eps && (!best || Math.abs(m.time - t) < Math.abs(best.time - t))) best = m;
+  return best;
+}
+
 // Actions for "delete the part of a clip left (or right) of time t". The clip is split at t and one half is
 // deleted through the normal delete, so the track magnet decides between closing the gap and leaving one.
 // Returns [] when t is not inside the clip (or too close to its edge).
 export function trimActions(p, { track, id, t, side, newId }) {
-  // Frame timebase (P1-04): same cut quantization as splitAt — the split
-  // this returns is the one that runs, so the guard below and the split
-  // must agree on the same (quantized) time.
-  t = quantize(t, effectiveFps(p));
   const key = TRACKS[track];
   const c = key && p[key].find((x) => x.id === id);
   if (!c || c.gap) return [];
@@ -1528,82 +970,6 @@ export function trimActions(p, { track, id, t, side, newId }) {
   return actions;
 }
 
-// One shared cut-range normalizer (P1-01): every cut path funnels its ranges
-// through here, at the reducer boundary, so overlapping ranges can never
-// double-count. The implementation lives in './intervals.js' (merged with
-// TL-01: gap-e's normalizeRanges was the same algorithm under another name);
-// store.js re-exports it so existing `from './store.js'` import sites keep
-// working.
-export { normalizeCutRanges } from './intervals.js';
-
-// Ripple modes (P1-02): which tracks a ripple cut (cutRanges) moves.
-// 'main' — the main track only (captions only when the caller asks via
-// rippleText; the historical behaviour). 'linked' — the main track, the
-// captions, and the audio/overlay partners linked to the cut video clips.
-// 'all' — every unlocked free-track clip (overlays, audio, stickers,
-// effect regions) is cut by the same ranges; locked clips stay put.
-export const RIPPLE_MODES = ['main', 'linked', 'all'];
-export const rippleModeOf = (p, opts = {}) =>
-  (opts.rippleMode && RIPPLE_MODES.includes(opts.rippleMode) && opts.rippleMode)
-  || (p && RIPPLE_MODES.includes(p.rippleMode) && p.rippleMode)
-  || 'main';
-
-// After a ripple cut, the pieces of a linked pair share the pair's original
-// linkId — syncLinked only ever sees one entry per linkId (its map holds the
-// last pair) and would rewrite the audio from the wrong piece. Re-pair the
-// pieces by timeline order: piece i of the picture with piece i of the
-// audio, a fresh linkId per pair, offsets recomputed from the pieces
-// themselves. A piece with no counterpart becomes an independent clip.
-// Untouched pairs re-pair to themselves (same id, same offsets), so this is
-// safe to run over the whole project after any linked/all ripple cut.
-function repairCutLinkIds(p) {
-  const layout = videoLayout(p.videoClips);
-  const picStartOf = (track, c) => (track === 'video'
-    ? (layout.find((l) => l.clip.id === c.id)?.start ?? 0)
-    : (c.start || 0));
-  const groups = new Map();
-  const add = (linkId, side, track, clip) => {
-    if (!linkId) return;
-    const g = groups.get(linkId) || { pics: [], auds: [] };
-    if (side === 'pic') g.pics.push({ track, clip });
-    else g.auds.push(clip);
-    groups.set(linkId, g);
-  };
-  for (const c of layout.map((l) => l.clip)) add(c.linkId, 'pic', 'video', c);
-  for (const c of [...(p.overlayClips || [])].sort((a, b) => (a.start || 0) - (b.start || 0))) add(c.linkId, 'pic', 'overlay', c);
-  for (const c of [...(p.audioClips || [])].sort((a, b) => (a.start || 0) - (b.start || 0))) add(c.linkId, 'aud', 'audio', c);
-  let out = p;
-  const put = (track, id, patch) => {
-    const key = TRACKS[track];
-    out = { ...out, [key]: out[key].map((c) => (c.id === id ? { ...c, ...patch } : c)) };
-  };
-  for (const [linkId, g] of groups) {
-    if (!g.pics.length || !g.auds.length) continue;
-    const n = Math.min(g.pics.length, g.auds.length);
-    for (let i = 0; i < n; i++) {
-      const newId = i === 0 ? linkId : `${linkId}~cut${i}`;
-      const pic = g.pics[i];
-      const aud = g.auds[i];
-      // The base alignment (linkOff / linkInOff) is translation-invariant:
-      // a cut never changes it, so the pieces keep the inherited values.
-      // The J/L trims (P1-03) ARE re-derived from the cut windows: how far
-      // this audio piece starts before / ends after its own picture piece.
-      // (Deriving the offsets from positions instead would bake the lead
-      // into linkOff and double-count it on the next picture move.)
-      const picStart0 = picStartOf(pic.track, pic.clip);
-      const picLen = pic.track === 'video' ? clipDuration(pic.clip) : clipLen(pic.clip);
-      const eps = (v) => (v > 1e-9 ? v : 0);
-      const lead = eps(Math.max(0, picStart0 + (aud.linkOff || 0) - (aud.start || 0)));
-      const trail = eps(Math.max(0, (aud.start || 0) + clipDuration(aud) - (picStart0 + picLen + (aud.linkOff || 0))));
-      put(pic.track, pic.clip.id, { linkId: newId });
-      put('audio', aud.id, { linkId: newId, audioTrim: sanitizeAudioTrim({ lead, trail }) });
-    }
-    for (let i = n; i < g.pics.length; i++) put(g.pics[i].track, g.pics[i].clip.id, { linkId: undefined, linkOff: undefined, linkInOff: undefined });
-    for (let i = n; i < g.auds.length; i++) put('audio', g.auds[i].id, { linkId: undefined, linkOff: undefined, linkInOff: undefined, audioTrim: undefined });
-  }
-  return out;
-}
-
 // Subtract sorted, merged cut ranges from one [a, b) interval; returns the
 // surviving pieces in the interval's own coordinates.
 function subtractRanges(a, b, cuts) {
@@ -1628,9 +994,7 @@ function subtractRanges(a, b, cuts) {
 // are re-based to their piece, and a word-timed clip's text is rebuilt from
 // its remaining words — the same convention splitTimed uses.
 function rippleTextClips(textClips, cuts) {
-  // TL-01: cuts are normalized once here, so cutBefore never double-counts
-  // an overlap (the old inline reduce summed each range independently).
-  const cutBefore = cutBeforeFn(cuts);
+  const cutBefore = (t) => cuts.reduce((n, r) => n + (t > r.start ? Math.max(0, Math.min(r.end, t) - r.start) : 0), 0);
   const out = [];
   for (const c of textClips) {
     const s = c.start;
@@ -1645,7 +1009,7 @@ function rippleTextClips(textClips, cuts) {
           .map((w) => ({ ...w, absStart: s + w.start, absEnd: s + w.end }))
           .filter((w) => w.absStart >= a - 1e-6 && w.absEnd <= b + 1e-6
             && !cuts.some((r) => w.absStart < r.end - 1e-6 && w.absEnd > r.start + 1e-6));
-        clip.words = kept.map((w) => ({ text: w.text, start: w.absStart - a, end: w.absEnd - a, ...(Number.isFinite(w.conf) ? { conf: w.conf } : {}) }));
+        clip.words = kept.map((w) => ({ text: w.text, start: w.absStart - a, end: w.absEnd - a }));
         clip.text = kept.map((w) => w.text).join(' ');
       }
       out.push(clip);
@@ -1660,19 +1024,10 @@ function rippleTextClips(textClips, cuts) {
 // the transcript-editing path, where captions must stay in sync with what they
 // caption. Cut pieces get ids derived from the clip id so repeated cuts never collide.
 export function cutRanges(p, ranges, opts = {}) {
-  // TL-01: normalize FIRST — overlapping ranges merge, so the removed time
-  // is counted once everywhere downstream (pieces, rippleTextClips, linked
-  // ripple). Previously this only sorted, and cutBefore double-counted.
-  const layout0 = videoLayout(p.videoClips);
-  const total = layout0.length ? layout0[layout0.length - 1].end : 0;
-  const cuts = normalizeCutRanges(ranges, total);
+  const cuts = [...ranges].filter((r) => r.end - r.start > 0.01).sort((a, b) => a.start - b.start);
   if (!cuts.length) return p;
-  // TL-02's opts.rippleLinked means "every free track moves with the
-  // picture" — that is HEAD's 'all' mode (HEAD's 'linked' moves linked
-  // partners only), so map it here.
-  const mode = opts.rippleLinked ? 'all' : rippleModeOf(p, opts);
   const out = [];
-  for (const l of layout0) {
+  for (const l of videoLayout(p.videoClips)) {
     const c = l.clip;
     const pieces = subtractRanges(l.start, l.end, cuts);
     pieces.filter(([a, b]) => b - a >= 0.03).forEach(([a, b], i) => {
@@ -1684,193 +1039,13 @@ export function cutRanges(p, ranges, opts = {}) {
         // slice of the curve that covers its own source window.
         const inOff = sourceOffsetAt(c, a - l.start);
         const outOff = sourceOffsetAt(c, b - l.start);
-        // FB-24: in 'main' mode a split piece gets its own linkId (piece 0
-        // keeps the pair's), so the linked audio partner can be rebuilt
-        // piece for piece below instead of every piece claiming the same
-        // pair. In 'linked'/'all' modes the pieces keep the original
-        // linkId: repairCutLinkIds pairs them by that id, and suffixed ids
-        // would strand each piece in its own group.
-        const linkPatch = c.linkId && mode === 'main' ? { linkId: i ? `${c.linkId}-c${i}` : c.linkId } : {};
-        out.push({ ...c, id, in: c.in + inOff, out: c.in + outOff, speedCurve: sliceCurve(c, inOff, outOff), transition: i ? null : c.transition, frameHold: pieceFrameHold(c.frameHold, a - l.start, b - l.start) || undefined, ...linkPatch });
+        out.push({ ...c, id, in: c.in + inOff, out: c.in + outOff, speedCurve: sliceCurve(c, inOff, outOff), transition: i ? null : c.transition });
       }
     });
   }
   const next = { ...p, videoClips: normalizeGaps(out) };
-  if (mode !== 'main' || opts.rippleText) next.textClips = rippleTextClips(p.textClips, cuts);
-  if (mode === 'main') {
-  // FB-24: linked-track preservation. A detached-audio partner used to be
-  // left whole while its picture was cut and rippled — the pair desynced
-  // by exactly the removed time, and every video piece claimed the same
-  // linkId. Now the partner is rebuilt from its picture's new pieces: one
-  // audio piece per video piece, same start (plus linkOff), same source
-  // window (plus linkInOff), same speed curve slice. A partner whose
-  // picture vanished entirely (cut away to nothing) goes with it, and a
-  // video piece with no audio overlap drops its link instead of dangling.
-  // Unlinked audio clips are untouched: only the main track ripples.
-  // (TL-02's linked ripple reaches here as mode 'all', not 'main', so the
-  // free tracks below — not this rebuild — move them.)
-  const linkedAudio = (p.audioClips || []).filter((a) => a.linkId);
-  if (linkedAudio.length) {
-    const newLayout = videoLayout(next.videoClips);
-    const pieceStart = new Map(newLayout.map((l) => [l.clip.id, l.start]));
-    const byOrigLink = new Map();
-    for (const l of videoLayout(p.videoClips)) {
-      if (!l.clip.linkId || l.clip.gap) continue;
-      byOrigLink.set(l.clip.linkId, l.clip.id);
-    }
-    const rebuilt = [];
-    let audioChanged = false;
-    for (const a of p.audioClips || []) {
-      if (!a.linkId || !byOrigLink.has(a.linkId)) { rebuilt.push(a); continue; }
-      const origId = byOrigLink.get(a.linkId);
-      // Pieces of this picture clip only: the id itself, or id-c<n>. A plain
-      // prefix match would also catch a sibling clip from an earlier cut
-      // (v1-c1 is not a piece of v1 when v1-c1 is itself a clip).
-      const pieceRe = new RegExp(`^${origId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:-c\\d+)?$`);
-      const picPieces = next.videoClips.filter((c) => pieceRe.test(c.id));
-      const linkOff = a.linkOff || 0;
-      const linkInOff = a.linkInOff || 0;
-      const pieces = [];
-      picPieces.forEach((vc, i) => {
-        if (vc.gap) return;
-        const start = pieceStart.get(vc.id);
-        if (start == null) return;
-        const ain = Math.max(a.in ?? 0, vc.in + linkInOff);
-        const aout = Math.min(a.out ?? Infinity, vc.out + linkInOff);
-        if (aout - ain < 0.03) return;
-        pieces.push({
-          ...a,
-          id: i ? `${a.id}-c${i}` : a.id,
-          linkId: i ? `${a.linkId}-c${i}` : a.linkId,
-          start: start + linkOff,
-          in: ain,
-          out: aout,
-          speed: vc.speed || 1,
-          speedCurve: vc.speedCurve,
-        });
-      });
-      if (!pieces.length) { audioChanged = true; continue; } // picture cut away: audio goes too
-      // The video piece keeps its link only when it has an audio piece.
-      const keptLinks = new Set(pieces.map((x) => x.linkId));
-      picPieces.forEach((vc) => {
-        if (vc.linkId && !keptLinks.has(vc.linkId)) {
-          const hit = next.videoClips.find((c) => c.id === vc.id);
-          if (hit) delete hit.linkId;
-        }
-      });
-      if (pieces.length !== 1 || pieces[0].id !== a.id || pieces[0].start !== a.start
-        || pieces[0].in !== a.in || pieces[0].out !== a.out) audioChanged = true;
-      rebuilt.push(...pieces);
-    }
-    if (audioChanged) next.audioClips = rebuilt;
-  }
+  if (opts.rippleText) next.textClips = rippleTextClips(p.textClips, cuts);
   return next;
-  }
-  if (mode === 'linked') {
-    // The audio/overlay partners linked to the cut video clips take the
-    // same ranges, so a detached-audio pair stays in sync piece for piece.
-    // A locked partner stays put (its picture still ripples — the pair is
-    // repaired below, and the locked piece becomes independent).
-    const partners = new Map();
-    for (const l of layout0) {
-      if (!cuts.some((r) => r.start < l.end - 1e-9 && r.end > l.start + 1e-9)) continue;
-      const partner = findLinkPartner(p, l.clip);
-      if (partner && !clipLocked(p, partner.track, partner.clip)) partners.set(`${partner.track}:${partner.clip.id}`, partner);
-    }
-    let q = next;
-    for (const { track, clip } of partners.values()) q = rippleCutFree(q, track, clip.id, cuts);
-    return repairCutLinkIds(q);
-  }
-  // 'all': every unlocked free-track clip is cut by the same ranges —
-  // overlays, audio, stickers, effect regions. Locked clips (a locked music
-  // layer, for instance) stay exactly where they were.
-  let q = next;
-  for (const track of ['overlay', 'audio', 'sticker', 'effect']) {
-    const key = TRACKS[track];
-    for (const c of [...(p[key] || [])]) {
-      if (clipLocked(q, track, c)) continue;
-      q = rippleCutFree(q, track, c.id, cuts);
-    }
-  }
-  return repairCutLinkIds(q);
-}
-
-// Cut one free-track clip by timeline ranges and close the space — the
-// cross-track ripple twin of cutFreeRanges. The subtraction is clipped to
-// the clip's window, but the SHIFT uses the ORIGINAL ranges: the whole
-// timeline closes up, so a clip after the cut moves by the full removed
-// length, not just the part that overlapped it. (cutFreeRanges shifts by
-// the clipped ranges, which is right for a standalone silence removal and
-// wrong for a ripple.) A clip with no overlap still shifts when it sits
-// after a cut; a clip fully inside the cut is removed.
-function rippleCutFree(p, track, id, cuts) {
-  const key = TRACKS[track];
-  if (!key || track === 'video') return p;
-  const list = p[key] || [];
-  const c = list.find((x) => x.id === id);
-  if (!c) return p;
-  const cutBefore = (t) => cuts.reduce((n, r) => n + (t > r.start ? Math.max(0, Math.min(r.end, t) - r.start) : 0), 0);
-  const shiftOnly = () => {
-    const shift = cutBefore(c.start);
-    if (shift <= 0) return p;
-    return { ...p, [key]: list.map((x) => (x.id === id ? { ...x, start: c.start - shift } : x)) };
-  };
-  if (track === 'sticker' || track === 'effect') {
-    const len = c.duration || 0;
-    const clipped = cuts
-      .map((r) => ({ start: Math.max(c.start, r.start), end: Math.min(c.start + len, r.end) }))
-      .filter((r) => r.end - r.start > 0.01);
-    if (!clipped.length) return shiftOnly();
-    const pieces = subtractRanges(c.start, c.start + len, clipped).filter(([a, b]) => b - a >= 0.03);
-    const next = pieces.map(([a, b], i) => ({ ...c, id: i ? `${c.id}-c${i}` : c.id, start: a - cutBefore(a), duration: b - a }));
-    return { ...p, [key]: list.flatMap((x) => (x.id === id ? next : [x])) };
-  }
-  if (!Number.isFinite(c.in) || !Number.isFinite(c.out)) return p;
-  const len = freeLen(track, c);
-  const clipped = cuts
-    .map((r) => ({ start: Math.max(c.start, r.start), end: Math.min(c.start + len, r.end) }))
-    .filter((r) => r.end - r.start > 0.01);
-  if (!clipped.length) return shiftOnly();
-  const pieces = subtractRanges(c.start, c.start + len, clipped).filter(([a, b]) => b - a >= 0.03);
-  const next = pieces.map(([a, b], i) => {
-    const inOff = sourceOffsetAt(c, a - c.start);
-    const outOff = sourceOffsetAt(c, b - c.start);
-    return { ...c, id: i ? `${c.id}-c${i}` : c.id, start: a - cutBefore(a), in: c.in + inOff, out: c.in + outOff, speedCurve: sliceCurve(c, inOff, outOff), frameHold: pieceFrameHold(c.frameHold, a - c.start, b - c.start) || undefined };
-  });
-  return { ...p, [key]: list.flatMap((x) => (x.id === id ? next : [x])) };
-}
-
-// One free-track clip cut by the timeline ranges, closed up like the main
-// track: pieces keep their source windows through the sampler (in/out
-// clips) or their span directly (duration-based sticker / effect clips);
-// pieces fully inside a cut disappear; later pieces shift earlier by the
-// time removed before them. Pure — shared by cutRanges' linked ripple and
-// cutFreeRanges' single-clip path.
-export function rippleFreeTrackClips(list, cuts, track) {
-  const norm = normalizeCutRanges(cuts);
-  const cutBefore = cutBeforeFn(norm);
-  const out = [];
-  for (const c of list || []) {
-    const len = track === 'sticker' || track === 'effect' ? (c.duration || 0) : freeLen(track, c);
-    if (!Number.isFinite(len) || len <= 0) { out.push(c); continue; }
-    const pieces = subtractRanges(c.start, c.start + len, norm).filter(([a, b]) => b - a >= 0.03);
-    if (!pieces.length) continue; // clip lay entirely inside the cuts
-    pieces.forEach(([a, b], i) => {
-      const id = i ? `${c.id}-c${i}` : c.id;
-      const start = a - cutBefore(a);
-      if (track === 'sticker' || track === 'effect') {
-        out.push({ ...c, id, start, duration: b - a });
-      } else if (Number.isFinite(c.in) && Number.isFinite(c.out)) {
-        const inOff = sourceOffsetAt(c, a - c.start);
-        const outOff = sourceOffsetAt(c, b - c.start);
-        out.push({ ...c, id, start, in: c.in + inOff, out: c.in + outOff, speedCurve: sliceCurve(c, inOff, outOff) });
-      } else {
-        // Text-like free clip without an in/out window: shift + shorten.
-        out.push({ ...c, id, start, duration: b - a });
-      }
-    });
-  }
-  return out;
 }
 
 // Removes time ranges from ONE clip on a free track and closes the space
@@ -1885,37 +1060,19 @@ export function cutFreeRanges(p, track, id, ranges) {
   if (!key || track === 'video') return p;
   const list = p[key] || [];
   const c = list.find((x) => x.id === id);
-  if (!c) return p;
-  // Duration-based clips (sticker / effect) carry no in/out window: cut the
-  // start/duration span directly. Before this, the finite-in/out guard below
-  // returned the project unchanged — silence-removal on a sticker was a
-  // silent no-op. (Text clips keep the old path: their words need retiming,
-  // which is a separate design question, not a silent no-op fix.)
-  if (track === 'sticker' || track === 'effect') {
-    const len = c.duration || 0;
-    const cuts = normalizeCutRanges(
-      (ranges || []).map((r) => ({ start: Math.max(c.start, r.start), end: Math.min(c.start + len, r.end) })),
-      c.start + len,
-    );
-    if (!cuts.length) return p;
-    const cutBefore = cutBeforeFn(cuts);
-    const pieces = subtractRanges(c.start, c.start + len, cuts).filter(([a, b]) => b - a >= 0.03);
-    const next = pieces.map(([a, b], i) => ({ ...c, id: i ? `${c.id}-c${i}` : c.id, start: a - cutBefore(a), duration: b - a }));
-    return { ...p, [key]: list.flatMap((x) => (x.id === id ? next : [x])) };
-  }
-  if (!Number.isFinite(c.in) || !Number.isFinite(c.out)) return p;
+  if (!c || !Number.isFinite(c.in) || !Number.isFinite(c.out)) return p;
   const len = freeLen(track, c);
-  const cuts = normalizeCutRanges(
-    (ranges || []).map((r) => ({ start: Math.max(c.start, r.start), end: Math.min(c.start + len, r.end) })),
-    c.start + len,
-  );
+  const cuts = [...(ranges || [])]
+    .map((r) => ({ start: Math.max(c.start, r.start), end: Math.min(c.start + len, r.end) }))
+    .filter((r) => r.end - r.start > 0.01)
+    .sort((a, b) => a.start - b.start);
   if (!cuts.length) return p;
-  const cutBefore = cutBeforeFn(cuts);
+  const cutBefore = (t) => cuts.reduce((n, r) => n + (t > r.start ? Math.max(0, Math.min(r.end, t) - r.start) : 0), 0);
   const pieces = subtractRanges(c.start, c.start + len, cuts).filter(([a, b]) => b - a >= 0.03);
   const next = pieces.map(([a, b], i) => {
     const inOff = sourceOffsetAt(c, a - c.start);
     const outOff = sourceOffsetAt(c, b - c.start);
-    return { ...c, id: i ? `${c.id}-c${i}` : c.id, start: a - cutBefore(a), in: c.in + inOff, out: c.in + outOff, speedCurve: sliceCurve(c, inOff, outOff), frameHold: pieceFrameHold(c.frameHold, a - c.start, b - c.start) || undefined };
+    return { ...c, id: i ? `${c.id}-c${i}` : c.id, start: a - cutBefore(a), in: c.in + inOff, out: c.in + outOff, speedCurve: sliceCurve(c, inOff, outOff) };
   });
   return { ...p, [key]: list.flatMap((x) => (x.id === id ? next : [x])) };
 }
@@ -2041,14 +1198,14 @@ function textPiece(c, a, b, id, start) {
     const kept = c.words
       .map((w) => ({ ...w, absStart: s + w.start, absEnd: s + w.end }))
       .filter((w) => w.absStart >= a - 1e-6 && w.absEnd <= b + 1e-6);
-    clip.words = kept.map((w) => ({ text: w.text, start: w.absStart - a, end: w.absEnd - a, ...(Number.isFinite(w.conf) ? { conf: w.conf } : {}) }));
+    clip.words = kept.map((w) => ({ text: w.text, start: w.absStart - a, end: w.absEnd - a }));
     clip.text = kept.map((w) => w.text).join(' ');
   }
   return clip;
 }
 
 function moveTextClips(textClips, cuts, insertAt, blockLen) {
-  const cutBefore = cutBeforeFn(cuts);
+  const cutBefore = (t) => cuts.reduce((n, r) => n + (t > r.start ? Math.max(0, Math.min(r.end, t) - r.start) : 0), 0);
   const inBlock = (t) => insertAt + cutBefore(t); // compressed offset inside the moved block
   const out = [];
   for (const c of textClips) {
@@ -2082,12 +1239,10 @@ function moveTextClips(textClips, cuts, insertAt, blockLen) {
 }
 
 export function moveRanges(p, ranges, to) {
-  if (!Number.isFinite(to)) return p;
+  const cuts = [...(ranges || [])].filter((r) => r.end - r.start > 0.01).sort((a, b) => a.start - b.start);
+  if (!cuts.length || !Number.isFinite(to)) return p;
   const layout = videoLayout(p.videoClips);
   const total = layout.length ? layout[layout.length - 1].end : 0;
-  // TL-01: normalized, so blockLen counts an overlap once (it used to sum it).
-  const cuts = normalizeCutRanges(ranges, total);
-  if (!cuts.length) return p;
   const blockLen = cuts.reduce((n, r) => n + (r.end - r.start), 0);
   // Lift the pieces out (the same sampler-mapped construction cutRanges
   // uses, with move-derived ids so they can never collide with survivors).
@@ -2103,13 +1258,13 @@ export function moveRanges(p, ranges, to) {
         else {
           const inOff = sourceOffsetAt(c, a - l.start);
           const outOff = sourceOffsetAt(c, b - l.start);
-          pieces.push({ ...c, id, in: c.in + inOff, out: c.in + outOff, speedCurve: sliceCurve(c, inOff, outOff), transition: i ? null : c.transition, frameHold: pieceFrameHold(c.frameHold, a - l.start, b - l.start) || undefined });
+          pieces.push({ ...c, id, in: c.in + inOff, out: c.in + outOff, speedCurve: sliceCurve(c, inOff, outOff), transition: i ? null : c.transition });
         }
       });
   }
   if (!pieces.length) return p;
   const survivors = cutRanges(p, cuts);
-  const cutBefore = cutBeforeFn(cuts);
+  const cutBefore = (t) => cuts.reduce((n, r) => n + (t > r.start ? Math.max(0, Math.min(r.end, t) - r.start) : 0), 0);
   const target = Math.max(0, Math.min(Math.max(0, total - blockLen), to - cutBefore(to)));
   let q = survivors;
   const hit = videoLayout(q.videoClips).find((l) => !l.clip.gap && target > l.start + MIN_CLIP && target < l.end - MIN_CLIP);
@@ -2134,24 +1289,18 @@ function splitAnim(anim, side) {
 }
 
 function splitAt(p, track, id, t, newId) {
-  // Frame timebase (P1-04): the cut lands on the nearest whole frame, so
-  // the two halves share one exact boundary and a split-then-rejoin
-  // round-trip has zero drift. The source cut follows through
-  // sourceOffsetAt, as before.
-  t = quantize(t, effectiveFps(p));
   if (track === 'video') {
     const l = videoLayout(p.videoClips).find((x) => x.clip.id === id);
     if (!l || l.clip.gap || t - l.start < MIN_CLIP || l.end - t < MIN_CLIP) return p;
     const cutOff = sourceOffsetAt(l.clip, t - l.start);
     const cut = l.clip.in + cutOff;
     const span = l.clip.out - l.clip.in;
-    const hold = splitFrameHold(l.clip.frameHold, t - l.start);
     const list = [];
     p.videoClips.forEach((c) => {
       if (c.id !== id) return list.push(c);
       list.push(
-        { ...c, out: cut, speedCurve: sliceCurve(c, 0, cutOff), anim: splitAnim(c.anim, 'left'), frameHold: hold.left || undefined },
-        { ...c, id: newId, in: cut, speedCurve: sliceCurve(c, cutOff, span), transition: null, anim: splitAnim(c.anim, 'right'), frameHold: hold.right || undefined },
+        { ...c, out: cut, speedCurve: sliceCurve(c, 0, cutOff), anim: splitAnim(c.anim, 'left') },
+        { ...c, id: newId, in: cut, speedCurve: sliceCurve(c, cutOff, span), transition: null, anim: splitAnim(c.anim, 'right') },
       );
     });
     return { ...p, videoClips: list };
@@ -2176,14 +1325,13 @@ function splitAt(p, track, id, t, newId) {
     const cutOff = sourceOffsetAt(c, t - c.start);
     const cut = c.in + cutOff;
     const span = c.out - c.in;
-    const hold = splitFrameHold(c.frameHold, t - c.start);
     return {
       ...p,
       overlayClips: p.overlayClips.flatMap((x) => (x.id !== id ? [x]
-        : [{ ...x, out: cut, speedCurve: sliceCurve(x, 0, cutOff), anim: splitAnim(x.anim, 'left'), frameHold: hold.left || undefined }, { ...x, id: newId, start: t, in: cut, speedCurve: sliceCurve(x, cutOff, span), anim: splitAnim(x.anim, 'right'), frameHold: hold.right || undefined }])),
+        : [{ ...x, out: cut, speedCurve: sliceCurve(x, 0, cutOff), anim: splitAnim(x.anim, 'left') }, { ...x, id: newId, start: t, in: cut, speedCurve: sliceCurve(x, cutOff, span), anim: splitAnim(x.anim, 'right') }])),
     };
   }
-  if (track === 'text' || track === 'effect' || track === 'sticker') {
+  if (track === 'text' || track === 'effect') {
     const key = TRACKS[track];
     const c = p[key].find((x) => x.id === id);
     if (!c || t - c.start < MIN_CLIP || c.start + c.duration - t < MIN_CLIP) return p;
@@ -2209,28 +1357,8 @@ function splitLinked(p, track, id, t, newId) {
   const partnerNewId = `${newId}~l`;
   const out2 = splitAt(out, partner.track, partner.clip.id, t, partnerNewId);
   if (out2 === out) {
-    // The partner could not be split (its range differs). When the split
-    // clip is the AUDIO and t falls in its lead/trail extension (P1-03),
-    // the half that still overlaps the picture keeps the link with the
-    // trim shortened to the overlap; the half outside the picture becomes
-    // independent. Otherwise the right half of the first split must not
-    // stay linked to a whole partner — it becomes independent.
-    if (track === 'audio') {
-      const trim = audioTrimOf(src);
-      const ps = picStart(p, partner.track, partner.clip);
-      const pe = ps + (partner.track === 'video' ? clipDuration(partner.clip) : clipLen(partner.clip));
-      const unlink = (c) => ({ ...c, linkId: undefined, linkOff: undefined, linkInOff: undefined, audioTrim: undefined });
-      if (t < ps) {
-        let res = mapClip(out, 'audio', id, unlink);
-        res = mapClip(res, 'audio', newId, (c) => ({ ...c, audioTrim: sanitizeAudioTrim({ lead: ps + (src.linkOff || 0) - t, trail: trim.trail }) }));
-        return res;
-      }
-      if (t > pe) {
-        let res = mapClip(out, 'audio', id, (c) => ({ ...c, audioTrim: sanitizeAudioTrim({ lead: trim.lead, trail: t - (pe + (src.linkOff || 0)) }) }));
-        res = mapClip(res, 'audio', newId, unlink);
-        return res;
-      }
-    }
+    // The partner could not be split (its range differs): the right half of the first
+    // split must not stay linked to a whole partner — it becomes independent.
     return mapClip(out, track, newId, (c) => ({ ...c, linkId: undefined, linkOff: undefined, linkInOff: undefined }));
   }
   const linkId = `${src.linkId}~${newId}`;
@@ -2238,11 +1366,6 @@ function splitLinked(p, track, id, t, newId) {
   const picRight = findClipIn(out2, picTrack, track === 'audio' ? partnerNewId : newId);
   const audRight = findClipIn(out2, 'audio', track === 'audio' ? newId : partnerNewId);
   if (!picRight || !audRight) return out2;
-  // The J/L trims split with the pair (P1-03): the left pair keeps the
-  // lead, the right pair keeps the trail — the middle of the pair is
-  // flush, so a later picture move never re-extends a cut edge.
-  const trim = audioTrimOf(track === 'audio' ? src : partner.clip);
-  const audLeftId = track === 'audio' ? id : partner.clip.id;
   let res = mapClip(out2, picTrack, picRight.id, (c) => ({ ...c, linkId }));
   res = mapClip(res, 'audio', audRight.id, (c) => ({
     ...c, linkId,
@@ -2250,9 +1373,7 @@ function splitLinked(p, track, id, t, newId) {
       ? (videoLayout(res.videoClips).find((l) => l.clip.id === picRight.id)?.start ?? audRight.start)
       : picRight.start),
     linkInOff: audRight.in - picRight.in,
-    audioTrim: sanitizeAudioTrim({ lead: 0, trail: trim.trail }),
   }));
-  res = mapClip(res, 'audio', audLeftId, (c) => ({ ...c, audioTrim: sanitizeAudioTrim({ lead: trim.lead, trail: 0 }) }));
   return res;
 }
 
@@ -2351,9 +1472,7 @@ function actionLocked(p, a) {
   const clipOf = (track, id) => findClipIn(p, track, id);
   switch (a.type) {
     case 'update': return clipLocked(p, a.track, clipOf(a.track, a.id));
-    case 'setAudioTrim': return clipLocked(p, 'audio', clipOf('audio', a.id));
     case 'updateMany': return a.updates.some((u) => clipLocked(p, u.track, clipOf(u.track, u.id)));
-    case 'proofreadCaptions': return (a.patches || []).some((u) => clipLocked(p, 'text', clipOf('text', u.id)));
     case 'delete':
     case 'duplicate':
     case 'split': return clipLocked(p, a.track, clipOf(a.track, a.id));
@@ -2367,13 +1486,6 @@ function actionLocked(p, a) {
     }
     case 'moveRanges': return isLayerLocked(p, 'video', 0);
     case 'trimClip': return clipLocked(p, a.track, clipOf(a.track, a.id));
-    case 'rollEdit':
-    case 'slipClip':
-    case 'slideClip':
-    case 'rateStretch': return clipLocked(p, a.track, clipOf(a.track, a.id));
-    case 'groupClips':
-    case 'ungroupClips': return (a.items || []).some((it) => clipLocked(p, it.track, clipOf(it.track, it.id)));
-    case 'setClipRole': return clipLocked(p, a.track, clipOf(a.track, a.id));
     case 'paste': {
       if (a.track === 'video') return isLayerLocked(p, 'video', 0);
       return isLayerLocked(p, a.track, layerOf(a.clip || {}));
@@ -2485,93 +1597,31 @@ function syncLinked(prev, next) {
     const aChanged = ['in', 'out', 'speed', 'start'].some((f) => num(au, f) !== num(pa, f))
       || pa.speedCurve !== au.speedCurve;
     if (vChanged) {
-      // J/L trims (P1-03): the audio window extends past the picture by
-      // lead/trail — the recompute goes through audioWindowForPair so a
-      // picture move/trim/speed keeps the J/L offsets instead of snapping
-      // the audio flush to the picture.
-      const mediaDur = (next.media || []).find((m) => m.id === au.mediaId)?.duration;
-      const want = audioWindowForPair(v, picStart(next, pair.pic.track, v), au, mediaDur);
+      const want = {
+        start: picStart(next, pair.pic.track, v) + (au.linkOff || 0),
+        in: v.in + (au.linkInOff || 0),
+        out: v.out + (au.linkInOff || 0),
+        speed: v.speed || 1,
+      };
       const patch = {};
-      for (const f of ['start', 'in', 'out']) if (Math.abs(num(au, f) - want[f]) > 1e-9) patch[f] = want[f];
-      if ((au.speed || 1) !== (v.speed || 1)) patch.speed = v.speed || 1;
+      for (const f of ['start', 'in', 'out', 'speed']) if (num(au, f) !== want[f]) patch[f] = want[f];
       if (au.speedCurve !== v.speedCurve) patch.speedCurve = v.speedCurve;
-      const { lead, trail } = audioTrimOf(au);
-      if (want.lead !== lead || want.trail !== trail) patch.audioTrim = sanitizeAudioTrim({ lead: want.lead, trail: want.trail });
       if (Object.keys(patch).length && !isLayerLocked(next, 'audio', layerOf(au))) put('audio', au.id, patch);
     } else if (aChanged) {
-      // The audio side changed. Three gestures, three answers:
-      // - speed: propagates to the picture, and the audio window is
-      //   rebuilt from the new picture window + trims (a speed change
-      //   alone must never be misread as a trim: it changes the audio
-      //   duration too). Speed wins over a trim in the same gesture.
-      // - trim / drag of the audio edge (P1-03): the move is read back
-      //   into lead/trail — the picture does NOT follow.
-      // - slip (in/out changed, same window): propagates to the picture.
-      const speedChanged = (v.speed || 1) !== (au.speed || 1) || v.speedCurve !== au.speedCurve;
-      const picStart0 = picStart(next, pair.pic.track, v);
-      if (speedChanged) {
-        if (!clipLocked(next, pair.pic.track, v)) {
-          const sp = {};
-          if ((v.speed || 1) !== (au.speed || 1)) sp.speed = au.speed || 1;
-          if (v.speedCurve !== au.speedCurve) sp.speedCurve = au.speedCurve;
-          put(pair.pic.track, v.id, sp);
-          const newPic = { ...v, ...sp };
-          const mediaDur = (next.media || []).find((m) => m.id === au.mediaId)?.duration;
-          const want = audioWindowForPair(newPic, picStart0, au, mediaDur);
-          const wp = {};
-          for (const f of ['start', 'in', 'out']) if (Math.abs(num(au, f) - want[f]) > 1e-9) wp[f] = want[f];
-          if (Object.keys(wp).length && !isLayerLocked(next, 'audio', layerOf(au))) put('audio', au.id, wp);
-        }
-      } else if (Math.abs(clipDuration(au) - clipDuration(pa)) > 1e-9 || Math.abs((au.start || 0) - (pa.start || 0)) > 1e-9) {
-        // Trim / drag of the audio edge (P1-03): an edge dragged OUTWARD
-        // past the picture is a J/L offset — read back into lead/trail,
-        // picture does not follow. But an edge trimmed INWARD (audio
-        // shorter than the picture) cannot be a J/L offset: the picture
-        // follows, as before (Stage D linked-trim contract). FB-04 dropped
-        // the inward case and test-detach-audio caught it. Per side:
-        // short -> picture follows (old mapping); long -> lead/trail.
-        // Gap-b TL-03 exception: an INDEPENDENT linked-audio trim
-        // (trimLinkedAudio sets linkTrimmed) never moves the picture — the
-        // Stage D picture-follows rule applies only to plain trimClip
-        // gestures. The flag is consumed here so the next plain trim is
-        // judged by the Stage D contract again.
-        const wantIn = (au.in || 0) - (au.linkInOff || 0);
-        const wantOut = (au.out || 0) - (au.linkInOff || 0);
-        const picPatch = {};
-        if (!au.linkTrimmed) {
-          if (wantIn > (v.in || 0) + 1e-9) picPatch.in = wantIn;
-          if (wantOut < (v.out || 0) - 1e-9) picPatch.out = wantOut;
-        }
-        let picLen = pair.pic.track === 'video' ? clipDuration(v) : clipLen(v);
-        if (Object.keys(picPatch).length && !clipLocked(next, pair.pic.track, v)) {
-          put(pair.pic.track, v.id, picPatch);
-          const nv = { ...v, ...picPatch };
-          picLen = pair.pic.track === 'video' ? clipDuration(nv) : clipLen(nv);
-        }
-        const lead = Math.max(0, picStart0 + (au.linkOff || 0) - (au.start || 0));
-        const trail = Math.max(0, (au.start || 0) + clipDuration(au) - (picStart0 + picLen + (au.linkOff || 0)));
-        const { lead: oldLead, trail: oldTrail } = audioTrimOf(au);
-        const audioPatch = {};
-        if (lead !== oldLead || trail !== oldTrail) {
-          const t = sanitizeAudioTrim({ lead, trail });
-          audioPatch.audioTrim = t || undefined;
-        }
-        if (au.linkTrimmed) audioPatch.linkTrimmed = undefined;
-        if (Object.keys(audioPatch).length && !isLayerLocked(next, 'audio', layerOf(au))) put('audio', au.id, audioPatch);
-      } else {
-        const patch = {};
-        const wantIn = au.in - (au.linkInOff || 0);
-        const wantOut = au.out - (au.linkInOff || 0);
-        if ((v.in || 0) !== wantIn) patch.in = wantIn;
-        if ((v.out || 0) !== wantOut) patch.out = wantOut;
-        // The main track's start is positional, so a start change can only flow picture-wards
-        // for overlay partners; for video partners it is the picture that leads.
-        if (pair.pic.track === 'overlay') {
-          const wantStart = au.start - (au.linkOff || 0);
-          if ((v.start || 0) !== wantStart) patch.start = wantStart;
-        }
-        if (Object.keys(patch).length && !clipLocked(next, pair.pic.track, v)) put(pair.pic.track, v.id, patch);
+      const patch = {};
+      const wantIn = au.in - (au.linkInOff || 0);
+      const wantOut = au.out - (au.linkInOff || 0);
+      if ((v.in || 0) !== wantIn) patch.in = wantIn;
+      if ((v.out || 0) !== wantOut) patch.out = wantOut;
+      if ((v.speed || 1) !== (au.speed || 1)) patch.speed = au.speed || 1;
+      if (v.speedCurve !== au.speedCurve) patch.speedCurve = au.speedCurve;
+      // The main track's start is positional, so a start change can only flow picture-wards
+      // for overlay partners; for video partners it is the picture that leads.
+      if (pair.pic.track === 'overlay') {
+        const wantStart = au.start - (au.linkOff || 0);
+        if ((v.start || 0) !== wantStart) patch.start = wantStart;
       }
+      if (Object.keys(patch).length && !clipLocked(next, pair.pic.track, v)) put(pair.pic.track, v.id, patch);
     }
   }
   return out;
@@ -2643,38 +1693,6 @@ function patchRelink(p, a) {
       return next;
     }),
   };
-}
-
-// P1-28 — mid-session relink: which of the just-found missing ids were NOT
-// already flagged missing on the media items? Only those are "newly lost" and
-// may open the relink dialog; files already flagged (load-time loss, or an
-// earlier dismissed prompt) must not re-nag on every focus regain.
-export function newlyMissingIds(miss, media) {
-  const flagged = new Set((media || []).filter((m) => m.missing).map((m) => m.id));
-  return (miss || []).filter((m) => !flagged.has(m.id));
-}
-
-// P1-54 — packaged-project missing-asset report: which timeline clips use
-// each missing media file, so the relink dialog can say "used in 3 clips"
-// instead of listing bare filenames (and an unused pool item is visibly not
-// breaking the timeline). Returns { [mediaId]: [{ track, id, start, end }] }
-// with timeline seconds from videoLayout for the main track and start +
-// duration for the free tracks. Pure — no disk access.
-export function missingClipRefs(project, missingIds) {
-  const ids = new Set(missingIds || []);
-  const out = {};
-  if (!project || !ids.size) return out;
-  const put = (id, ref) => { if (id && ids.has(id)) (out[id] = out[id] || []).push(ref); };
-  // videoLayout returns entries { clip, index, start, end, trans } — the
-  // clip itself lives under .clip.
-  videoLayout(project.videoClips || []).forEach((l) => {
-    const c = l.clip;
-    if (!c || c.gap) return;
-    put(c.mediaId, { track: 'video', id: c.id, start: l.start, end: l.end });
-  });
-  for (const c of project.overlayClips || []) put(c.mediaId, { track: 'overlay', id: c.id, start: c.start || 0, end: (c.start || 0) + (c.duration || 0) });
-  for (const c of project.audioClips || []) put(c.mediaId, { track: 'audio', id: c.id, start: c.start || 0, end: (c.start || 0) + (c.duration || 0) });
-  return out;
 }
 
 // Missing-media tracking (Part 3, 2026-11-10): media are reference-linked to
@@ -2762,144 +1780,40 @@ export function historyReducer(state, a) {
     if (!cur.locked && !cur.hidden && !cur.muted && !cur.solo) delete layerState[key];
     else layerState[key] = cur;
     if (JSON.stringify(layerState) === JSON.stringify(state.present.layerState || {})) return state;
-    return { ...state, present: syncActiveSequence({ ...state.present, layerState }) };
-  }
-  // Switching sequences is navigation, not an edit: it never becomes an
-  // undo step (undo after a switch undoes the last real edit, it does not
-  // jump back to the other sequence), and it clears the redo branch like a
-  // new edit branch — the snapshots after it belong to another timeline.
-  if (a.type === 'switchSequence') {
-    const next = reduceProject(state.present, a);
-    if (next === state.present) return state;
-    return { ...state, present: next, future: [], futureMeta: [] };
+    return { ...state, present: { ...state.present, layerState } };
   }
   if (a.type === 'undo') {
     if (!state.past.length) return state;
     const restored = state.past[state.past.length - 1];
-    const pastMeta = state.pastMeta || [];
-    const futureMeta = state.futureMeta || [];
-    return {
-      past: state.past.slice(0, -1),
-      pastMeta: pastMeta.slice(0, -1),
-      present: syncActiveSequence({ ...restored, layerState: followLayerState(state.present, restored) }),
-      // The undone edit (the last past entry) becomes the first redo entry.
-      future: [state.present, ...state.future],
-      futureMeta: [pastMeta[pastMeta.length - 1] || { type: 'edit', at: 0 }, ...futureMeta],
-    };
+    return { past: state.past.slice(0, -1), present: { ...restored, layerState: followLayerState(state.present, restored) }, future: [state.present, ...state.future] };
   }
   if (a.type === 'redo') {
     if (!state.future.length) return state;
     const restored = state.future[0];
-    const pastMeta = state.pastMeta || [];
-    const futureMeta = state.futureMeta || [];
-    return {
-      past: [...state.past, state.present].slice(-100),
-      pastMeta: [...pastMeta, futureMeta[0] || { type: 'edit', at: 0 }].slice(-100),
-      present: syncActiveSequence({ ...restored, layerState: followLayerState(state.present, restored) }),
-      future: state.future.slice(1),
-      futureMeta: futureMeta.slice(1),
-    };
-  }
-  // B-UX7 — redoTo: the redo mirror of undoTo. future[i] is the present
-  // after i+1 redos, so restoring it moves the present plus the i earlier
-  // redo states into the past, in order, with their metadata.
-  if (a.type === 'redoTo') {
-    const idx = Math.max(0, Math.floor(Number(a.index) || 0));
-    if (!state.future.length || idx >= state.future.length) return state;
-    const restored = state.future[idx];
-    const pastMeta = state.pastMeta || [];
-    const futureMeta = state.futureMeta || [];
-    return {
-      past: [...state.past, state.present, ...state.future.slice(0, idx)].slice(-100),
-      // The new past entries are [old present, future[0..idx-1]] and the new
-      // present is future[idx]; their creating edits are futureMeta[0..idx]
-      // (futureMeta[i] is the edit that produced future[i]).
-      pastMeta: [...pastMeta, ...futureMeta.slice(0, idx + 1)].slice(-100),
-      present: syncActiveSequence({ ...restored, layerState: followLayerState(state.present, restored) }),
-      future: state.future.slice(idx + 1),
-      futureMeta: futureMeta.slice(idx + 1),
-      gestureStart: null,
-    };
-  }
-  // A-F9 — atomic rollback: jump the history back to the depth it had at `depth`
-  // in ONE dispatch (refs sync on render, so a loop of single undos would read
-  // stale lengths). past[d] is the present after d undoable steps, so restoring
-  // it returns the document to exactly that point; the states after it become
-  // the redo branch, in order, so the rolled-back run stays redoable.
-  if (a.type === 'undoTo') {
-    const depth = Math.max(0, Math.floor(Number(a.depth) || 0));
-    if (state.past.length <= depth) return state;
-    const restored = state.past[depth];
-    const pastMeta = state.pastMeta || [];
-    const futureMeta = state.futureMeta || [];
-    return {
-      past: state.past.slice(0, depth),
-      pastMeta: pastMeta.slice(0, depth),
-      present: syncActiveSequence({ ...restored, layerState: followLayerState(state.present, restored) }),
-      // past[depth+1..] + the present become the redo branch, in order;
-      // their creating edits are pastMeta[depth..] (the last one made the
-      // present), followed by the old redo branch.
-      future: [...state.past.slice(depth + 1), state.present, ...state.future],
-      futureMeta: [...pastMeta.slice(depth), ...futureMeta],
-      gestureStart: null,
-    };
+    return { past: [...state.past, state.present], present: { ...restored, layerState: followLayerState(state.present, restored) }, future: state.future.slice(1) };
   }
   // Folds every undo step created since `from` (a past.length noted earlier) into one, so a whole AI request
   // can be undone with a single Undo.
   if (a.type === 'collapseHistory') {
     if (state.past.length <= a.from) return state;
-    return { ...state, past: state.past.slice(0, a.from + 1), pastMeta: (state.pastMeta || []).slice(0, a.from + 1) };
+    return { ...state, past: state.past.slice(0, a.from + 1) };
   }
   if (a.type === 'beginGesture') return { ...state, gestureStart: state.present };
   if (a.type === 'endGesture') {
     const start = state.gestureStart;
     if (!start || start === state.present) return { ...state, gestureStart: null };
-    return {
-      past: [...state.past, start].slice(-100),
-      pastMeta: [...(state.pastMeta || []), { type: 'gesture', at: Date.now() }].slice(-100),
-      present: state.present, future: [], futureMeta: [], gestureStart: null,
-    };
+    return { past: [...state.past, start].slice(-100), present: state.present, future: [], gestureStart: null };
   }
   // Locked layers refuse edits before anything is computed (undo / redo returned above,
   // so history navigation is never blocked by a lock).
   if (actionLocked(state.present, a)) return state;
-  // The trim tools (P2-01) are gesture edits like trimClip: computed from the
-  // gesture-start project so repeated pointer moves never accumulate.
-  const GESTURE_TRIMS = new Set(['trimClip', 'rollEdit', 'slipClip', 'slideClip', 'rateStretch']);
-  let next = placeLayers(GESTURE_TRIMS.has(a.type)
-    ? (a.type === 'trimClip' ? trimClip(state.gestureStart || state.present, a) : reduceProject(state.gestureStart || state.present, a))
-    : reduceProject(state.present, a));
+  let next = placeLayers(a.type === 'trimClip' ? trimClip(state.gestureStart || state.present, a) : reduceProject(state.present, a));
   if (next !== state.present && placementBlocked(state.present, next, a)) return state;
-  // Main-mode ripple cuts (P1-02) cut the picture only: the linked audio
-  // deliberately stays put (desynced by choice — the node test asserts
-  // src stays [0,10]). syncLinked would otherwise "repair" it onto the
-  // last picture piece (it keeps one entry per linkId, and a main-mode cut
-  // leaves two picture pieces sharing L1), so it is skipped for exactly
-  // this action. Nothing else changes in a main-mode cut, so no other
-  // pair needs syncing here.
-  const mainCut = a.type === 'cutRanges' && rippleModeOf(state.present, a) === 'main';
-  if (next !== state.present && !mainCut) next = syncLinked(state.present, next);
-  // trimClip bypasses reduceProject, so the active-entry mirror happens
-  // here (reduceProject already did it for every other action).
-  if (next !== state.present) next = syncActiveSequence(next);
+  if (next !== state.present) next = syncLinked(state.present, next);
   if (next === state.present) return state;
-  if (a.type === 'load') {
-    // Same document reloaded (autosave/snapshot restore, crash recovery, reopen):
-    // the undo trail still describes this document, so keep it — redo is still
-    // dropped, because the reloaded state starts a new branch. Switching to a
-    // different project wipes the trail: past states belong to the old document
-    // (a reframe copy mints a new id, so it correctly counts as a switch).
-    const sameDoc = next.id && state.present.id && next.id === state.present.id;
-    return sameDoc
-      ? { past: state.past.slice(-100), pastMeta: (state.pastMeta || []).slice(-100), present: next, future: [], futureMeta: [], gestureStart: null }
-      : { past: [], pastMeta: [], present: next, future: [], futureMeta: [], gestureStart: null };
-  }
+  if (a.type === 'load') return { past: [], present: next, future: [] };
   if (a.transient || state.gestureStart) return { ...state, present: next };
-  return {
-    past: [...state.past, state.present].slice(-100),
-    pastMeta: [...(state.pastMeta || []), { type: a.type, at: Date.now() }].slice(-100),
-    present: next, future: [], futureMeta: [],
-  };
+  return { past: [...state.past, state.present].slice(-100), present: next, future: [] };
 }
 
 // Playback quality: which copy of a video the player plays. 'full' is the original chain; the other
@@ -3088,22 +2002,17 @@ export function renderable(p) {
   const hasOff = [p.videoClips, p.overlayClips || [], p.audioClips, p.textClips, p.effectClips || []].some((l) => l.some((c) => c.disabled));
   const ls = p.layerState || {};
   const hasLayerFx = Object.values(ls).some((s) => s && (s.hidden || s.muted || s.solo));
-  // P2-23: a muted / soloed bus also changes what renders, so it forces the
-  // mapping below (a bus-silenced clip is stamped muted, like a layer-mute).
-  const mx = p.mixer || {};
-  const hasBusFx = Object.values(mx.muted || {}).some(Boolean) || Object.values(mx.solo || {}).some(Boolean);
-  if (!hasOff && !hasLayerFx && !hasBusFx) return p;
+  if (!hasOff && !hasLayerFx) return p;
   const hidden = (track, layer) => layerStateOf(p, track, layer).hidden;
   const kept = (track) => (l) => l.filter((c) => !c.disabled && !hidden(track, layerOf(c)));
-  const busSilenced = (track, c) => !busAudible(p, roleOf(c, track));
   return {
     ...p,
     videoClips: p.videoClips.map((c) => (c.disabled || hidden('video', 0)
       ? { ...newGap(c.id, clipLen(c)), transition: c.transition }
-      : ((!layerSounds(p, 'video', 0) || busSilenced('video', c)) && !c.muted ? { ...c, muted: true } : c))),
+      : (!layerSounds(p, 'video', 0) && !c.muted ? { ...c, muted: true } : c))),
     overlayClips: kept('overlay')(p.overlayClips || [])
-      .map((c) => ((!layerSounds(p, 'overlay', layerOf(c)) || busSilenced('overlay', c)) && !c.muted ? { ...c, muted: true } : c)),
-    audioClips: (p.audioClips || []).filter((c) => !c.disabled && !hidden('audio', layerOf(c)) && layerSounds(p, 'audio', layerOf(c)) && !busSilenced('audio', c)),
+      .map((c) => (!layerSounds(p, 'overlay', layerOf(c)) && !c.muted ? { ...c, muted: true } : c)),
+    audioClips: (p.audioClips || []).filter((c) => !c.disabled && !hidden('audio', layerOf(c)) && layerSounds(p, 'audio', layerOf(c))),
     textClips: kept('text')(p.textClips),
     effectClips: (p.effectClips || []).filter((c) => !c.disabled && !hidden('effect', 0)),
   };
@@ -3131,7 +2040,7 @@ export const withFxTiming = (clip, fx, w, span) => {
 // effects applied to clips (key "<track>|<clipId>|<effectId>", spanning and following the clip — or the
 // part of it the instance's timing window covers).
 export function effectObjects(p) {
-  const out = (p.effectClips || []).map((e) => ({ key: e.id, free: true, fx: e.fx, kind: e.kind || 'fx', start: e.start, duration: e.duration, clip: e }));
+  const out = (p.effectClips || []).map((e) => ({ key: e.id, free: true, fx: e.fx, start: e.start, duration: e.duration, clip: e }));
   const bound = (key, track, clipId, clip, fx, clipStart, span) => {
     const w = fxTimingOf(clip, fx);
     const start = w ? Math.min(w.start, span) : 0;

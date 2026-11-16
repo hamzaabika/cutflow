@@ -62,10 +62,6 @@ export const TEXT_ANIMS_IN = [
   { name: 'Elastic Pop', cat: 'Bounce & Pop', anim: 'elasticPop', dur: 0.8 },
   { name: 'Drop In', cat: 'Bounce & Pop', anim: 'drop', dur: 0.7 },
   { name: 'Bounce Up', cat: 'Bounce & Pop', anim: 'bounceUp', dur: 0.7 },
-  // P3-06 physics: a true damped spring and a true gravity bounce (same
-  // solvers as the keyframe physics easings in fx/easing.js).
-  { name: 'Spring Settle', cat: 'Bounce & Pop', anim: 'springSettle', dur: 0.9 },
-  { name: 'Gravity Drop', cat: 'Bounce & Pop', anim: 'gravityDrop', dur: 0.9 },
   // Type & Words — per-character and per-word staggers the renderer truly supports.
   { name: 'Typewriter', cat: 'Type & Words', anim: 'typewriter', dur: 1.2 },
   { name: 'Word Pop', cat: 'Type & Words', anim: 'wordPop', dur: 0.7 },
@@ -80,15 +76,6 @@ export const TEXT_ANIMS_IN = [
   { name: 'Flicker In', cat: 'Glitch & Flicker', anim: 'flicker', dur: 0.6 },
   { name: 'Decode & Fade', cat: 'Glitch & Flicker', anim: 'decode', dur: 1 },
   { name: 'Flicker Characters', cat: 'Glitch & Flicker', anim: 'charFlicker', dur: 1 },
-  // CC-03: the safe-flicker envelope (weak pulses, then a hold — never the
-  // rapid strobe), the RGB split, the word scan and the per-word flicker.
-  { name: 'Soft Flicker', cat: 'Glitch & Flicker', anim: 'flickerSoft', dur: 1 },
-  { name: 'RGB Glitch', cat: 'Glitch & Flicker', anim: 'rgbGlitch', dur: 0.8 },
-  { name: 'Character Scan', cat: 'Glitch & Flicker', anim: 'scan', dur: 1 },
-  { name: 'Word Flicker', cat: 'Glitch & Flicker', anim: 'wordFlicker', dur: 0.9 },
-  // Gap-build C (CSV rows 14/17): a line-by-line mask reveal and a travelling light band.
-  { name: 'Masked Line Reveal', cat: 'Type & Words', anim: 'maskedLineReveal', dur: 0.9 },
-  { name: 'Light Sweep Reveal', cat: 'Type & Words', anim: 'lightSweepReveal', dur: 0.9 },
 ];
 
 // Out mirrors: same renderer ids (the renderer mirrors the motion for exits); names describe the exit.
@@ -145,12 +132,6 @@ export const TEXT_ANIMS_OUT = [
   { name: 'Flicker Out', cat: 'Glitch & Flicker', anim: 'flicker', dur: 0.6 },
   { name: 'Decode & Fade', cat: 'Glitch & Flicker', anim: 'decode', dur: 1 },
   { name: 'Flicker Characters Out', cat: 'Glitch & Flicker', anim: 'charFlicker', dur: 1 },
-  { name: 'Soft Flicker Out', cat: 'Glitch & Flicker', anim: 'flickerSoft', dur: 0.9 },
-  { name: 'RGB Glitch Out', cat: 'Glitch & Flicker', anim: 'rgbGlitch', dur: 0.8 },
-  { name: 'Character Scan Out', cat: 'Glitch & Flicker', anim: 'scan', dur: 1 },
-  { name: 'Word Flicker Out', cat: 'Glitch & Flicker', anim: 'wordFlicker', dur: 0.9 },
-  // Gap-build C (CSV row 56): letters scatter outward along fixed directions as they leave.
-  { name: 'Character Scatter', cat: 'Type & Words', anim: 'charScatter', dur: 0.9 },
 ];
 
 export const textAnimPresets = (kind) => (kind === 'out' ? TEXT_ANIMS_OUT : TEXT_ANIMS_IN);

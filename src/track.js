@@ -118,10 +118,9 @@ export function pinOffsetAt(project, fRef, tlT) {
 export const hasPin = (clip) => !!(clip && clip.pin && clip.pin.to);
 
 // stateAt with the pin offset applied (the follower's own animation/keyframes first, the track on top).
-// opts forwards to stateAt (preview-only flags such as skipSmoothCut).
-export function stateAtPinned(project, fRef, lt, len, opts) {
+export function stateAtPinned(project, fRef, lt, len) {
   const clip = fRef.clip;
-  const base = stateAt(clip, lt, len, opts);
+  const base = stateAt(clip, lt, len);
   if (!hasPin(clip)) return base;
   const startTl = clipStartTl(project, fRef.track, clip);
   const off = pinOffsetAt(project, fRef, startTl + lt);

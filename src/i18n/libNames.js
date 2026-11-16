@@ -8,15 +8,15 @@
 // translation is missing. Pure JS (no React) so data modules like
 // src/fx/filters.js can use it too; the active language is mirrored from
 // the React layer (index.jsx applyDocumentLang → setLibLang).
-import { CATALOGS } from './catalogs.js';
+import en from './en.js';
+import fr from './fr.js';
+import ar from './ar.js';
 import { lookup } from './lang.js';
 
+const CATALOGS = { en, fr, ar };
 let lang = 'en';
 
-// The language mirrors the React layer (index.jsx applyDocumentLang → setLibLang).
-// Set unconditionally: lookup() falls back to English while a lazily-loaded
-// catalog is still in flight, so a switch never reads stale translations.
-export function setLibLang(l) { lang = l; }
+export function setLibLang(l) { if (CATALOGS[l]) lang = l; }
 export function getLibLang() { return lang; }
 
 // Translated display name for one library item. `fallback` is the item's

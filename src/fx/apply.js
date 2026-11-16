@@ -18,11 +18,9 @@ import { OVERLAY_EFFECTS, PIXEL_EFFECTS } from './catalog.js';
 import { freeLen, fxTimingOf, videoLayout } from '../store.js';
 import { gradeExpr, hasGrade } from './grade.js';
 import { adjustExpr, hasAdjust } from './adjust.js';
-import { getLut, lutOn, gradeLutDuplicatesFilter } from './lut.js';
+import { getLut, lutOn } from './lut.js';
 import { filterExpr, hasFilter, lutFilterRef } from './filters.js';
-import { resolveFxExpr, resolveFxPass, isMultiPassFx, CLASSIC_IDS } from './params.js';
-import { fxStrengthAt } from './fxKeys.js';
-import { clipFxVisible } from './effectStack.js';
+import { resolveFxExpr, CLASSIC_IDS } from './params.js';
 
 const PIXEL = Object.fromEntries(PIXEL_EFFECTS.map((e) => [e.id, e.expr]));
 const OVERLAY = Object.fromEntries(OVERLAY_EFFECTS.map((e) => [e.id, e.draw]));
@@ -95,39 +93,6 @@ export function fxWrap(expr, region, k) {
 
 const freeOn = (project, t) => (project.effectClips || []).filter((e) => !e.disabled && t >= e.start && t < e.start + e.duration);
 
-// P2-16 — a grade layer's passes, built from the layer's own grade/filter/adjust
-// through the same helpers a clip's look uses (hasAdjust / hasFilter / hasGrade /
-// lutOn), so a layer grades exactly like a clip's own look. Order mirrors the clip:
-// adjust, filter (or its LUT), grade LUT, grade expression. Each expression pass is
-// wrapped with the layer's region and strength (fxWrap); the LUT pass takes strength
-// as K only — a region mask cannot wrap a LUT program, so a regioned layer's LUT
-// grades the whole frame while the sliders, curves and HSL stay masked (the
-// inspector says so next to the LUT picker).
-export function gradeLayerHasContent(e) {
-  const shim = { filter: e.filter, filterIntensity: e.filterIntensity, grade: e.grade, adjust: e.adjust };
-  return hasAdjust(shim) || hasFilter(shim) || hasGrade(shim) || lutOn(e.grade?.lut);
-}
-export function gradeLayerPasses(e, t) {
-  const shim = { filter: e.filter, filterIntensity: e.filterIntensity, grade: e.grade, adjust: e.adjust };
-  const k = e.strength ?? 1;
-  const list = [];
-  const adj = hasAdjust(shim) ? adjustExpr(shim.adjust) : null;
-  if (adj) list.push({ expr: fxWrap(adj, e.region, k), T: t - e.start });
-  const filterRef = lutFilterRef(shim);
-  if (filterRef) {
-    const l = getLut(filterRef);
-    if (l) list.push({ lut: l, K: ((e.filterIntensity ?? 100) / 100) * k });
-  } else {
-    const look = hasFilter(shim) ? filterExpr(shim) : null;
-    if (look) list.push({ expr: fxWrap(look, e.region, k), T: t - e.start });
-  }
-  const lut = lutOn(shim.grade?.lut) ? getLut(shim.grade.lut.ref) : null;
-  if (lut && !gradeLutDuplicatesFilter(shim.grade?.lut, filterRef)) list.push({ lut, K: ((shim.grade.lut.intensity ?? 100) / 100) * k });
-  const grade = hasGrade(shim) ? gradeExpr(shim.grade) : null;
-  if (grade) list.push({ expr: fxWrap(grade, e.region, k), T: t - e.start });
-  return list;
-}
-
 // Shader passes for a picture clip that starts at clipStart on the timeline, lt seconds into it: [{ expr, T }].
 // The clip's color grade (Adjust) comes first, then its effects, then the free effects over it.
 export function pixelPasses(project, clip, clipStart, lt) {
@@ -138,69 +103,40 @@ export function pixelPasses(project, clip, clipStart, lt) {
   if (adj) list.push({ expr: adj, T: lt });
   // The filter first, then the LUT, then the Adjust settings on top of them.
   // A filter is one look: one of ours (an expression) or a LUT ("lut:<file>"), at the filter intensity.
-  const filterRef = lutFilterRef(clip);
-  if (filterRef) {
-    const l = getLut(filterRef);
+  if (lutFilterRef(clip)) {
+    const l = getLut(lutFilterRef(clip));
     if (l) list.push({ lut: l, K: (clip.filterIntensity ?? 100) / 100 });
   } else {
     const look = hasFilter(clip) ? filterExpr(clip) : null;
     if (look) list.push({ expr: look, T: lt });
   }
   const lut = lutOn(clip.grade?.lut) ? getLut(clip.grade.lut.ref) : null;
-  // P1-53: the same LUT file in the filter slot and the grade slot runs
-  // ONCE — two identical LUT passes over-cook the picture. The filter slot
-  // wins (it is the primary look); a different file in the grade slot still
-  // applies on top, as before. filterRef is null when the filter intensity
-  // is 0, so a switched-off filter never suppresses the grade LUT.
-  // pixelPasses is the one engine preview and export share, so the guard
-  // holds on both paths.
-  if (lut && !gradeLutDuplicatesFilter(clip.grade?.lut, filterRef)) list.push({ lut, K: (clip.grade.lut.intensity ?? 100) / 100 });
+  if (lut) list.push({ lut, K: (clip.grade.lut.intensity ?? 100) / 100 });
   const grade = hasGrade(clip) ? gradeExpr(clip.grade) : null;
   if (grade) list.push({ expr: grade, T: lt });
   for (const id of clip.effects || []) {
-    // FB-26: bypassed effects, and non-soloed effects while any solo is on,
-    // render nothing — in the preview and the export alike (this is the one
-    // pass builder both paths run).
-    if (!clipFxVisible(clip, id)) continue;    // P2-20: keyframed intensity wins over the static strength; with no
-    // keys this is exactly the old static value.
-    const k = fxStrengthAt(clip.fxKeys?.[id], lt, clip.fxStrength?.[id]);
+    const k = clip.fxStrength?.[id];
     if (k === 0) continue;
     // A timed instance acts only inside its window, and its T starts with the window —
     // an untimed one starts with the clip, as before.
     const w = fxTimingOf(clip, id);
     if (w && (lt < w.start || lt >= w.start + w.duration)) continue;
     const T = lt - (w ? w.start : 0);
-    // A multi-pass effect (CC-01 bloom) renders as a { bloom } pass through
-    // FxGL.bloom() — except when the instance carries a region: the region
-    // mask is an expression, and a multi-pass pipeline has no texture for it
-    // (the same documented limit as a LUT pass), so a regioned instance
-    // falls back to the effect's single-pass expression, wrapped by fxWrap
-    // like every other shader effect. Either way preview and export agree:
-    // both run pixelPasses.
-    if (isMultiPassFx(id) && !clip.fxRegions?.[id]) list.push({ ...resolveFxPass(id, clip.fxParams?.[id], k), T });
-    else if (isPixel(id) || isClassic(id)) list.push({ expr: fxWrap(resolveFxExpr(id, clip.fxParams?.[id]), clip.fxRegions?.[id], k), T });
+    if (isPixel(id) || isClassic(id)) list.push({ expr: fxWrap(resolveFxExpr(id, clip.fxParams?.[id]), clip.fxRegions?.[id], k), T });
   }
   const t = clipStart + lt;
   for (const e of freeOn(project, t)) {
-    const k = fxStrengthAt(e.keys, t - e.start, e.strength);
+    const k = e.strength;
     if (k === 0) continue;
-    // Same multi-pass / region rule as clip-bound effects above.
-    if (isMultiPassFx(e.fx) && !e.region) list.push({ ...resolveFxPass(e.fx, e.params, k), T: t - e.start });
-    else if (isPixel(e.fx) || isClassic(e.fx)) list.push({ expr: fxWrap(resolveFxExpr(e.fx, e.params), e.region, k), T: t - e.start });
+    if (isPixel(e.fx) || isClassic(e.fx)) list.push({ expr: fxWrap(resolveFxExpr(e.fx, e.params), e.region, k), T: t - e.start });
   }
-  // P2-16 — grade layers grade the picture UNDER them, so they append after the
-  // free pixel effects (they grade the effected picture, NLE-consistent), in
-  // effectClips order, so two layers compose in the order they sit on the track.
-  // Pre-composite semantics: each source clip is graded separately before
-  // compositing — a layer never grades the blended composite, and text and
-  // stickers (composited later) are never graded.
-  for (const e of freeOn(project, t)) if (e.kind === 'grade' && e.strength !== 0) list.push(...gradeLayerPasses(e, t));
   return list;
 }
 
 // True when some pixel effect touches the clip's time range (it then needs the effects pass at export).
 export function clipHasPixelFx(project, clip, clipStart, len) {
-  if (hasAdjust(clip) || hasFilter(clip) || hasGrade(clip) || lutOn(clip.grade?.lut) || (clip.effects || []).some((id) => clipFxVisible(clip, id) && (isPixel(id) || isClassic(id)))) return true;  return (project.effectClips || []).some((e) => !e.disabled && e.strength !== 0 && (e.kind === 'grade' ? gradeLayerHasContent(e) : isShaderFx(e.fx)) && e.start < clipStart + len && e.start + e.duration > clipStart);
+  if (hasAdjust(clip) || hasFilter(clip) || hasGrade(clip) || lutOn(clip.grade?.lut) || (clip.effects || []).some((id) => isPixel(id) || isClassic(id))) return true;
+  return (project.effectClips || []).some((e) => !e.disabled && isShaderFx(e.fx) && e.start < clipStart + len && e.start + e.duration > clipStart);
 }
 
 // Particle / light layers are drawn, not shaded, so a region cannot mix them — instead the
@@ -272,23 +208,25 @@ export function drawOverlayPasses(ctx, project, t, W, H) {
   for (const l of videoLayout(project.videoClips)) {
     if (l.clip.gap || t < l.start || t >= l.end) continue;
     for (const id of l.clip.effects || []) {
-      if (!OVERLAY[id] || !clipFxVisible(l.clip, id)) continue;      // A timed instance is drawn only inside its window, its T starting with the window.
+      if (!OVERLAY[id]) continue;
+      // A timed instance is drawn only inside its window, its T starting with the window.
       const w = fxTimingOf(l.clip, id);
       const ws = l.start + (w ? w.start : 0);
       if (w && (t < ws || t >= ws + w.duration)) continue;
-      drawStrength(ctx, fxStrengthAt(l.clip.fxKeys?.[id], t - l.start, l.clip.fxStrength?.[id]), (c1) => drawRegioned(c1, W, H, l.clip.fxRegions?.[id], (c2) => OVERLAY[id](c2, W, H, t - ws, l.clip.fxParams?.[id])));
+      drawStrength(ctx, l.clip.fxStrength?.[id], (c1) => drawRegioned(c1, W, H, l.clip.fxRegions?.[id], (c2) => OVERLAY[id](c2, W, H, t - ws)));
     }
   }
   for (const c of project.overlayClips || []) {
     if (t < c.start || t >= c.start + freeLen('overlay', c)) continue;
     for (const id of c.effects || []) {
-      if (!OVERLAY[id] || !clipFxVisible(c, id)) continue;      const w = fxTimingOf(c, id);
+      if (!OVERLAY[id]) continue;
+      const w = fxTimingOf(c, id);
       const ws = c.start + (w ? w.start : 0);
       if (w && (t < ws || t >= ws + w.duration)) continue;
-      drawStrength(ctx, fxStrengthAt(c.fxKeys?.[id], t - c.start, c.fxStrength?.[id]), (c1) => drawRegioned(c1, W, H, c.fxRegions?.[id], (c2) => OVERLAY[id](c2, W, H, t - ws, c.fxParams?.[id])));
+      drawStrength(ctx, c.fxStrength?.[id], (c1) => drawRegioned(c1, W, H, c.fxRegions?.[id], (c2) => OVERLAY[id](c2, W, H, t - ws)));
     }
   }
-  for (const e of freeOn(project, t)) if (OVERLAY[e.fx]) drawStrength(ctx, fxStrengthAt(e.keys, t - e.start, e.strength), (c1) => drawRegioned(c1, W, H, e.region, (c2) => OVERLAY[e.fx](c2, W, H, t - e.start, e.params)));
+  for (const e of freeOn(project, t)) if (OVERLAY[e.fx]) drawStrength(ctx, e.strength, (c1) => drawRegioned(c1, W, H, e.region, (c2) => OVERLAY[e.fx](c2, W, H, t - e.start)));
 }
 
 // Time ranges with a particle / light layer, so the export knows which frames to draw.
@@ -299,7 +237,8 @@ export function overlayRanges(project) {
     return w ? [start + w.start, start + w.start + w.duration] : [start, start + span];
   };
   return [
-    ...videoLayout(project.videoClips).flatMap((l) => (l.clip.gap ? [] : (l.clip.effects || []).filter((id) => isOverlay(id) && clipFxVisible(l.clip, id)).map((id) => win(l.clip, id, l.start, l.end - l.start)))),
-    ...(project.overlayClips || []).flatMap((c) => (c.effects || []).filter((id) => isOverlay(id) && clipFxVisible(c, id)).map((id) => win(c, id, c.start, freeLen('overlay', c)))),    ...(project.effectClips || []).filter((e) => !e.disabled && isOverlay(e.fx)).map((e) => [e.start, e.start + e.duration]),
+    ...videoLayout(project.videoClips).flatMap((l) => (l.clip.gap ? [] : (l.clip.effects || []).filter(isOverlay).map((id) => win(l.clip, id, l.start, l.end - l.start)))),
+    ...(project.overlayClips || []).flatMap((c) => (c.effects || []).filter(isOverlay).map((id) => win(c, id, c.start, freeLen('overlay', c)))),
+    ...(project.effectClips || []).filter((e) => !e.disabled && isOverlay(e.fx)).map((e) => [e.start, e.start + e.duration]),
   ];
 }

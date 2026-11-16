@@ -61,14 +61,12 @@ const IMPLEMENTED = {
   'pixelate-reveal': 'fx_pixelate',
   'kaleidoscope': 'fx_kaleido',
   'swipe-left-right': 'fx_swipe',
-  // True engine implementations added with the transition packs (were 'adapted' before).
-  'morph-cut': 'fx_morphcut', // P3-03: real flow-field warp (was adapted to dissolve)
 };
 
 // slug -> engine id for the remaining entries: nearest real behaviour (status 'adapted').
 const ADAPTED = {
   'fade-in': 'fade', 'fade-out': 'fade', 'dip-to-color': 'fadeblack', 'film-dissolve': 'dissolve',
-  'luma-fade': 'dissolve', 'additive-dissolve': 'dissolve',
+  'luma-fade': 'dissolve', 'additive-dissolve': 'dissolve', 'morph-cut': 'dissolve',
   'diagonal-wipe': 'wipeleft', 'shape-matte-reveal': 'fx_diamond', 'gradient-wipe': 'wipeleft',
   'ink-paint-reveal': 'fx_brush', 'luma-matte-reveal': 'fx_diamond', 'panel-wipe': 'fx_tiles',
   'radial-wipe': 'circleopen', 'soft-wipe': 'wipeleft',

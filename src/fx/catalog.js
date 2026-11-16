@@ -6,8 +6,6 @@
 // outgoing clip and B(x,y) the incoming one; in effects T is the time in the clip and S(x,y) the source picture.
 
 // Rounded-rectangle test (1 inside, 0 outside) for centre (cx, cy), half size (hw, hh), corner radius r.
-import { drawParticles } from './particles.js';
-
 const inRound = (cx, cy, hw, hh, r) =>
   `lt(hypot(max(abs(X-(${cx}))-(${hw})+(${r}),0),max(abs(Y-(${cy}))-(${hh})+(${r}),0))+min(max(abs(X-(${cx}))-(${hw})+(${r}),abs(Y-(${cy}))-(${hh})+(${r})),0)-(${r}),0)`;
 
@@ -60,112 +58,6 @@ const vblurAt = (F, off, d) => `(${TAPW.map(([k, w]) => `${w}*${F}(X, Y+(${off})
 // Zoom blur of F: the frame is scaled by z (sampling a 1/z region) and streaked towards the centre by b
 // (6 taps along the ray, b = 0 is a plain zoom; at z = 1 and b = 0 every tap is the pixel itself).
 const zoomBlur = (F, z, b) => `(${Array.from({ length: 6 }, (_, i) => `${F}(W/2+(X-W/2)/(${z})*(1-(${b})*${(i / 5).toFixed(3)})+0.5, H/2+(Y-H/2)/(${z})*(1-(${b})*${(i / 5).toFixed(3)})+0.5)`).join('+')})/6`;
-
-// ---- Parametric transitions (P2-04 / P2-05) ----
-// A parameterised transition carries `params` — a typed schema — and `make(values)`,
-// which builds its expression from values. `expr` is always make(defaults), so a
-// project saved before parameters existed renders exactly as before (a missing stored
-// value IS the default, everywhere — see fx/params.js mergeTrParams). Param entries
-// are sliders { key, name, min, max, def, step, fmt? } or option lists
-// { key, name, options: [...], def } (direction / shape). Only non-default values
-// are stored on clip.transition.params.
-const trNum = (n) => { const v = Math.round(n * 100000) / 100000; return Object.is(v, -0) ? '0' : String(v); };
-const withTrParams = (entry, params, make) => ({ ...entry, params, make, expr: make(Object.fromEntries(params.map((p) => [p.key, p.def]))) });
-
-// Iris reveal (B-F05 + TR-02): the generic centre + softness drive the
-// make(), and TR-02's feather widens the soft band via softBand. At the
-// defaults (centre, softness 0, feather 0) the expression is byte-identical
-// to the old fixed one: the centre emits W/2, H/2 and the soft band is 0.04.
-// Softness widens the band's low edge (0.04 + 0.16*softness); feather
-// stretches the progress slope — both widen, neither moves the endpoints.
-const IRIS_CENTERS = { center: ['W/2', 'H/2'], 'top-left': ['0', '0'], 'top-right': ['W', '0'], 'bottom-left': ['0', 'H'], 'bottom-right': ['W', 'H'] };
-const irisMake = (out) => (v = {}) => {
-  const [cx, cy] = IRIS_CENTERS[v.center] || IRIS_CENTERS.center;
-  const prog = out ? 'P' : '1-P';
-  const lo = -(0.04 + 0.16 * Math.min(1, Math.max(0, Number(v.softness) || 0)));
-  const d = `hypot(X-${cx}, Y-${cy})/(0.5*hypot(W, H)+1)`;
-  return `st(0, ${d}); st(1, ${softBand(0, v.feather, 1.05, lo, 0, prog)});\n      ${out ? 'A(X, Y)*ld(1) + B(X, Y)*(1-ld(1))' : 'A(X, Y)*(1-ld(1)) + B(X, Y)*ld(1)'}`;
-};
-
-// A wipe whose edge is a smooth band of width 2*feather (fraction of the metric's
-// range). The sweep is stretched so the band never leaks B before P = 0 or A after
-// P = 1: centre c = P*(1.06+2f) - f - 0.005, band [c-h, c+h], h = max(0.02, f).
-// At P = 0 the band sits entirely below 0 (all A); at P = 1 entirely above 1 (all B).
-// metric is a 0..1 expression (0 = flips first). Feather 0 is a hard edge.
-const featheredWipe = (metric, feather) => {
-  const f = Math.min(0.4, Math.max(0, Number(feather) || 0));
-  const h = Math.max(0.02, f);
-  const K = trNum(1.06 + 2 * f);
-  const lo = trNum(-f - 0.005 - h);
-  const hi = trNum(-f - 0.005 + h);
-  return `st(0, ${metric}); st(1, smooth(P*${K}+(${lo}), P*${K}+(${hi}), ld(0))); B(X, Y)*(1-ld(1)) + A(X, Y)*ld(1)`;
-};
-// TR-02: soft edge band for the metric-blend transitions (the wipe / iris /
-// reveal family whose expression is `st(N, smooth(BAND, metric)); BLEND`).
-// At feather 0 the returned text is byte-identical to the legacy hard band
-// for that entry (slope/lo/hi vary: the wipe family uses 1.06/-0.05/-0.01,
-// the iris family 1.05/-0.04/0, orbit 0.74/-0.03/-0.01). Feather > 0 widens
-// the band and stretches the progress slope so the transition still starts
-// exactly on A and ends exactly on B: the 2f terms cancel at P = 1 (low edge
-// = slope + lo, as before) and the high edge at P = 0 stays hi (<= 0), so no
-// pixel flips early or late. prog is the progress expression ('P', or '1-P'
-// for the reverse iris).
-const softBand = (reg, feather = 0, slope = 1.06, lo = -0.05, hi = -0.01, prog = 'P') => {
-  const f = Math.min(0.3, Math.max(0, Number(feather) || 0));
-  const pe = prog === 'P' ? 'P' : `(${prog})`;
-  const arg = (k, off) => (off === 0 ? `${pe}*${trNum(k)}` : `${pe}*${trNum(k)}${off < 0 ? '-' : '+'}${trNum(Math.abs(off))}`);
-  if (!(f > 0)) return `smooth(${arg(slope, lo)}, ${arg(slope, hi)}, ld(${reg}))`;
-  const K = slope + 2 * f;
-  return `smooth(${arg(K, lo - 2 * f)}, ${arg(K, hi)}, ld(${reg}))`;
-};
-const FEATHER_PARAM = [{ key: 'feather', name: 'Feather', min: 0, max: 0.3, def: 0, step: 0.01, fmt: 'pct', label: 'insp.trFeather' }];
-const STRENGTH_PARAM = [{ key: 'strength', name: 'Strength', min: 0, max: 2, def: 1, step: 0.05, label: 'insp.trAmount' }];
-// A metric-blend transition in one line: at feather 0 this is byte-identical
-// to wipeK(metric) (same spaces, same smooth band).
-const metricBlend = (metric, feather = 0) => `st(0, ${metric}); st(1, ${softBand(0, feather)}); B(X, Y)*(1 - ld(1)) + A(X, Y)*ld(1)`;
-// Clock-wipe angle in [0, 1): 0 at the top, clockwise. (P2-04: a real clock wipe —
-// the outgoing clip is whatever the hand has NOT passed yet, not a circle reveal.)
-const CLOCK_ANGLE = `mod(atan2(X - W/2, -(Y - H/2)) + 6.28319, 6.28319)/6.28319`;
-const CLOCK_LEGACY = `st(0, ${CLOCK_ANGLE}); if(lt(ld(0), P), B(X, Y), A(X, Y))`;
-const clockWipeExpr = ({ direction = 'cw', feather = 0 } = {}) => {
-  const m = direction === 'ccw' ? `(1-(${CLOCK_ANGLE}))` : CLOCK_ANGLE;
-  if (!(feather > 0)) {
-    if (direction === 'cw') return CLOCK_LEGACY; // byte-identical to the pre-parameter form
-    return `st(0, ${m}); if(lt(ld(0), P), B(X, Y), A(X, Y))`;
-  }
-  return featheredWipe(m, feather);
-};
-// Gradient-wipe metrics: 0 at the edge B enters from, 1 at the far edge.
-const GRADIENT_METRICS = {
-  'from-left': 'X/W',
-  'from-right': '1 - X/W',
-  'from-top': 'Y/H',
-  'from-bottom': '1 - Y/H',
-  diagonal: '(X/W + Y/H)/2',
-  'diagonal-2': '(X/W + (1 - Y/H))/2',
-};
-const gradientWipeExpr = ({ direction = 'from-left', feather = 0.08 } = {}) =>
-  featheredWipe(GRADIENT_METRICS[direction] || GRADIENT_METRICS['from-left'], feather);
-// Luma wipe (P2-04): the outgoing clip's own brightness is the matte — bright
-// areas flip to the incoming clip first, dark areas last. LA is 0..255 in both
-// renderers (see expr.js), so the metric is 1 - LA/255 (0 = brightest = flips first).
-const lumaWipeExpr = ({ feather = 0.08 } = {}) => featheredWipe('(1 - LA(X, Y)/255)', feather);
-// Mask reveal (P2-04): a shape grows from an anchor and uncovers the next clip.
-// centre: radial from the middle (circle) or a rounded-rect distance (rect);
-// edges: the same shape closing in from the frame edges; from-left/right/top/bottom:
-// a straight sweep from that edge.
-const maskRevealMetric = ({ shape = 'circle', direction = 'center' } = {}) => {
-  if (direction === 'from-left') return 'X/W';
-  if (direction === 'from-right') return '1 - X/W';
-  if (direction === 'from-top') return 'Y/H';
-  if (direction === 'from-bottom') return '1 - Y/H';
-  const r = shape === 'rect'
-    ? 'max(abs(X/W - 0.5), abs(Y/H - 0.5))*2'
-    : 'hypot(X - W/2, Y - H/2)/(0.71*hypot(W, H))';
-  return direction === 'edges' ? `(1-(${r}))` : r;
-};
-const maskRevealExpr = ({ shape = 'circle', direction = 'center', feather = 0.08 } = {}) =>
-  featheredWipe(maskRevealMetric({ shape, direction }), feather);
 // Sample F rotated by angle a around the centre (the picture turns the other way), and an arc blur of F:
 // 5 taps spread along the rotation arc around the base angle.
 const rotSmp = (F, a) => `${F}(W/2+(X-W/2)*cos(${a})+(Y-H/2)*sin(${a})+0.5, H/2-(X-W/2)*sin(${a})+(Y-H/2)*cos(${a})+0.5)`;
@@ -174,11 +66,11 @@ const spinBlur = (F, ang, spread) => `(${[-1, -0.5, 0, 0.5, 1].map((k) => rotSmp
 export const STUDIO_TRANSITIONS = [
   { id: 'fx_wipeup', name: 'Wipe Up', duration: 0.6, expr: 'if(gt(Y, H*(1-P)), B(X, Y), A(X, Y))' },
   { id: 'fx_wipedown', name: 'Wipe Down', duration: 0.6, expr: 'if(lt(Y, H*P), B(X, Y), A(X, Y))' },
-  withTrParams({
+  {
     id: 'fx_diamond', name: 'Diamond Wipe', duration: 0.8,
+    expr: `st(0, abs(X/W-0.5)+abs(Y/H-0.5)); st(1, smooth(P*1.06-0.05, P*1.06-0.01, ld(0)));
+      B(X, Y)*(1-ld(1)) + A(X, Y)*ld(1)`,
   },
-    FEATHER_PARAM, (v) => `st(0, abs(X/W-0.5)+abs(Y/H-0.5)); st(1, ${softBand(0, v.feather)});
-      B(X, Y)*(1-ld(1)) + A(X, Y)*ld(1)`),
   { id: 'fx_slideup', name: 'Slide Up', duration: 0.6, expr: 'st(0, H*(1-P)); if(gte(Y, ld(0)), B(X, Y-ld(0)), A(X, Y))' },
   { id: 'fx_slidedown', name: 'Slide Down', duration: 0.6, expr: 'st(0, H*(1-P)); if(lte(Y, H-ld(0)), B(X, Y+ld(0)), A(X, Y))' },
   {
@@ -200,27 +92,27 @@ export const STUDIO_TRANSITIONS = [
       st(4, (ld(2)*cos(ld(0))-ld(3)*sin(ld(0)))/ld(1)+W/2+0.5); st(5, (ld(2)*sin(ld(0))+ld(3)*cos(ld(0)))/ld(1)+H/2+0.5);
       if(${inFrame('ld(4)', 'ld(5)')}, A(ld(4), ld(5)), 0)*(1-P) + B(X, Y)*P`,
   },
-  withTrParams({
+  {
     id: 'fx_pixelate', name: 'Pixelate', duration: 0.8,
+    expr: `st(0, max(1, (1+49*(4*P*(1-P)))*H/720)); st(1, floor(X/ld(0))*ld(0)+ld(0)/2); st(2, floor(Y/ld(0))*ld(0)+ld(0)/2);
+      A(ld(1), ld(2))*(1-P) + B(ld(1), ld(2))*P`,
   },
-    STRENGTH_PARAM, (v) => `st(0, max(1, (1+${trNum(49 * v.strength)}*(4*P*(1-P)))*H/720)); st(1, floor(X/ld(0))*ld(0)+ld(0)/2); st(2, floor(Y/ld(0))*ld(0)+ld(0)/2);
-      A(ld(1), ld(2))*(1-P) + B(ld(1), ld(2))*P`),
-  withTrParams({
+  {
     id: 'fx_blur', name: 'Blur', duration: 0.8,
+    expr: `st(0, (4*P*(1-P))*20*H/720); (${blur9('A', 'ld(0)')})*(1-P) + (${blur9('B', 'ld(0)')})*P`,
   },
-    STRENGTH_PARAM, (v) => `st(0, (4*P*(1-P))*${trNum(20 * v.strength)}*H/720); (${blur9('A', 'ld(0)')})*(1-P) + (${blur9('B', 'ld(0)')})*P`),
-  withTrParams({
+  {
     id: 'fx_glitch', name: 'Glitch', duration: 0.6,
     // Rows jump sideways with a red / blue split, strongest in the middle.
+    expr: `st(0, (hash(floor(Y/(H*0.015))*1.37+floor(P*30)*7.13)-0.5)*(4*P*(1-P))*0.3*W);
+      A(X+ld(0)*C(2, 1, 1), Y)*(1-P) + B(X-ld(0)*C(1, 1, 2), Y)*P`,
   },
-    STRENGTH_PARAM, (v) => `st(0, (hash(floor(Y/(H*0.015))*1.37+floor(P*30)*7.13)-0.5)*(4*P*(1-P))*${trNum(0.3 * v.strength)}*W);
-      A(X+ld(0)*C(2, 1, 1), Y)*(1-P) + B(X-ld(0)*C(1, 1, 2), Y)*P`),
-  withTrParams({
+  {
     id: 'fx_ripple', name: 'Ripple', duration: 1,
-  },
-    STRENGTH_PARAM, (v) => `st(0, hypot(X-W/2, Y-H/2)/H); st(1, sin((ld(0)-P)*30)*${trNum(0.02 * v.strength)}*H*(4*P*(1-P))); st(2, max(ld(0)*H, 0.001));
+    expr: `st(0, hypot(X-W/2, Y-H/2)/H); st(1, sin((ld(0)-P)*30)*0.02*H*(4*P*(1-P))); st(2, max(ld(0)*H, 0.001));
       st(3, X+(X-W/2)/ld(2)*ld(1)+0.5); st(4, Y+(Y-H/2)/ld(2)*ld(1)+0.5);
-      A(ld(3), ld(4))*(1-P) + B(ld(3), ld(4))*P`),
+      A(ld(3), ld(4))*(1-P) + B(ld(3), ld(4))*P`,
+  },
   {
     id: 'fx_swirl', name: 'Swirl', duration: 1,
     // The current clip twists away from the middle; the next one untwists into place.
@@ -250,21 +142,21 @@ export const STUDIO_TRANSITIONS = [
       st(3, smooth(ld(0), ld(0)+0.2, ld(1))*(1-smooth(ld(0)+0.2, ld(0)+0.4, ld(1))));
       A(X, Y)*(1-ld(3)*0.6)*(1-ld(2)) + B(X, Y)*ld(2)`,
   },
-  withTrParams({
+  {
     id: 'fx_warp', name: 'Directional Warp', duration: 0.8,
+    expr: `st(0, (4*P*(1-P))*0.1*W*sin(Y/H*10)); A(X+ld(0), Y)*(1-P) + B(X-ld(0), Y)*P`,
   },
-    STRENGTH_PARAM, (v) => `st(0, (4*P*(1-P))*${trNum(0.1 * v.strength)}*W*sin(Y/H*10)); A(X+ld(0), Y)*(1-P) + B(X-ld(0), Y)*P`),
-  withTrParams({
+  {
     id: 'fx_tiles', name: 'Mosaic Tiles', duration: 1,
     // The frame splits into tiles (largest mid-way, single pixels at both ends) that flip one by one to the next clip.
-  },
-    STRENGTH_PARAM, (v) => `st(0, max(1, H*${trNum(0.08 * v.strength)}*(4*P*(1-P)))); st(1, floor(X/ld(0))); st(2, floor(Y/ld(0)));
+    expr: `st(0, max(1, H*0.08*(4*P*(1-P)))); st(1, floor(X/ld(0))); st(2, floor(Y/ld(0)));
       st(3, ld(1)*ld(0)+ld(0)/2); st(4, ld(2)*ld(0)+ld(0)/2);
-      if(lt(hash(ld(1)*12.9898+ld(2)*78.233), P), B(ld(3), ld(4)), A(ld(3), ld(4)))`),
-  withTrParams({
-    id: 'fx_radialblur', name: 'Radial Blur', duration: 0.8,
+      if(lt(hash(ld(1)*12.9898+ld(2)*78.233), P), B(ld(3), ld(4)), A(ld(3), ld(4)))`,
   },
-    STRENGTH_PARAM, (v) => `st(0, (4*P*(1-P))*${trNum(2 * v.strength)}); (${radial10('A', 'ld(0)')})/10*(1-P) + (${radial10('B', 'ld(0)')})/10*P`),
+  {
+    id: 'fx_radialblur', name: 'Radial Blur', duration: 0.8,
+    expr: `st(0, (4*P*(1-P))*2); (${radial10('A', 'ld(0)')})/10*(1-P) + (${radial10('B', 'ld(0)')})/10*P`,
+  },
   {
     id: 'fx_crosshatch', name: 'Crosshatch', duration: 1,
     // Diagonal stripes reveal the next clip, getting finer until it fills the frame.
@@ -272,12 +164,12 @@ export const STUDIO_TRANSITIONS = [
       st(3, min(1, ld(2)*smooth(0, 0.6, P) + smooth(0.5, 1, P)));
       A(X, Y)*(1-ld(3)) + B(X, Y)*ld(3)`,
   },
-  withTrParams({ id: 'fx_clockwipe', name: 'Clock Wipe', duration: 0.8 },
+  {
+    id: 'fx_clockwipe', name: 'Clock Wipe', duration: 0.8,
     // A hand sweeps clockwise from the top; the next clip is whatever the hand has passed (Sprint 12, original).
-    // P2-04: direction (clockwise / counter-clockwise) and edge feather are real parameters now.
-    [{ key: 'direction', name: 'Direction', options: ['cw', 'ccw'], def: 'cw' },
-     { key: 'feather', name: 'Feather', min: 0, max: 0.25, def: 0, step: 0.01, fmt: 'pct' }],
-    clockWipeExpr),
+    expr: `st(0, mod(atan2(X - W/2, -(Y - H/2)) + 6.28319, 6.28319)/6.28319);
+      if(lt(ld(0), P), B(X, Y), A(X, Y))`,
+  },
   {
     id: 'fx_bandwipe', name: 'Band Wipe', duration: 0.8,
     // Eight horizontal bands wipe left-to-right, each starting a beat after the one above (Sprint 12, original).
@@ -326,8 +218,11 @@ export const PACK_TRANSITIONS = [
     expr: `st(0, H*P); st(1, (4*P*(1-P))*16*H/720);
       if(gte(Y, ld(0)), ${vblurAt('A', '-ld(0)', 'ld(1)')}, ${vblurAt('B', 'H-ld(0)', 'ld(1)')})`,
   },
-  withTrParams({ id: 'fx_zoomblur', name: 'Zoom Blur', duration: 0.7, pack: 'seamless' },
-    STRENGTH_PARAM, (v) => `${zoomBlur('A', `1+${trNum(0.9 * v.strength)}*P`, `${trNum(0.3 * v.strength)}*P`)}*(1-P) + ${zoomBlur('B', `1+${trNum(0.9 * v.strength)}*(1-P)`, `${trNum(0.3 * v.strength)}*(1-P)`)}*P`),
+  {
+    id: 'fx_zoomblur', name: 'Zoom Blur', duration: 0.7, pack: 'seamless',
+    // A punches in while its rays streak; B falls back from the same zoom, streaks fading as it lands.
+    expr: `${zoomBlur('A', '1+0.9*P', '0.3*P')}*(1-P) + ${zoomBlur('B', '1+0.9*(1-P)', '0.3*(1-P)')}*P`,
+  },
   {
     id: 'fx_spinblur', name: 'Spin Blur', duration: 0.8, pack: 'seamless',
     // A spins away, B counter-spins in; both are blurred along the rotation arc, most at mid-turn.
@@ -377,25 +272,27 @@ export const PACK_TRANSITIONS = [
     expr: `st(0, W*(1.6*P-0.3)-abs(Y-H/2)/H*W*0.5);
       if(lt(X, ld(0)), B(X, Y), A(X, Y))`,
   },
-  withTrParams({
+  {
     id: 'fx_irisout', name: 'Circle Reveal Out', duration: 0.8, pack: 'reveal',
     // A true iris: B opens as a soft-edged circle from the centre over A.
+    expr: `st(0, hypot(X-W/2, Y-H/2)/(0.5*hypot(W, H)+1)); st(1, smooth(P*1.05-0.04, P*1.05, ld(0)));
+      A(X, Y)*ld(1) + B(X, Y)*(1-ld(1))`,
   },
-    FEATHER_PARAM, irisMake(true)),
-  withTrParams({
+  {
     id: 'fx_irisin', name: 'Circle Reveal In', duration: 0.8, pack: 'reveal',
     // The reverse iris: A shrinks away as a closing circle into the centre, B around it.
+    expr: `st(0, hypot(X-W/2, Y-H/2)/(0.5*hypot(W, H)+1)); st(1, smooth((1-P)*1.05-0.04, (1-P)*1.05, ld(0)));
+      A(X, Y)*(1-ld(1)) + B(X, Y)*ld(1)`,
   },
-    FEATHER_PARAM, irisMake(false)),
-  withTrParams({
+  {
     id: 'fx_diamondreveal', name: 'Diamond Reveal', duration: 0.9, pack: 'reveal',
     // A diamond grows from the centre while rotating into its final orientation, B inside it.
-  },
-    FEATHER_PARAM, (v) => `st(0, (X-W/2)/H); st(1, (Y-H/2)/H); st(2, (1-P)*0.6);
+    expr: `st(0, (X-W/2)/H); st(1, (Y-H/2)/H); st(2, (1-P)*0.6);
       st(3, ld(0)*cos(ld(2))+ld(1)*sin(ld(2))); st(4, -ld(0)*sin(ld(2))+ld(1)*cos(ld(2)));
       st(5, (abs(ld(3))+abs(ld(4)))*H/(0.78*hypot(W, H)));
-      st(6, ${softBand(5, v.feather)});
-      A(X, Y)*ld(6) + B(X, Y)*(1-ld(6))`),
+      st(6, smooth(P*1.06-0.05, P*1.06-0.01, ld(5)));
+      A(X, Y)*ld(6) + B(X, Y)*(1-ld(6))`,
+  },
   {
     id: 'fx_rects', name: 'Rectangles', duration: 0.8, pack: 'reveal',
     // A 6x4 grid of rectangular blocks sweeps across (left first, top rows a touch ahead); as each
@@ -409,13 +306,13 @@ export const PACK_TRANSITIONS = [
           B(X, Y)),
         A(X, Y))`,
   },
-  withTrParams({
+  {
     id: 'fx_circlecorner', name: 'Circles From Corner', duration: 0.8, pack: 'reveal',
     // An iris anchored at the top-left corner instead of the centre: B opens as a soft-edged
     // circle from the corner across A.
+    expr: `st(0, hypot(X, Y)/(hypot(W, H)+1)); st(1, smooth(P*1.05-0.04, P*1.05, ld(0)));
+      A(X, Y)*ld(1) + B(X, Y)*(1-ld(1))`,
   },
-    FEATHER_PARAM, (v) => `st(0, hypot(X, Y)/(hypot(W, H)+1)); st(1, ${softBand(0, v.feather, 1.05, -0.04, 0)});
-      A(X, Y)*ld(1) + B(X, Y)*(1-ld(1))`),
   {
     id: 'fx_diagstripes', name: 'Diagonal Stripes', duration: 0.8, pack: 'reveal',
     // Seven diagonal bands sweep across in sequence; inside each band B wipes in along the diagonal.
@@ -562,27 +459,20 @@ export const PACK_TRANSITIONS = [
 // contract as the studio set — each starts exactly on the outgoing clip and ends exactly on the
 // incoming one (mask sweeps use a normalized metric whose maximum the sweep range covers, so
 // no corner is left behind at P = 1 and nothing shows early at P = 0).
-const wipeK = (d, feather = 0) => metricBlend(d, feather);
+const wipeK = (d) => `st(0, ${d}); st(1, smooth(P*1.06 - 0.05, P*1.06 - 0.01, ld(0))); B(X, Y)*(1 - ld(1)) + A(X, Y)*ld(1)`;
 const GROWTH_TRANSITIONS = [
-  withTrParams({ id: 'fx_wipewest', name: 'Wipe From Left', duration: 0.6 },
-    FEATHER_PARAM, (v) => metricBlend('X/W', v.feather)),
-  withTrParams({ id: 'fx_wipeeast', name: 'Wipe From Right', duration: 0.6 },
-    FEATHER_PARAM, (v) => metricBlend('1 - X/W', v.feather)),
-  withTrParams({ id: 'fx_wipecenter', name: 'Wipe From Center', duration: 0.7 },
-    FEATHER_PARAM, (v) => metricBlend('abs(X/W - 0.5)*2', v.feather)),
-  withTrParams({ id: 'fx_wipecorners', name: 'Wipe From Corners', duration: 0.8 },
-    FEATHER_PARAM, (v) => metricBlend('1 - max(abs(X/W - 0.5), abs(Y/H - 0.5))*2', v.feather)),
-  withTrParams({ id: 'fx_venetianv', name: 'Venetian Columns', duration: 0.9 },
-    FEATHER_PARAM, (v) => metricBlend('abs(fract(X/(W/14)) - 0.5)*2', v.feather)),
-  withTrParams({ id: 'fx_venetianh', name: 'Venetian Rows', duration: 0.9 },
-    FEATHER_PARAM, (v) => metricBlend('abs(fract(Y/(H/10)) - 0.5)*2', v.feather)),
+  { id: 'fx_wipewest', name: 'Wipe From Left', duration: 0.6, expr: wipeK('X/W') },
+  { id: 'fx_wipeeast', name: 'Wipe From Right', duration: 0.6, expr: wipeK('1 - X/W') },
+  { id: 'fx_wipecenter', name: 'Wipe From Center', duration: 0.7, expr: wipeK('abs(X/W - 0.5)*2') },
+  { id: 'fx_wipecorners', name: 'Wipe From Corners', duration: 0.8, expr: wipeK('1 - max(abs(X/W - 0.5), abs(Y/H - 0.5))*2') },
+  { id: 'fx_venetianv', name: 'Venetian Columns', duration: 0.9, expr: wipeK('abs(fract(X/(W/14)) - 0.5)*2') },
+  { id: 'fx_venetianh', name: 'Venetian Rows', duration: 0.9, expr: wipeK('abs(fract(Y/(H/10)) - 0.5)*2') },
   {
     id: 'fx_blindslide', name: 'Blinds Slide', duration: 0.9,
     expr: `st(0, mod(floor(X/(W/9)), 2)); st(1, (1 - P)*H);
       if(ld(0), if(lt(Y, H - ld(1)), B(X, Y + ld(1)), A(X, Y)), if(gt(Y, ld(1)), B(X, Y - ld(1)), A(X, Y)))`,
   },
-  withTrParams({ id: 'fx_checker', name: 'Checkerboard', duration: 1 },
-    FEATHER_PARAM, (v) => metricBlend('hash(floor(X/(W/8))*3.17 + floor(Y/(H/6))*7.71)', v.feather)),
+  { id: 'fx_checker', name: 'Checkerboard', duration: 1, expr: wipeK('hash(floor(X/(W/8))*3.17 + floor(Y/(H/6))*7.71)') },
   {
     id: 'fx_stripsdown', name: 'Strips Down', duration: 0.9,
     expr: `st(0, floor(X/(W/10))); st(1, (1 - P)*H*(1 + 0.4*hash(ld(0)*3.31)));
@@ -593,33 +483,31 @@ const GROWTH_TRANSITIONS = [
     expr: `st(0, floor(X/(W/10))); st(1, (1 - P)*H*(1 + 0.4*hash(ld(0)*3.31)));
       if(gt(Y, ld(1)), B(X, Y - ld(1)), A(X, Y))`,
   },
-  withTrParams({
+  {
     id: 'fx_orbitwipe', name: 'Orbit Wipe', duration: 1.1,
+    expr: `st(0, W/2 + cos(P*6.2832)*W*0.18); st(1, H/2 + sin(P*6.2832)*H*0.18);
+      st(2, hypot(X - ld(0), Y - ld(1))/hypot(W, H)); st(3, smooth(P*0.74 - 0.03, P*0.74 - 0.01, ld(2)));
+      B(X, Y)*(1 - ld(3)) + A(X, Y)*ld(3)`,
   },
-    FEATHER_PARAM, (v) => `st(0, W/2 + cos(P*6.2832)*W*0.18); st(1, H/2 + sin(P*6.2832)*H*0.18);
-      st(2, hypot(X - ld(0), Y - ld(1))/hypot(W, H)); st(3, ${softBand(2, v.feather, 0.74, -0.03, -0.01)});
-      B(X, Y)*(1 - ld(3)) + A(X, Y)*ld(3)`),
-  withTrParams({
+  {
     id: 'fx_squircle', name: 'Squircle Wipe', duration: 0.9,
-  },
-    FEATHER_PARAM, (v) => `st(0, abs((X - W/2)/(W/2))); st(1, abs((Y - H/2)/(H/2)));
+    expr: `st(0, abs((X - W/2)/(W/2))); st(1, abs((Y - H/2)/(H/2)));
       st(2, min(sqrt(sqrt(ld(0)*ld(0)*ld(0)*ld(0) + ld(1)*ld(1)*ld(1)*ld(1))), 1));
-      st(3, ${softBand(2, v.feather)}); B(X, Y)*(1 - ld(3)) + A(X, Y)*ld(3)`),
-  withTrParams({
-    id: 'fx_starwipe', name: 'Star Wipe', duration: 1,
+      st(3, smooth(P*1.06 - 0.05, P*1.06 - 0.01, ld(2))); B(X, Y)*(1 - ld(3)) + A(X, Y)*ld(3)`,
   },
-    FEATHER_PARAM, (v) => `st(0, atan2(Y - H/2, X - W/2)); st(1, hypot(X - W/2, Y - H/2)/(0.71*hypot(W, H))*(0.8 + 0.2*cos(ld(0)*5)));
-      st(2, ${softBand(1, v.feather)}); B(X, Y)*(1 - ld(2)) + A(X, Y)*ld(2)`),
+  {
+    id: 'fx_starwipe', name: 'Star Wipe', duration: 1,
+    expr: `st(0, atan2(Y - H/2, X - W/2)); st(1, hypot(X - W/2, Y - H/2)/(0.71*hypot(W, H))*(0.8 + 0.2*cos(ld(0)*5)));
+      st(2, smooth(P*1.06 - 0.05, P*1.06 - 0.01, ld(1))); B(X, Y)*(1 - ld(2)) + A(X, Y)*ld(2)`,
+  },
   {
     id: 'fx_heartwipe', name: 'Heart Wipe', duration: 1,
     expr: `st(0, (X/W - 0.5)*2.3); st(1, (0.54 - Y/H)*2.3);
       st(2, pow(ld(0)*ld(0) + ld(1)*ld(1) - 1, 3) - ld(0)*ld(0)*ld(1)*ld(1)*ld(1));
       st(3, smooth(-1.25 + P*5.3, -1.0 + P*5.3, ld(2))); B(X, Y)*(1 - ld(3)) + A(X, Y)*ld(3)`,
   },
-  withTrParams({ id: 'fx_diamondout', name: 'Diamond Out', duration: 0.8 },
-    FEATHER_PARAM, (v) => metricBlend('1 - (abs(X/W - 0.5) + abs(Y/H - 0.5))', v.feather)),
-  withTrParams({ id: 'fx_crosswipe', name: 'Cross Wipe', duration: 0.9 },
-    FEATHER_PARAM, (v) => metricBlend('min(abs(X - W/2)/(W/2), abs(Y - H/2)/(H/2))', v.feather)),
+  { id: 'fx_diamondout', name: 'Diamond Out', duration: 0.8, expr: wipeK('1 - (abs(X/W - 0.5) + abs(Y/H - 0.5))') },
+  { id: 'fx_crosswipe', name: 'Cross Wipe', duration: 0.9, expr: wipeK('min(abs(X - W/2)/(W/2), abs(Y - H/2)/(H/2))') },
   {
     id: 'fx_slidediag', name: 'Slide Diagonal', duration: 0.7,
     expr: `st(0, 1 - P); st(1, X/W*0.5 + Y/H*0.5);
@@ -739,141 +627,9 @@ export const FX_TRANSITIONS = [
   //   circleopen - B inside a hard circle of radius P * 75% of the CSS reference length
   //                (the frame diagonal / sqrt(2) = 0.53033 of the full diagonal), A outside.
   { id: 'dissolve', name: 'Dissolve', duration: 0.5, expr: 'if(lt(hash(X*12.9898 + Y*78.233), P), B(X, Y), A(X, Y))' },
-  // ---- P3-03: true morph cut. A real flow-field warp, NOT the dissolve it
-  // used to adapt to. `morph: true` marks it: the preview, the export and
-  // the tiles render it through morph.js (analyse -> flow grid -> gl.morph),
-  // and `expr` here is ONLY the fallback the renderers use when the analysis
-  // says the shots cannot morph (dissimilar / fast face motion / failure) —
-  // the self-test and the still generator exercise that fallback path, while
-  // the live paths exercise the warp. `strength` scales the warp (0 = plain
-  // crossfade, 1 = full morph); it is a transition param like feather.
-  withTrParams({ id: 'fx_morphcut', name: 'Morph Cut', duration: 0.8, morph: true },
-    [{ key: 'strength', name: 'Warp strength', min: 0, max: 1, def: 1, step: 0.05, fmt: 'pct', label: 'insp.trStrength' }],
-    () => 'if(lt(hash(X*12.9898 + Y*78.233), P), B(X, Y), A(X, Y))'),
   { id: 'fadeblack', name: 'Fade to Black', duration: 0.5, expr: 'if(lt(P, 0.5), A(X, Y)*(1 - 2*P), B(X, Y)*(2*P - 1))' },
   { id: 'fadewhite', name: 'Fade to White', duration: 0.5, expr: 'if(lt(P, 0.5), A(X, Y)*(1 - 2*P) + 510*P, B(X, Y)*(2*P - 1) + 510*(1 - P))' },
   { id: 'circleopen', name: 'Circle', duration: 0.5, expr: 'if(lt(hypot(X - W/2, Y - H/2)/hypot(W, H), P*0.53033), B(X, Y), A(X, Y))' },
-  // ---- Gap-build Stream B: card flip (MisterHorse P2-2). A 2D perspective
-  // transform only — NO 3D engine: the outgoing clip squeezes towards the
-  // centre edge-on (|cos(P·π)|, exactly 0 at the flip) while darkening, then
-  // the incoming clip opens out of the same edge. Starts exactly on A, ends
-  // exactly on B; the edge is never black (darken caps at 45%).
-  withTrParams({ id: 'fx_cardflip', name: 'Card Flip', duration: 0.8 },
-    [{ key: 'direction', name: 'Direction', options: ['horizontal', 'vertical'], def: 'horizontal' },
-     { key: 'darken', name: 'Edge darken', min: 0, max: 0.8, def: 0.45, step: 0.05, fmt: 'pct' }],
-    ({ direction = 'horizontal', darken = 0.45 } = {}) => {
-      const vertical = direction === 'vertical';
-      const dim = vertical ? 'H' : 'W';
-      const axis = vertical ? 'Y' : 'X';
-      const other = vertical ? 'X' : 'Y';
-      const sample = (F) => (vertical ? `${F}(${other}, ld(2))` : `${F}(ld(2), ${other})`);
-      return `st(0, abs(cos(P*3.14159))); st(1, max(ld(0), 0.04)); st(2, ${dim}/2+(${axis}-${dim}/2)/ld(1)+0.5); if(lt(P, 0.5), ${sample('A')}, ${sample('B')})*(1-${trNum(darken)}*(1-ld(0)))`;
-    }),
-  // ---- P2-04: real wipes (parametric — feather / direction resolve identically in
-  // preview and export through transitionExpr, see fx/params.js). ----
-  withTrParams({ id: 'fx_gradientwipe', name: 'Gradient Wipe', duration: 0.8 },
-    [{ key: 'direction', name: 'Direction', options: ['from-left', 'from-right', 'from-top', 'from-bottom', 'diagonal', 'diagonal-2'], def: 'from-left' },
-     { key: 'feather', name: 'Feather', min: 0, max: 0.3, def: 0.08, step: 0.01, fmt: 'pct' }],
-    gradientWipeExpr),
-  withTrParams({ id: 'fx_lumawipe', name: 'Luma Wipe', duration: 0.9 },
-    // Bright areas of the outgoing clip flip first; the feather is the soft band.
-    [{ key: 'feather', name: 'Feather', min: 0, max: 0.3, def: 0.08, step: 0.01, fmt: 'pct' }],
-    lumaWipeExpr),
-  withTrParams({ id: 'fx_maskreveal', name: 'Mask Reveal', duration: 0.9 },
-    [{ key: 'shape', name: 'Shape', options: ['circle', 'rect'], def: 'circle' },
-     { key: 'direction', name: 'Direction', options: ['center', 'edges', 'from-left', 'from-right', 'from-top', 'from-bottom'], def: 'center' },
-     { key: 'feather', name: 'Feather', min: 0, max: 0.3, def: 0.08, step: 0.01, fmt: 'pct' }],
-    maskRevealExpr),
-  // ---- P2-05: motion transitions with baked Bézier travel + velocity-coupled blur. ----
-  // The travel itself follows a smoothstep (the cubic Bézier ease-in-out) so the move
-  // has momentum even with a linear transition ease; the blur taps track the eased
-  // speed (6P(1-P), the smoothstep's derivative), strongest mid-travel and exactly
-  // zero at both ends, so no frame freezes blurry. Every sample stays in-frame by
-  // construction (the incoming clip is sampled at offset-W/H, the outgoing at
-  // offset), so the edges never reveal black.
-  {
-    id: 'fx_seamlesszoom', name: 'Seamless Zoom In', duration: 0.8,
-    expr: `st(0, smooth(0, 1, P)); st(1, 0.35*6*P*(1-P));
-      ${zoomBlur('A', '1+0.45*ld(0)', 'ld(1)') }*(1-P) + ${zoomBlur('B', '1+0.45*(1-ld(0))', 'ld(1)') }*P`,
-  },
-  {
-    id: 'fx_seamlesszoomout', name: 'Seamless Zoom Out', duration: 0.8,
-    // The outgoing clip shrinks into a card over the incoming one (never below the
-    // frame, so no black corners), while the incoming clip settles from a punch-in.
-    expr: `st(0, smooth(0, 1, P)); st(1, 1-0.45*ld(0)); st(2, 1+0.45*(1-ld(0)));
-      st(3, W/2+(X-W/2)/ld(1)+0.5); st(4, H/2+(Y-H/2)/ld(1)+0.5);
-      st(5, W/2+(X-W/2)/ld(2)+0.5); st(6, H/2+(Y-H/2)/ld(2)+0.5);
-      if(${inFrame('ld(3)', 'ld(4)')}, A(ld(3), ld(4)), B(ld(5), ld(6)))*(1-P) + B(ld(5), ld(6))*P`,
-  },
-  {
-    id: 'fx_pushsmooth', name: 'Smooth Push Left', duration: 0.7,
-    expr: `st(0, smooth(0, 1, P)); st(1, W*ld(0)); st(2, (6*P*(1-P))*10*H/720);
-      if(lt(X, W-ld(1)), ${hblurAt('A', 'ld(1)', 'ld(2)')}, ${hblurAt('B', 'ld(1)-W', 'ld(2)')})`,
-  },
-  {
-    id: 'fx_pullsmooth', name: 'Smooth Pull Right', duration: 0.7,
-    expr: `st(0, smooth(0, 1, P)); st(1, W*ld(0)); st(2, (6*P*(1-P))*10*H/720);
-      if(gte(X, ld(1)), ${hblurAt('A', '-ld(1)', 'ld(2)')}, ${hblurAt('B', 'W-ld(1)', 'ld(2)')})`,
-  },
-  // Gap-build C (CSV rows 61/62/77/79/100/109): the missing directions and
-  // families of the smooth-push set, each a true engine expression — the
-  // preview and the export run this same text, so both show the same picture.
-  {
-    id: 'fx_pushsmoothup', name: 'Smooth Push Up', duration: 0.7,
-    // The vertical twin of Smooth Push Left: A slides up and out, B follows
-    // from below, both carrying the same velocity-coupled vertical blur.
-    expr: `st(0, smooth(0, 1, P)); st(1, H*ld(0)); st(2, (6*P*(1-P))*10*H/720);
-      if(lt(Y, H-ld(1)), ${vblurAt('A', 'ld(1)', 'ld(2)')}, ${vblurAt('B', 'ld(1)-H', 'ld(2)')})`,
-  },
-  {
-    id: 'fx_pushsmoothdown', name: 'Smooth Push Down', duration: 0.7,
-    // The vertical twin of Smooth Pull Right: A slides down and out, B
-    // follows from above, with the same velocity-coupled vertical blur.
-    expr: `st(0, smooth(0, 1, P)); st(1, H*ld(0)); st(2, (6*P*(1-P))*10*H/720);
-      if(gte(Y, ld(1)), ${vblurAt('A', '-ld(1)', 'ld(2)')}, ${vblurAt('B', 'H-ld(1)', 'ld(2)')})`,
-  },
-  {
-    id: 'fx_parallaxzoom', name: 'Parallax Zoom', duration: 0.9,
-    // Two depths at two speeds: A recedes slowly (zooming out, drifting one
-    // way) while B approaches faster (punching in, drifting the other way) —
-    // the speed difference is what reads as parallax, not a 3D camera.
-    expr: `st(0, smooth(0, 1, P)); st(1, 1+0.18*ld(0)); st(2, 1.25-0.25*ld(0));
-      st(3, W/2+(X-W/2)/ld(1)+W*0.02*ld(0)+0.5); st(4, H/2+(Y-H/2)/ld(1)+0.5);
-      st(5, W/2+(X-W/2)/ld(2)-W*0.02*(1-ld(0))+0.5); st(6, H/2+(Y-H/2)/ld(2)+0.5);
-      A(ld(3), ld(4))*(1-ld(0)) + B(ld(5), ld(6))*ld(0)`,
-  },
-  {
-    id: 'fx_persppush', name: 'Perspective Push', duration: 0.8,
-    // A 2D perspective push — no 3D engine: both clips lean a few degrees
-    // (the lean peaks mid-cut and is exactly 0 at both ends, so the cut
-    // starts on A and lands exactly on B) while scaling in opposite
-    // directions and sliding past each other, like cards pushed across a table.
-    expr: `st(0, smooth(0, 1, P)); st(1, (4*P*(1-P))*0.12); st(2, 1-0.3*ld(0)); st(3, 1+0.3*(1-ld(0)));
-      st(4, W/2+((X-W/2)*cos(ld(1))-(Y-H/2)*sin(ld(1)))/ld(2)-W*0.5*ld(0)+0.5);
-      st(5, H/2+((X-W/2)*sin(ld(1))+(Y-H/2)*cos(ld(1)))/ld(2)+0.5);
-      st(6, W/2+((X-W/2)*cos(-ld(1))-(Y-H/2)*sin(-ld(1)))/ld(3)+W*0.5*(1-ld(0))+0.5);
-      st(7, H/2+((X-W/2)*sin(-ld(1))+(Y-H/2)*cos(-ld(1)))/ld(3)+0.5);
-      if(${inFrame('ld(4)', 'ld(5)')}, A(ld(4), ld(5)), B(ld(6), ld(7)))*(1-ld(0)) + B(ld(6), ld(7))*ld(0)`,
-  },
-  {
-    id: 'fx_motionmatchblur', name: 'Motion Match Blur', duration: 0.8,
-    // One shared diagonal travel direction, blurred the same way on both
-    // clips: the blur length peaks mid-cut and is exactly 0 at both ends,
-    // so the cut reads as one continuous motion rather than a dissolve.
-    expr: `st(0, (4*P*(1-P))*8*H/720);
-      ((A(X-ld(0)*2, Y-ld(0)*2)+A(X-ld(0), Y-ld(0))+A(X, Y)+A(X+ld(0), Y+ld(0))+A(X+ld(0)*2, Y+ld(0)*2))/5)*(1-P)
-      + ((B(X-ld(0)*2, Y-ld(0)*2)+B(X-ld(0), Y-ld(0))+B(X, Y)+B(X+ld(0), Y+ld(0))+B(X+ld(0)*2, Y+ld(0)*2))/5)*P`,
-  },
-  {
-    id: 'fx_signalline', name: 'Signal Line Cut', duration: 0.7,
-    // A bright scan line sweeps down the frame and the picture cuts along
-    // it — above the line is the incoming clip, below it the outgoing one —
-    // with a channel split that only exists within a few pixels of the line,
-    // like a broadcast signal switching over. (fx_scanline is a pixel effect;
-    // this is the transition of the same image.)
-    expr: `st(0, H*(P*1.1-0.05)); st(1, clip(1-abs(Y-ld(0))/(H*0.03), 0, 1)); st(2, ld(1)*W*0.006);
-      (if(lt(Y, ld(0)), B(X+ld(2)*C(1, 0, -1), Y), A(X+ld(2)*C(1, 0, -1), Y)))*(1-ld(1)) + C(255, 255, 255)*ld(1)*0.9`,
-  },
   {
     id: 'fx_mosaic', name: 'Mosaic Wipe', duration: 1,
     // Blocks grow towards the middle of the transition while a ragged edge sweeps left to right.
@@ -946,57 +702,6 @@ export const FX_TRANSITIONS = [
   ...STUDIO_TRANSITIONS,
   // Library mega-growth (10/10 step 3).
   ...GROWTH_TRANSITIONS,
-  // ---- CC-05: four true transitions (appended at the end of the array so
-  // the packs above keep their order). Each is a real named renderer with
-  // first/mid/last frame tests (scripts/test-cc05-transitions.*): P = 0 is
-  // exactly A, P = 1 exactly B, and the mid frames carry the named look.
-  // The film-burn / light-leak TRANSITIONS stay out by Hamza's order — the
-  // CC-02 film burn is an effect (fx_burnleak), not a transition.
-  {
-    id: 'fx_pushsmoothright', name: 'Smooth Push Right', duration: 0.7,
-    // The mirror of Smooth Push Left (fx_pushsmooth): both clips travel right
-    // together on a smoothstep, the incoming one entering from the left, with
-    // the same velocity-coupled horizontal blur (strongest mid-travel, exactly
-    // zero at both ends, so no frame freezes blurry). NOTE: the geometry is
-    // the same rightward slide fx_pullsmooth ('Smooth Pull Right') already
-    // renders — this entry completes the Push Left/Right pair under the Push
-    // name; see the CC-05 report before retiring either name.
-    expr: `st(0, smooth(0, 1, P)); st(1, W*ld(0)); st(2, (6*P*(1-P))*10*H/720);
-      if(gte(X, ld(1)), ${hblurAt('A', '-ld(1)', 'ld(2)')}, ${hblurAt('B', 'W-ld(1)', 'ld(2)')})`,
-  },
-  // Directional Blur Reveal: both clips blur along one direction, strongest
-  // mid-transition and exactly zero at both ends, while they crossfade.
-  withTrParams({ id: 'fx_blurreveal', name: 'Directional Blur Reveal', duration: 0.8 },
-    [{ key: 'blur', name: 'Blur', min: 0, max: 1, def: 0.6, step: 0.01, fmt: 'pct', label: 'insp.trBlur' },
-     { key: 'angle', name: 'Direction', options: ['horizontal', 'vertical', 'diagonal'], def: 'horizontal' }],
-    ({ blur = 0.6, angle = 'horizontal' } = {}) => {
-      const d = `4*P*(1-P)*${trNum(blur)}*20*H/720`;
-      const taps = (F) => {
-        const off = (k) => angle === 'vertical' ? `X, Y+(${k})*ld(0)` : angle === 'diagonal' ? `X+(${k})*ld(0), Y+(${k})*ld(0)` : `X+(${k})*ld(0), Y`;
-        // 9 taps, blur9 weights (sum 0.98) along the chosen direction.
-        return `(${TAPW.map(([k, w]) => `${w}*${F}(${off(k)})`).join('+')})/0.98`;
-      };
-      return `st(0, ${d}); st(1, ${taps('A')}); st(2, ${taps('B')}); ld(1)*(1-P) + ld(2)*P`;
-    }),
-  // RGB Split Cut: a hard cut at the midpoint with a deterministic channel
-  // split that peaks exactly at the cut and is zero at both ends (no hash —
-  // the same P renders the same frame in preview and export, every time).
-  withTrParams({ id: 'fx_rgbsplitcut', name: 'RGB Split Cut', duration: 0.6 },
-    [{ key: 'split', name: 'Split', min: 0, max: 1, def: 0.5, step: 0.01, fmt: 'pct', label: 'insp.trSplit' }],
-    ({ split = 0.5 } = {}) =>
-      `st(0, 4*P*(1-P)*W*0.04*${trNum(split)}); if(lt(P, 0.5), A(X+ld(0)*C(1, 0, -1), Y), B(X-ld(0)*C(1, 0, -1), Y))`),
-  // Bloom Flash: a transition-local glow (NOT Stream A's bloom pipeline) —
-  // the A/B blend is mixed toward its own 3x3-blurred self and lifted with a
-  // warm flash that peaks mid-transition and is exactly zero at both ends.
-  withTrParams({ id: 'fx_bloomflash', name: 'Bloom Flash', duration: 0.7 },
-    [{ key: 'intensity', name: 'Flash', min: 0, max: 1, def: 0.7, step: 0.01, fmt: 'pct', label: 'insp.trIntensity' },
-     { key: 'radius', name: 'Glow radius', min: 0, max: 1, def: 0.5, step: 0.01, fmt: 'pct', label: 'insp.trRadius' }],
-    ({ intensity = 0.7, radius = 0.5 } = {}) => {
-      const blur3 = (F) => `(${[-1, 0, 1].flatMap((i) => [-1, 0, 1].map((j) => `${F}(X+(${i})*ld(2), Y+(${j})*ld(2))`)).join('+')})/9`;
-      return `st(0, 4*P*(1-P)); st(1, ld(0)*${trNum(intensity)}); st(2, ${trNum(radius)}*8*H/720);
-        st(3, A(X, Y)*(1-P) + B(X, Y)*P); st(4, (${blur3('A')})*(1-P) + (${blur3('B')})*P);
-        ld(3)*(1-ld(1)*0.55) + ld(4)*ld(1)*0.55 + C(255, 238, 205)*ld(1)*0.30`;
-    }),
 ];
 
 // Effects that change the picture itself (geq in the export, canvas pixels in the preview).
@@ -1051,50 +756,6 @@ export const PIXEL_EFFECTS = [
   // frames across the whole library — no tile is a rename of another tile's render).
   ...pixelLibrary(),
   ...pixelGrowth(),
-  // ---- Gap-build Stream B: MisterHorse §11 + Pan-Zoom tool. Original
-  // expressions in the catalog's own language (no fetched packs, no MOGRT).
-  // Dream Bloom: bloom + soft blur + lifted blacks (fx_bloom2 + fx_soft2 exist
-  // separately; this is one named look, not a rename of either).
-  withParams({ id: 'fx_dreambloom', name: 'Dream Bloom', icon: '🌸' },
-    [{ key: 'bloom', name: 'Bloom', min: 0, max: 1.5, def: 0.7, step: 0.05, fmt: 'pct' },
-     { key: 'warmth', name: 'Warmth', min: 0, max: 30, def: 10, step: 1 }],
-    (v) => `S(X, Y)*1.02 + (${blurN(0.014)})*${pf(v.bloom)} + ${pf(v.warmth)}*0.4 + C(6, 0, -4)`),
-  // Edge Grain: film grain that lives only near the frame edges (a vignette
-  // falloff masks it), so the subject stays clean while the borders feel analog.
-  // The mask divisor is 0.5 so the falloff actually engages: the corner radius
-  // is 0.5*hypot(W,H), and with 0.62 the mask was ~0 everywhere except the
-  // extreme corners (mean abs diff 0.67 at defaults — below the library's 1.0 bar).
-  withParams({ id: 'fx_edgegrain', name: 'Edge Grain', icon: '🎞' },
-    [{ key: 'amount', name: 'Grain', min: 0, max: 80, def: 32, step: 1 },
-     { key: 'edge', name: 'Edge width', min: 0.1, max: 0.9, def: 0.45, step: 0.05, fmt: 'pct' }],
-    (v) => `st(0, clip((hypot(X-W/2, Y-H/2)/(0.5*hypot(W, H))-(1-${pf(v.edge)}))*4, 0, 1)); S(X, Y) + (hash(X*1.37+Y*2.11+floor(T*24)*7.7)-0.5)*${pf(v.amount)}*ld(0)`),
-  // Organic Film Gate: gate weave (slow sinusoidal drift of the whole frame),
-  // a soft vignette, and sparse dust specks — the look of a projector gate,
-  // not a digital shake.
-  withParams({ id: 'fx_filmgate', name: 'Organic Film Gate', icon: '🎞' },
-    [{ key: 'weave', name: 'Weave', min: 0, max: 0.01, def: 0.002, step: 0.0005, fmt: 'pct' },
-     { key: 'dust', name: 'Dust', min: 0, max: 1, def: 0.5, step: 0.05, fmt: 'pct' }],
-    (v) => `st(0, sin(T*0.7)*W*${pf(v.weave)}); st(1, cos(T*0.53)*H*${pf(v.weave)});
-      st(2, S(X+ld(0), Y+ld(1)));
-      st(3, gt(hash(floor(X/(W*0.006))*7.7+floor(Y/(W*0.006))*3.1+floor(T*12)*1.3), 1-0.0014*${pf(v.dust)}));
-      st(4, clip(1 - hypot(X-W/2, Y-H/2)/(0.75*hypot(W, H)), 0, 1));
-      if(ld(3), 235, ld(2)*(0.72+0.28*ld(4)))`),
-  // Pan & Zoom (Ken Burns, spec matrix): scale interpolates startScale ->
-  // endScale across `span` seconds while panning panX/panY (frame fractions).
-  // The Pan-Zoom tool (src/gapB.js panZoomPatch) fills span from the clip
-  // length, so the move always spans the clip.
-  withParams({ id: 'fx_panzoom', name: 'Pan & Zoom', icon: '🔍' },
-    [{ key: 'startScale', name: 'Start zoom', min: 0.5, max: 3, def: 1, step: 0.05 },
-     { key: 'endScale', name: 'End zoom', min: 0.5, max: 3, def: 1.15, step: 0.05 },
-     { key: 'panX', name: 'Pan X', min: -0.5, max: 0.5, def: 0, step: 0.01, fmt: 'pct' },
-     { key: 'panY', name: 'Pan Y', min: -0.5, max: 0.5, def: 0, step: 0.01, fmt: 'pct' },
-     { key: 'span', name: 'Span (s)', min: 0.1, max: 120, def: 3, step: 0.1 }],
-    (v) => `st(0, smooth(0, ${pf(v.span)}, T)); st(1, ${pf(v.startScale)}+(${pf(v.endScale)}-${pf(v.startScale)})*ld(0));
-      S(W/2+(X-W/2)/ld(1)+W*${pf(v.panX)}*ld(0)+0.5, H/2+(Y-H/2)/ld(1)+H*${pf(v.panY)}*ld(0)+0.5)`),
-
-  // ---- Creative Composer stream A (CC-01 + CC-09): real bloom presets and
-  // unified analog effects. Appended last; nothing above moves.
-  ...ccStreamAEffects(),
 ];
 
 // Builders for the expanded pixel library (defined below the classic four for readability).
@@ -1144,81 +805,6 @@ function pixelLibrary() {
   withParams({ id: 'fx_scanline', name: 'Scanlines', icon: '📺' }, [{ key: 'amount', name: 'Darkening', min: 0, max: 0.9, def: 0.38, step: 0.01, fmt: 'pct' }], (v) => `S(X, Y) * (1 - ${pf(v.amount)}*fract(floor(Y/max(1, H/220))/2)*2)`),
   { id: 'fx_crt', name: 'CRT Grille', icon: '📺', expr: `S(X, Y) * if(lt(fract(X/3), 0.34), C(1.15, 0.62, 0.62), if(lt(fract(X/3), 0.67), C(0.62, 1.15, 0.62), C(0.62, 0.62, 1.15)))` },
   { id: 'fx_vhstrack', name: 'VHS Tracking Band', icon: '📼', expr: `st(0, fract(T*0.14)*1.15 - 0.06); st(1, clip(1 - abs(Y/H - ld(0))/0.09, 0, 1)); S(X + ld(1)*W*0.02*sin(Y*0.4 + T*30), Y) * (1 + ld(1)*0.35) + ld(1)*22` },
-  // ---- CC-02: procedural film burn & light leak (an EFFECT, not the removed
-  // fx_filmburn transition — different id, different thing: a continuous timed
-  // effect on the video/effects track). Deterministic seeded noise warps an
-  // irregular burn field; light accumulates at the edges or the centre, an
-  // organic exposure wave breathes it, a warm gradient tints it, grain rides
-  // on top. Same seed renders identically across exports (every hash input is
-  // floored time + the seed — no wall clock, no per-run randomness), and every
-  // sample is clamped, so there are no seams or unfilled edges at any aspect.
-  // Registers: r0/r1 noise octaves, r2 burn field, r3 halation halo, r5/r6
-  // warped noise coords, r7/r8 gate-weave offsets (r9 stays the region mask).
-  // CC-09c: halation + gate weave are toggles on this effect (with amounts),
-  // not standalone presets. The 12 starter variations are parameter bundles
-  // on this one entry (see presets below).
-  withParams({ id: 'fx_burnleak', name: 'Film Burn & Light Leak', icon: '🔥',
-    presets: [
-      { id: 'warm-edge', name: 'Warm Edge', params: { amount: 0.65, balance: 0.15, warmth: 0.9, speed: 0.8, seed: 1, grain: 0.25 } },
-      { id: 'center-flash', name: 'Center Flash', params: { amount: 0.7, balance: 0.9, warmth: 0.85, speed: 1.1, seed: 2, grain: 0.2, halation: true, halationAmt: 0.6 } },
-      { id: 'red-analog', name: 'Red Analog', params: { amount: 0.7, balance: 0.3, warmth: 1, speed: 0.7, seed: 3, grain: 0.5, halation: true, halationAmt: 0.7, gateWeave: true, weaveAmt: 0.6 } },
-      { id: 'sunrise-leak', name: 'Sunrise Leak', params: { amount: 0.55, balance: 0.2, warmth: 0.95, speed: 0.5, seed: 4, grain: 0.15 } },
-      { id: 'dirty-8mm', name: 'Dirty 8mm', params: { amount: 0.8, balance: 0.5, warmth: 0.6, speed: 1.6, seed: 5, grain: 0.8, gateWeave: true, weaveAmt: 0.8 } },
-      { id: 'gold-bloom', name: 'Gold Bloom', params: { amount: 0.6, balance: 0.6, warmth: 0.75, speed: 0.9, seed: 6, grain: 0.2, halation: true, halationAmt: 0.8 } },
-      { id: 'soft-burn', name: 'Soft Burn', params: { amount: 0.35, balance: 0.4, warmth: 0.7, speed: 0.6, seed: 7, grain: 0.1 } },
-      { id: 'film-gate-burn', name: 'Film Gate Burn', params: { amount: 0.75, balance: 0.1, warmth: 0.85, speed: 1, seed: 8, grain: 0.4, halation: true, halationAmt: 0.5, gateWeave: true, weaveAmt: 0.5 } },
-      { id: 'double-flash', name: 'Double Flash', params: { amount: 0.7, balance: 0.5, warmth: 0.8, speed: 1.8, seed: 2, grain: 0.3, halation: true, halationAmt: 0.6 } },
-      { id: 'light-streak', name: 'Light Streak', params: { amount: 0.6, balance: 0.35, streak: 0.8, warmth: 0.8, speed: 1.2, seed: 3, grain: 0.15 } },
-      { id: 'pastel-leak', name: 'Pastel Leak', params: { amount: 0.45, balance: 0.3, warmth: 0.35, speed: 0.7, seed: 4, grain: 0.1 } },
-      { id: 'burn-match-cut', name: 'Burn Match Cut', params: { amount: 0.85, balance: 0.5, warmth: 0.9, speed: 1.4, seed: 1, grain: 0.35, halation: true, halationAmt: 0.7 } },
-    ] },
-    [
-      { key: 'amount', name: 'Burn', min: 0, max: 1, def: 0.6, step: 0.01, fmt: 'pct' },
-      { key: 'balance', name: 'Centre', min: 0, max: 1, def: 0.3, step: 0.01, fmt: 'pct' },
-      { key: 'streak', name: 'Streak', min: 0, max: 1, def: 0, step: 0.01, fmt: 'pct' },
-      { key: 'warmth', name: 'Warmth', min: 0, max: 1, def: 0.8, step: 0.01, fmt: 'pct' },
-      { key: 'speed', name: 'Drift', min: 0, max: 2, def: 1, step: 0.05 },
-      { key: 'seed', name: 'Seed', min: 1, max: 8, def: 1, step: 1 },
-      { key: 'grain', name: 'Grain', min: 0, max: 1, def: 0.3, step: 0.01, fmt: 'pct' },
-      { key: 'halation', name: 'Halation', type: 'toggle', min: 0, max: 1, def: false, step: 1 },
-      { key: 'halationAmt', name: 'Halation amount', min: 0, max: 1, def: 0.5, step: 0.01, fmt: 'pct' },
-      { key: 'gateWeave', name: 'Gate weave', type: 'toggle', min: 0, max: 1, def: false, step: 1 },
-      { key: 'weaveAmt', name: 'Weave amount', min: 0, max: 1, def: 0.5, step: 0.01, fmt: 'pct' },
-    ],
-    (v) => {
-      const amount = pf(v.amount); const balance = pf(v.balance); const streak = pf(v.streak);
-      const warmth = v.warmth; const speed = pf(v.speed); const seed = Math.round(v.seed);
-      const grain = pf(v.grain * 36);
-      const halOn = !!v.halation; const halAmt = pf(v.halationAmt);
-      const weaveOn = !!v.gateWeave; const weaveAmt = v.weaveAmt;
-      // Warm tint: warmth 0 is pale cream, 1 is deep orange-red.
-      const gTint = Math.round(225 - 105 * warmth); const bTint = Math.round(200 - 155 * warmth);
-      // Gate weave: a slow drift plus a per-frame jitter, both floored in time
-      // so the offset is a step function of T (deterministic, pause-safe).
-      const wx = weaveOn
-        ? `(hash(floor(T*7)+${seed}*3.3)-0.5)*W*${pf(0.012 * weaveAmt)} + (hash(floor(T*24)+${seed}*7.7)-0.5)*W*${pf(0.004 * weaveAmt)} + sin(T*0.7+${seed})*W*${pf(0.002 * weaveAmt)}`
-        : '0';
-      const wy = weaveOn
-        ? `(hash(floor(T*5)+${seed}*5.1)-0.5)*H*${pf(0.010 * weaveAmt)} + cos(T*0.9+${seed})*H*${pf(0.0016 * weaveAmt)}`
-        : '0';
-      const SX = weaveOn ? 'X+ld(7)' : 'X'; const SY = weaveOn ? 'Y+ld(8)' : 'Y';
-      const n1 = `hash(floor((${SX})/(W*0.11))*3.1 + floor((${SY})/(H*0.11))*7.7 + floor((${SX})/(W*0.11))*floor((${SY})/(H*0.11))*0.61 + floor(T*${speed}*2)*0.37 + ${seed}*1.7)`;
-      const n2 = `hash(floor(ld(5)*6)*1.3 + floor(ld(6)*6)*2.9 + floor(ld(5)*6)*floor(ld(6)*6)*0.53 + floor(T*${speed})*0.53 + ${seed}*3.1)`;
-      const edgeAcc = `clip(1 - min(min(X/W, 1-X/W), min(Y/H, 1-Y/H))/0.16, 0, 1)`;
-      const centreAcc = `clip(1 - hypot(X/W-0.5, (Y/H-0.5)*H/W)/0.32, 0, 1)`;
-      const streakAcc = `clip(1 - abs(X/W*0.7 + Y/H*0.7 - (0.55 + 0.18*sin(T*${speed}*0.5 + ${seed})))/0.10, 0, 1)`;
-      const field = `clip(${edgeAcc}*(1-${balance}) + ${centreAcc}*${balance} + ${streakAcc}*${streak} + (ld(1)-0.5)*0.8, 0, 1) * (0.6 + 0.4*sin(T*${speed}*0.9 + ld(1)*6.283 + ${seed})) * ${amount}`;
-      const halo = halOn ? `clip(L(${SX}, ${SY})/255 - 0.72, 0, 1)*${halAmt}` : '0';
-      const base = `S(${SX}, ${SY})`;
-      const exposed = `${base}*(1 + ld(2)*0.85) + C(255, ${gTint}, ${bTint})*ld(2)*0.38 + ld(2)*14`;
-      const grainTerm = `(hash(X*1.37 + Y*2.11 + floor(T*24)*7.7)-0.5)*${grain}`;
-      if (!halOn) {
-        return `st(7, ${wx}); st(8, ${wy}); st(0, ${n1}); st(5, X/W + (ld(0)-0.5)*0.09); st(6, Y/H + (ld(0)-0.5)*0.09); st(1, ${n2}); st(2, ${field}); st(3, 0); ${exposed} + ${grainTerm}`;
-      }
-      const d = 'H*0.004';
-      const cross = `(S(${SX}+${d}, ${SY}) + S(${SX}-${d}, ${SY}) + S(${SX}, ${SY}+${d}) + S(${SX}, ${SY}-${d}))/4`;
-      return `st(7, ${wx}); st(8, ${wy}); st(0, ${n1}); st(5, X/W + (ld(0)-0.5)*0.09); st(6, Y/H + (ld(0)-0.5)*0.09); st(1, ${n2}); st(2, ${field}); st(3, ${halo}); (${exposed})*(1-ld(3)*0.35) + (${cross})*ld(3)*0.35 + C(255, 70, 30)*ld(3)*64 + ${grainTerm}`;
-    }),
   // Ordered-dither print: each channel is thresholded against a fixed 4x4 pattern (Sprint 12, original).
   { id: 'fx_dither', name: 'Dither Print', icon: '🎲', expr: `st(0, mod(mod(floor(X/3), 4)*5 + mod(floor(Y/3), 4)*11, 16)/16); if(gt(S(X, Y)/255, ld(0)), 255, 0)` },
   // -- Blur & Focus --
@@ -1246,24 +832,6 @@ function pixelLibrary() {
   { id: 'fx_squeeze', name: 'Squeeze In', icon: '↔', expr: `S(X*1.18 - W*0.09, Y)` },
   { id: 'fx_stretchx', name: 'Stretch Wide', icon: '↔', expr: `S(X*0.84 + W*0.08, Y)` },
   withParams({ id: 'fx_wavewarp', name: 'Wave Warp', icon: '〰' }, [{ key: 'amount', name: 'Wave depth', min: 0, max: 0.03, def: 0.008, step: 0.0005, fmt: 'pct' }], (v) => `S(X + sin(Y/H*12.56 + T*2.2)*W*${pf(v.amount)}, Y)`),
-  // Gap-build C (CSV row 161): gentle heat haze — NOT water. A slow shimmer
-  // whose displacement grows toward the bottom of the frame (heat rising off
-  // a hot surface), strongest low, calm at the top; ripple/wavewarp bend the
-  // whole frame uniformly instead.
-  withParams({ id: 'fx_heathaze', name: 'Gentle Heat Haze', icon: '♨' }, [{ key: 'amount', name: 'Haze', min: 0, max: 0.02, def: 0.006, step: 0.0005, fmt: 'pct' }], (v) => `st(0, Y/H); st(1, ld(0)*ld(0)); S(X + sin(Y/H*25 + T*3.1 + sin(X/W*9 + T*1.7))*W*${pf(v.amount)}*ld(1), Y + cos(X/W*17 + T*2.3)*H*${pf(v.amount)}*0.4*ld(1))`),
-  // ---- P3-06: jelly wobble — a procedural deformation. The picture wobbles
-  // on both axes with a travelling sine wave whose amplitude decays like a
-  // spring settling after the clip starts; settle 0 is an endless wobble.
-  // The decay factor reaches EXACTLY 0 in finite time (exp(-T*s) - 0.02,
-  // floored at 0): the shared expression engine samples with truncation, so
-  // an asymptotic decay would keep shimmering 1 px forever instead of
-  // settling. Same expression in preview and export (pixelPasses), so the
-  // two agree by construction; the CPU reference evaluates the same expression.
-  withParams({ id: 'fx_jelly', name: 'Jelly Wobble', icon: '🪼' }, [
-    { key: 'amount', name: 'Wobble depth', min: 0, max: 0.03, def: 0.008, step: 0.0005, fmt: 'pct' },
-    { key: 'waves', name: 'Waves', min: 1, max: 6, def: 2, step: 0.5 },
-    { key: 'settle', name: 'Settle', min: 0, max: 3, def: 1.2, step: 0.1 },
-  ], (v) => `st(0, max(0, exp(-T*${pf(v.settle)}) - 0.02)/0.98); S(X + sin(Y/H*6.283*${pf(v.waves)} + T*5.2)*W*${pf(v.amount)}*ld(0), Y + cos(X/W*6.283*${pf(v.waves)} + T*5.2)*H*${pf(v.amount)}*0.6*ld(0))`),
   // Fisheye: the sampling radius compresses toward the centre, magnifying the middle of the frame (Sprint 12, original).
   { id: 'fx_fisheye', name: 'Fisheye', icon: '🐟', expr: `st(0, (X - W/2)/(W/2)); st(1, (Y - H/2)/(H/2)); st(2, ld(0)*ld(0) + ld(1)*ld(1)); st(3, 1/(1 + 0.55*ld(2))); S(W/2 + (X - W/2)*ld(3), H/2 + (Y - H/2)*ld(3))` },
   // Stained glass: jittered cell sampling with dark grout lines between the panes (Sprint 12, original).
@@ -1321,28 +889,6 @@ function pixelLibrary() {
   { id: 'fx_strobe', name: 'Strobe', icon: '⚡', expr: `S(X, Y) * if(gt(sin(T*22), 0.1), 1.12, 0.45)` },
   { id: 'fx_spinslow', name: 'Slow Sway', icon: '💓', expr: `st(0, sin(T*0.7)*0.045); st(1, cos(ld(0))); st(2, sin(ld(0))); S(W/2 + (X - W/2)*ld(1) + (Y - H/2)*ld(2), H/2 - (X - W/2)*ld(2) + (Y - H/2)*ld(1))` },
   { id: 'fx_zoomslow', name: 'Slow Zoom', icon: '💓', expr: `st(0, 1 + 0.3*smooth(0, 6, T)); S(W/2 + (X - W/2)/ld(0), H/2 + (Y - H/2)/ld(0))` },
-  // Gap-build C (CSV row 165): motion echo — fading ghost copies trailing
-  // behind along a slowly rotating direction. The engine has no frame
-  // feedback (one frame in, one frame out), so the trail is spatial — the
-  // same honest approximation Zoom Trails uses — and it reads as an echo
-  // whenever the picture moves. Ghost weights fall off geometrically and
-  // the ghosts always sum to 0.45 of the picture, so brightness is kept.
-  withParams({ id: 'fx_motionecho', name: 'Motion Echo', icon: '👻' }, [
-    { key: 'amount', name: 'Echo distance', min: 0, max: 0.06, def: 0.02, step: 0.001, fmt: 'pct' },
-    { key: 'echoes', name: 'Echoes', min: 1, max: 5, def: 3, step: 1 },
-  ], (v) => {
-    const n = Math.max(1, Math.min(5, Math.round(v.echoes)));
-    const d = pf(v.amount);
-    const raw = Array.from({ length: n }, (_, i) => Math.pow(0.55, i));
-    const sum = raw.reduce((a, b) => a + b, 0);
-    const taps = ['S(X, Y)*0.55'];
-    raw.forEach((r, i) => {
-      const k = i + 1;
-      const w = (0.45 * r / sum).toFixed(4);
-      taps.push(`S(X-${k}*W*${d}*cos(T*0.9), Y-${k}*H*${d}*sin(T*0.9))*${w}`);
-    });
-    return `(${taps.join(' + ')})`;
-  }),
   ];
 }
 
@@ -1677,143 +1223,7 @@ function drawFireflies(ctx, W, H, t) {
   ctx.restore();
 }
 
-// ---- Creative Composer stream A (CC-01 + CC-09) ----
-// The 11 bloom presets are multiPass: 'bloom' — their make() returns the
-// cheap single-pass fallback expression (thumbnails, self-test, CPU
-// reference, regioned instances); the real render is the extract -> blur ->
-// composite pipeline in gl.js, reached through resolveFxPass (fx/params.js).
-// The 4 analog effects are single expressions built from the same original
-// primitives as the pieces they unify (fx_vhs / fx_vhstrack / fx_prism /
-// fx_prismglow / fx_stainedglass / fx_frost stay in place, untouched).
-function bloomTint(h, s) {
-  // HSL (h 0..360, s 0..1, lightness 0.6) -> [r, g, b] 0..255, for the
-  // fallback tint. Mirrors hueRgb in fx/params.js (which returns 0..1).
-  const hh = ((h || 0) % 360) / 60;
-  const c = 0.8 * Math.min(1, Math.max(0, s || 0));
-  const x = c * (1 - Math.abs((hh % 2) - 1));
-  const m = 0.6 - c / 2;
-  const [r, g, b] = hh < 1 ? [c, x, 0] : hh < 2 ? [x, c, 0] : hh < 3 ? [0, c, x] : hh < 4 ? [0, x, c] : hh < 5 ? [x, 0, c] : [c, 0, x];
-  return [r + m, g + m, b + m].map((v) => Math.round(v * 255));
-}
-function bloomSchema(defs) {
-  return [
-    { key: 'threshold', name: 'Threshold', min: 0, max: 1, def: defs.threshold ?? 0.55, step: 0.01, fmt: 'pct' },
-    { key: 'softness', name: 'Softness', min: 0, max: 1, def: defs.softness ?? 0.35, step: 0.01, fmt: 'pct' },
-    { key: 'radius', name: 'Radius', min: 0, max: 1, def: defs.radius ?? 0.45, step: 0.01, fmt: 'pct' },
-    { key: 'intensity', name: 'Intensity', min: 0, max: 2, def: defs.intensity ?? 1, step: 0.05 },
-    { key: 'hue', name: 'Tint hue', min: 0, max: 360, def: defs.hue ?? 45, step: 1 },
-    { key: 'saturation', name: 'Tint strength', min: 0, max: 1, def: defs.saturation ?? 0.25, step: 0.01, fmt: 'pct' },
-    { key: 'blend', name: 'Blend (Add → Screen)', min: 0, max: 1, def: defs.blend ?? 0, step: 0.05 },
-    { key: 'mask', name: 'Mask (Luma → Alpha)', min: 0, max: 1, def: defs.mask ?? 0, step: 0.05 },
-    { key: 'quality', name: 'Quality', min: 0, max: 2, def: defs.quality ?? 1, step: 1 },
-    ...(defs.pulse != null ? [{ key: 'pulse', name: 'Pulse', min: 0, max: 1, def: defs.pulse, step: 0.01, fmt: 'pct' }] : []),
-    ...(defs.sweep != null ? [{ key: 'sweep', name: 'Light sweep', min: 0, max: 1, def: defs.sweep, step: 0.01, fmt: 'pct' }] : []),
-  ];
-}
-function bloomFallback(v) {
-  const thr = (v.threshold ?? 0.55) * 255;
-  const soft = Math.max(0.05, v.softness ?? 0.35) * 255;
-  const [r, g, b] = bloomTint(v.hue ?? 45, v.saturation ?? 0.25);
-  const k = (v.intensity ?? 1) * 0.55;
-  const rad = pf(0.004 + (v.radius ?? 0.45) * 0.02);
-  const pulse = v.pulse || 0;
-  const sweep = v.sweep || 0;
-  // r1 = soft-knee highlight mask; r3 = wrapped distance to the moving
-  // sweep band (only when the preset sweeps). The blurred picture, masked
-  // by the highlights and tinted, is the glow.
-  return `${sweep ? `st(3, min(abs((X + Y*0.5)/(W + H*0.5) - fract(T*0.18)), 1 - abs((X + Y*0.5)/(W + H*0.5) - fract(T*0.18)))); ` : ''}st(1, clip((L(X, Y) - ${pf(thr)})/${pf(soft)}, 0, 1)); S(X, Y) + (${blurN(rad)})*ld(1)*C(${pf(r / 255)}, ${pf(g / 255)}, ${pf(b / 255)})*${pf(k)}${pulse ? `*(1 + ${pf(pulse * 0.4)}*sin(T*2.6))` : ''}${sweep ? `*(1 + ${pf(sweep)}*1.5*exp(-ld(3)*ld(3)*36))` : ''}`;
-}
-function bloomEntry(id, name, icon, defs) { return withParams({ id, name, icon, multiPass: 'bloom' }, bloomSchema(defs), bloomFallback); }
-
-function ccStreamAEffects() {
-  return [
-    // ---- CC-01: the 11 starter bloom presets (Doc 3 §4) ----
-    bloomEntry('fx_bloom_clean', 'Clean Soft Bloom', '✨', { threshold: 0.55, softness: 0.4, radius: 0.5, intensity: 0.9, hue: 45, saturation: 0.15, blend: 0, mask: 0, quality: 1 }),
-    bloomEntry('fx_bloom_halation', 'Warm Halation', '🌅', { threshold: 0.5, softness: 0.45, radius: 0.65, intensity: 1.1, hue: 28, saturation: 0.85, blend: 0, mask: 0, quality: 2 }),
-    bloomEntry('fx_bloom_cool', 'Cool Diffuse', '❄️', { threshold: 0.5, softness: 0.5, radius: 0.7, intensity: 1.0, hue: 215, saturation: 0.7, blend: 0.25, mask: 0, quality: 2 }),
-    bloomEntry('fx_bloom_neon', 'Neon Sign', '🔆', { threshold: 0.62, softness: 0.25, radius: 0.35, intensity: 1.6, hue: 315, saturation: 1, blend: 0, mask: 0, quality: 1 }),
-    bloomEntry('fx_bloom_edge', 'Edge Glow', '💫', { threshold: 0.72, softness: 0.2, radius: 0.22, intensity: 1.5, hue: 200, saturation: 0.6, blend: 0, mask: 0, quality: 1 }),
-    bloomEntry('fx_bloom_dream', 'Dream', '☁️', { threshold: 0.45, softness: 0.55, radius: 0.85, intensity: 1.0, hue: 40, saturation: 0.3, blend: 0.5, mask: 0, quality: 2 }),
-    bloomEntry('fx_bloom_color', 'Colored Bloom', '🎨', { threshold: 0.55, softness: 0.35, radius: 0.5, intensity: 1.2, hue: 160, saturation: 0.9, blend: 0, mask: 0, quality: 1 }),
-    bloomEntry('fx_bloom_chroma', 'Chromatic Neon', '🌈', { threshold: 0.6, softness: 0.3, radius: 0.4, intensity: 1.7, hue: 280, saturation: 1, blend: 0, mask: 0, quality: 1 }),
-    bloomEntry('fx_bloom_halo', 'Highlight Halo', '🌙', { threshold: 0.68, softness: 0.3, radius: 0.6, intensity: 1.2, hue: 220, saturation: 0.35, blend: 0.25, mask: 0, quality: 2 }),
-    bloomEntry('fx_bloom_textpulse', 'Text Glow Pulse', '💡', { threshold: 0.5, softness: 0.35, radius: 0.4, intensity: 1.3, hue: 320, saturation: 0.9, blend: 0, mask: 1, quality: 1, pulse: 0.8 }),
-    bloomEntry('fx_bloom_sweep', 'Gentle Light Sweep', '🌤️', { threshold: 0.55, softness: 0.4, radius: 0.55, intensity: 1.0, hue: 45, saturation: 0.2, blend: 0, mask: 0, quality: 1, sweep: 0.7 }),
-    // ---- CC-09 (a): ONE unified CRT/VHS — scanlines + barrel curvature +
-    // chromatic aberration + tracking errors + noise, as one named effect.
-    // The pieces (fx_vhs, fx_vhstrack, fx_scanline, fx_crt) stay as they are.
-    withParams({ id: 'fx_crtvhs', name: 'CRT/VHS', icon: '📼' },
-      [{ key: 'scanlines', name: 'Scanlines', min: 0, max: 0.9, def: 0.38, step: 0.01, fmt: 'pct' },
-       { key: 'curvature', name: 'Curvature', min: 0, max: 1, def: 0.35, step: 0.01, fmt: 'pct' },
-       { key: 'aberration', name: 'Chromatic aberration', min: 0, max: 0.03, def: 0.006, step: 0.0005, fmt: 'pct' },
-       { key: 'tracking', name: 'Tracking errors', min: 0, max: 1, def: 0.5, step: 0.01, fmt: 'pct' },
-       { key: 'noise', name: 'Noise', min: 0, max: 60, def: 30, step: 1 }],
-      (v) => `st(0, lt(fract(T/2.3), 0.12) + gt(hash(floor(T*5)+0.3), 0.93));
-      st(1, fract(T*0.14)*1.15 - 0.06);
-      st(2, clip(1 - abs(Y/H - ld(1))/0.09, 0, 1));
-      st(3, min(ld(0), 1));
-      st(4, (X - W/2)/(W/2)); st(5, (Y - H/2)/(H/2));
-      st(6, 1 + ${pf(v.curvature * 0.18)}*(ld(4)*ld(4) + ld(5)*ld(5)));
-      st(7, W/2 + (X - W/2)*ld(6)); st(8, H/2 + (Y - H/2)*ld(6));
-      (S(ld(7) + C(W*${pf(v.aberration)}, 0, -W*${pf(v.aberration)}) + ld(2)*W*0.02*sin(Y*0.4 + T*30)*${pf(v.tracking)}, ld(8)) * (1 + ld(2)*0.35*${pf(v.tracking)}) * (1 - ${pf(v.scanlines)}*fract(floor(Y/max(1, H/240))/2)*2) + (hash(X*0.37 + Y*1.31 + floor(T*30)*7.1) - 0.5)*${pf(v.noise)}) * (1 - 0.12*ld(3)) + C(-6, 0, 12)*ld(3)`),
-    // ---- CC-09 (b): ONE unified Glass & Prism Distortion — radial
-    // refraction with per-channel dispersion, frost jitter and an optional
-    // faceted (stained-glass) field. The pieces (fx_prism, fx_prismglow,
-    // fx_stainedglass, fx_frost) stay as they are.
-    withParams({ id: 'fx_glassprism', name: 'Glass & Prism', icon: '🔮' },
-      [{ key: 'refraction', name: 'Refraction', min: 0, max: 1, def: 0.45, step: 0.01, fmt: 'pct' },
-       { key: 'dispersion', name: 'Dispersion', min: 0, max: 0.03, def: 0.008, step: 0.0005, fmt: 'pct' },
-       { key: 'frost', name: 'Frost', min: 0, max: 1, def: 0.25, step: 0.01, fmt: 'pct' },
-       { key: 'facets', name: 'Facets', min: 0, max: 1, def: 0, step: 0.01, fmt: 'pct' }],
-      (v) => `st(0, hypot(X - W/2, Y - H/2)/(0.72*hypot(W, H)));
-      st(1, 1 - ${pf(v.refraction)}*max(0, 1 - ld(0)*ld(0)));
-      st(2, W/2 + (X - W/2)*ld(1));
-      st(3, H/2 + (Y - H/2)*ld(1));
-      st(4, max(2, W/26));
-      st(5, floor(ld(2)/ld(4))*ld(4) + ld(4)/2);
-      st(6, floor(ld(3)/ld(4))*ld(4) + ld(4)/2);
-      st(7, ld(2)*(1 - ${pf(v.facets)}) + ld(5)*${pf(v.facets)});
-      st(8, ld(3)*(1 - ${pf(v.facets)}) + ld(6)*${pf(v.facets)});
-      S(ld(7) + C(W*${pf(v.dispersion)}, 0, -W*${pf(v.dispersion)}) + (hash(floor(X/3)*1.37 + floor(Y/3)*2.11) - 0.5)*W*${pf(v.frost)}*0.02, ld(8) + (hash(floor(X/3)*3.71 + floor(Y/3)*1.13) - 0.5)*H*${pf(v.frost)}*0.02)`),
-    // ---- CC-09 (c): Stroke Reveal — a real mask-paint path. A glowing
-    // brush edge sweeps diagonally (progress = smooth(0, 1, T*speed));
-    // behind it the full-colour picture, ahead of it a dimmed grey — the
-    // mask is the painted stroke itself, not a preset look.
-    withParams({ id: 'fx_strokereveal', name: 'Stroke Reveal', icon: '🖌️' },
-      [{ key: 'speed', name: 'Draw speed', min: 0.1, max: 2, def: 0.5, step: 0.05 },
-       { key: 'softness', name: 'Edge softness', min: 0.01, max: 0.3, def: 0.08, step: 0.01 },
-       { key: 'glow', name: 'Edge glow', min: 0, max: 2, def: 1, step: 0.05 }],
-      (v) => `st(0, smooth(0, 1, T*${pf(v.speed)}));
-      st(1, (X*0.8 + Y*0.6)/W + 0.04*sin(Y/(H*0.05)));
-      st(2, ld(0)*2.0);
-      st(3, clip((ld(2) - ld(1))/max(${pf(v.softness)}, 0.01), 0, 1));
-      st(4, exp(-((ld(1) - ld(2))*(ld(1) - ld(2)))*800));
-      st(5, L(X, Y)*0.45);
-      (S(X, Y)*ld(3) + ld(5)*(1 - ld(3))) + C(255, 240, 200)*ld(4)*${pf(v.glow)}*0.45`),
-    // ---- CC-09 (c): Shape Morph — real geometry interpolation. The lens
-    // boundary is a superellipse whose exponent lerps 2 (circle) -> 8
-    // (rounded square) with the morph amount, so the magnified region and
-    // its glowing outline genuinely change shape over time; the warp
-    // strength is the second shape parameter.
-    withParams({ id: 'fx_shapemorph', name: 'Shape Morph', icon: '🔷' },
-      [{ key: 'speed', name: 'Morph speed', min: 0.1, max: 2, def: 0.4, step: 0.05 },
-       { key: 'amount', name: 'Warp amount', min: 0, max: 1, def: 0.7, step: 0.01, fmt: 'pct' }],
-      (v) => `st(0, smooth(0, 1, T*${pf(v.speed)}));
-      st(1, (X - W/2)/(W/2));
-      st(2, (Y - H/2)/(H/2));
-      st(3, 2 + ld(0)*6);
-      st(4, pow(abs(ld(1)), ld(3)) + pow(abs(ld(2)), ld(3)));
-      st(5, pow(ld(4), 1/ld(3)));
-      st(6, 1 - ${pf(v.amount)}*0.35*max(0, 1 - ld(5)));
-      S(W/2 + (X - W/2)*ld(6), H/2 + (Y - H/2)*ld(6)) + C(255, 220, 160)*exp(-((ld(5) - 1)*(ld(5) - 1))*600)*0.45`),
-  ];
-}
-
 export const OVERLAY_EFFECTS = [
-  // P2-1: a true particle system (src/fx/particles.js) — seeded emitters with
-  // velocity, gravity, wind, sway, life and fade, eight presets and six
-  // tunable knobs; the instance config arrives as the 5th draw argument.
-  { id: 'fx_particles', name: 'Particle System', icon: '✨', draw: (c, W, H, t, cfg) => drawParticles(c, W, H, t, cfg) },
   { id: 'fx_snow', name: 'Snow Storm', icon: '❄', draw: drawSnow },
   { id: 'fx_limelight', name: 'Limelight', icon: '✦', draw: drawLimelight },
   { id: 'fx_fire', name: 'Fire Burn', icon: '🔥', draw: (c, W, H, t) => drawFire(c, W, H, t, 1) },
@@ -2015,4 +1425,3 @@ function drawWindowRain(ctx, W, H, t) {
   }
   ctx.restore();
 }
-

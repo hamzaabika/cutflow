@@ -19,9 +19,9 @@
 
 export const CURVE_MIN_SPEED = 0.1;
 export const CURVE_MAX_SPEED = 8;
-// Defensive clamp for stored data (the constant-speed dialog allows 0.1..100).
-const HARD_MIN = 0.1;
-const HARD_MAX = 100;
+// Defensive clamp for stored data (the constant-speed dialog allows 0.05..16).
+const HARD_MIN = 0.05;
+const HARD_MAX = 16;
 
 const clampSpeed = (s) => Math.min(HARD_MAX, Math.max(HARD_MIN, Number(s) || 1));
 
@@ -130,54 +130,6 @@ export function speedAtTime(clip, lt) {
   return speedAtSource(clip, sourceOffsetAt(clip, lt));
 }
 
-// Frame hold (P1-50): clip.frameHold = { at, duration } in TIMELINE-local
-// seconds. During [at, at+duration) the frame at `at` is held — the source
-// span [at, at+duration) is replaced by that frozen frame, so the clip's
-// timeline length does not change and picture and audio stay in sync.
-// Valid only for a plain constant-speed clip (no curve, no videoOverride —
-// a pre-rendered override file is one baked stream); image clips are
-// already stills, so a hold on one is meaningless and invalid.
-export function validFrameHold(clip) {
-  if (!clip || !clip.frameHold || hasCurve(clip) || clip.videoOverride) return null;
-  const len = clipDuration(clip);
-  const at = Number(clip.frameHold.at);
-  const dur = Number(clip.frameHold.duration);
-  if (!Number.isFinite(at) || !Number.isFinite(dur)) return null;
-  if (at < 0 || dur <= 0 || at + dur > len + 1e-9) return null;
-  return { at, duration: dur };
-}
-
-// Timeline-local time -> SOURCE offset (seconds from clip.in) with the hold
-// applied: inside the hold window the source stays at the hold point, so
-// the frozen frame shows; outside it the plain map applies (the source span
-// the hold replaces is never shown).
-export function holdSourceOffsetAt(clip, lt) {
-  const h = validFrameHold(clip);
-  if (!h) return sourceOffsetAt(clip, lt);
-  if (lt >= h.at && lt < h.at + h.duration) return sourceOffsetAt(clip, h.at);
-  return sourceOffsetAt(clip, lt);
-}
-
-// A sub-range [s, e) of a clip (a cut piece, a moved block) keeps the hold
-// only when the whole hold window sits inside it, shifted to the piece's
-// own local time; a hold straddling the piece boundary is dropped.
-export function pieceFrameHold(hold, s, e) {
-  if (!hold || !Number.isFinite(hold.at) || !Number.isFinite(hold.duration)) return null;
-  if (hold.at >= s - 1e-9 && hold.at + hold.duration <= e + 1e-9) return { at: hold.at - s, duration: hold.duration };
-  return null;
-}
-
-// A split at timeline-local time `cut` re-bases a hold onto one side: the
-// half that still contains the whole hold window keeps it (shifted for the
-// right half); a hold straddling the cut is dropped — half a frozen frame
-// is not a hold. Returns { left, right }.
-export function splitFrameHold(hold, cut) {
-  if (!hold || !Number.isFinite(hold.at) || !Number.isFinite(hold.duration)) return { left: null, right: null };
-  if (hold.at + hold.duration <= cut + 1e-9) return { left: { at: hold.at, duration: hold.duration }, right: null };
-  if (hold.at >= cut - 1e-9) return { left: null, right: { at: hold.at - cut, duration: hold.duration } };
-  return { left: null, right: null };
-}
-
 // Timeline-local time -> SOURCE offset (seconds from clip.in). The inverse map
 // of timelineOffsetAt; both are exact inverses of the same segment integrals.
 export function sourceOffsetAt(clip, lt) {
@@ -200,17 +152,6 @@ export function sourceOffsetAt(clip, lt) {
 }
 
 // SOURCE offset (seconds from clip.in) -> timeline-local time.
-// The playback rate at a clip edge (first / last knot speed, or the
-// constant speed): the linear extrapolation a J/L extension needs, since
-// the sampler clamps to the clip's own window and cannot answer for time
-// just outside it. P1-03: the lead/trail source seconds of a linked pair.
-export function edgeRate(clip, atStart) {
-  const s = sampler(clip);
-  if (!s) return clip.speed || 1;
-  const k = atStart ? s.knots[0] : s.knots[s.knots.length - 1];
-  return (k && k.speed) || 1;
-}
-
 export function timelineOffsetAt(clip, srcOff) {
   const s = sampler(clip);
   if (!s) return srcOff / (clip.speed || 1);

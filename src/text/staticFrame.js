@@ -35,20 +35,6 @@ function activeIndex(times, lt) {
 // Signature of one clip at local time lt, or null when it may be moving.
 export function clipStaticSignature(clip, lt) {
   if (!clip || clip.pin) return null;
-  // Gap-build C graphics: a VECTOR graphic clip's pixels are driven by local
-  // time itself (progress ring/bar with progress null, number counter,
-  // countdown, pointer pulse, dot-grid wave, stroke draw-on, scrolling
-  // credits), so a "settled" clip is NOT a static frame — returning a
-  // constant signature here froze the ring at the value it had when the last
-  // plain text clip ended (export probe: 67% stuck from t=2.5s). Only the
-  // panel kind is time-independent, so only it may prove static. The
-  // CC-06 kinds (title, lowerThird, label, callout, boxpop, twoline) are
-  // NOT vector kinds: they settle with animIn/animOut like normal text
-  // clips (checked below), so the early return must name the vector kinds
-  // instead of excluding only 'panel' — the blanket form also caught the
-  // CC-06 kinds and broke test-cc06-graphics.
-  const TIME_DRIVEN_VECTOR_KINDS = ['credits', 'stroke-draw-on', 'progress-ring', 'number-counter', 'countdown-timer', 'progress-bar', 'pointer-highlight', 'kinetic-dot-grid'];
-  if (clip.graphic && TIME_DRIVEN_VECTOR_KINDS.includes(clip.graphic.kind)) return null;
   // A duo clip animates per word / per char long after its (none) block anims
   // are done: it is only settled in its hold window, between the last unit
   // finishing and the exit starting. Anything else returns null (not static).
@@ -60,15 +46,6 @@ export function clipStaticSignature(clip, lt) {
     const n2 = line2 ? (rtl2 ? wordsOf(line2).length : graphemes(line2).length) : 0;
     const step2 = rtl2 ? duo.line2.wordMs : duo.line2.charMs;
     return duoSettledAt(duo, n1, n2, step2, clip.duration * 1000, lt * 1000) ? `${clip.id}|duo` : null;
-  }
-  // A graphic clip (CC-06) whose value moves on every frame — a counting
-  // number, a ticking timer, a filling ring — is never static. The other
-  // kinds settle with their animIn/animOut (their internal reveals are
-  // driven by pIn and end exactly when the entrance ends), so the standard
-  // settled logic below applies to them unchanged.
-  if (clip.graphic) {
-    const kind = (clip.graphic && clip.graphic.kind) || 'title';
-    if (kind === 'number' || kind === 'timer' || kind === 'ring') return null;
   }
   if (clip.animIn === undefined && clip.anim !== undefined && clip.anim !== 'none') return null;
   const animIn = { ...DEFAULT_ANIM_IN, ...(clip.animIn || {}) };

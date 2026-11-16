@@ -4,28 +4,6 @@ import { hasCustomMask, rasterizeCustomMask } from './customMask.js';
 export { hasCustomMask };
 
 export const DEFAULT_TRANSFORM = { scale: 1, scaleX: 1, scaleY: 1, uniform: true, x: 0, y: 0, rot: 0 };
-// Anchor point (P2-10): the pivot rotation and scale turn around, as fractions
-// of the displayed picture (0..1; 0.5, 0.5 = the picture centre, the old
-// behaviour). Stored on clip.transform so it travels with the clip.
-export const DEFAULT_ANCHOR = { x: 0.5, y: 0.5 };
-const anchorNum = (v) => (Number.isFinite(Number(v)) ? Math.min(1, Math.max(0, Number(v))) : 0.5);
-export const anchorOf = (clip) => {
-  const a = clip.transform?.anchor;
-  return a ? { x: anchorNum(a.x), y: anchorNum(a.y) } : { ...DEFAULT_ANCHOR };
-};
-export const hasAnchor = (clip) => {
-  const a = anchorOf(clip);
-  return a.x !== 0.5 || a.y !== 0.5;
-};
-// CSS transform-origin for the anchor, from the picture's fitted box (fx, fy:
-// fractions of the frame the contain-fitted picture occupies —
-// src/pictureGeometry.js keptFitFactors). The layer element is the full
-// frame, so the origin is the anchor's frame position in percent.
-export function anchorOrigin(clip, fit) {
-  if (!hasAnchor(clip) || !fit) return null;
-  const a = anchorOf(clip);
-  return `${((0.5 + (a.x - 0.5) * (fit.fx || 1)) * 100).toFixed(2)}% ${((0.5 + (a.y - 0.5) * (fit.fy || 1)) * 100).toFixed(2)}%`;
-}
 // Checklist #8 / #15 — the one correct transform reset, shared by the clip
 // menu and the inspector's Transform section. The menu's old patch
 // (`transform: undefined`) left transform keyframes behind, so the clip
@@ -37,7 +15,7 @@ export function resetTransformPatch(clip, track) {
   ['scale', 'x', 'y', 'rot'].forEach((p) => delete k[p]);
   const scale = track === 'overlay' ? 0.5 : track === 'sticker' ? 0.3 : 1;
   return {
-    transform: { ...DEFAULT_TRANSFORM, scale, anchor: { ...DEFAULT_ANCHOR } },
+    transform: { ...DEFAULT_TRANSFORM, scale },
     keyframes: Object.keys(k).length ? k : undefined,
   };
 }
@@ -401,14 +379,12 @@ export function customMaskImages(project) {
 
 // CSS for the picture layer of a clip in the preview (same order as the export: mask, opacity, then transform).
 // motion: { transform, opacity } of an animated clip at the current time (src/anim.js), or undefined.
-export function layerStyle(clip, W, H, motion, fit) {
+export function layerStyle(clip, W, H, motion) {
   const t = motion ? motion.transform : transformOf(clip);
   const { sx, sy } = scaleXY(t);
   const mask = hasMask(clip) ? `url(${maskUrl(clip, W, H)})` : 'none';
-  const origin = anchorOrigin(clip, fit);
   return {
     transform: `translate(${t.x * 100}%, ${t.y * 100}%) rotate(${t.rot}deg) scale(${sx}, ${sy})`,
-    ...(origin ? { transformOrigin: origin } : {}),
     opacity: String(motion ? motion.opacity : opacityOf(clip)),
     maskImage: mask,
     webkitMaskImage: mask,

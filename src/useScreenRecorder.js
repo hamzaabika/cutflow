@@ -1,15 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useT } from './i18n/index.jsx';
 
 // Screen recording: the chosen screen or window (with the PC's sound and / or the microphone). The camera is
-// recorded as its own file: the bubble on the screen is a preview of where it will sit (on a screen recording
-// the bubble stays visible in the video, as the Record window says), and its place and shape tell where the
-// camera clip goes on the overlay track. The WebM data is streamed to the main process, which saves MP4s in
-// Videos\Cutflow.
-// System sound: the display-media handler asks Chromium for loopback audio. Chromium implements that on
-// Windows and on Linux (via the PulseAudio/PipeWire monitor) — the track comes back live with deviceId
-// 'loopback' on both. If the machine has no audio server the track is silent, and the finished file is flagged
-// by the post-recording sound check instead of failing the start.
+// recorded as its own file: the bubble on the screen is only a preview (hidden from the capture),
+// and its place and shape tell where the camera clip goes on the overlay track. The WebM data is streamed to
+// the main process, which saves MP4s in Videos\Cutflow.
 // onDone({ screen, camera, camShape, camStyle, camGeom }, at) gets the media items; `at` is the playhead.
 // camStyle: { stroke, strokeColor, glow, glowColor } for the camera's outline and glow.
 const MIME = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
@@ -46,7 +40,6 @@ function fileRecorder(stream, kind, bitrate, expectAudio = false) {
 }
 
 export function useScreenRecorder(onDone) {
-  const t = useT();
   // phase: 'idle' | 'countdown' | 'recording' | 'saving'
   // notice: set when a finished recording came out silent although sound
   // was expected — the dialog shows it until dismissNotice clears it.
@@ -156,13 +149,7 @@ export function useScreenRecorder(onDone) {
         await window.api.screenWindow('minimize');
         await new Promise((r) => setTimeout(r, 400)); // let the minimize animation finish before recording
       }
-      await window.api.screenBar(true, opts.sourceId).then((res) => {
-        // Linux screen recording: there is no Stop bar (it would be burned into the video), so the user gets a
-        // notification telling them how to stop instead — the Record window's Stop button is the other way.
-        if (res && res.shown === false) {
-          try { new Notification(t('rec.linuxBarHiddenTitle'), { body: t('rec.linuxBarHiddenBody') }).show(); } catch { /* notifications are best-effort */ }
-        }
-      }).catch(() => {});
+      await window.api.screenBar(true, opts.sourceId);
       l.offs.push(window.api.onScreenStop(() => stop()), window.api.onScreenPause(() => togglePause()));
       // Sound was expected when the microphone or the computer sound was on:
       // the finished screen recording is then checked for silence.
@@ -185,7 +172,7 @@ export function useScreenRecorder(onDone) {
       const msg = e.name === 'NotAllowedError' ? 'Recording was not allowed (camera or microphone blocked, or the source is gone).' : e.message;
       setState({ phase: 'idle', count: 0, seconds: 0, paused: false, error: msg, notice: null });
     }
-  }, [stop, togglePause, t]);
+  }, [stop, togglePause]);
 
   const dismissNotice = useCallback(() => setState((s) => ({ ...s, notice: null })), []);
 

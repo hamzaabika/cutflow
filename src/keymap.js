@@ -41,9 +41,6 @@ const NAMED_BY_LOWER = Object.fromEntries(NAMED_KEYS.map((k) => [k.toLowerCase()
 // actions, and are deliberately not in this catalogue.
 export const KEY_ACTIONS = [
   { id: 'play', label: 'Play / pause', defaults: ['Space'] },
-  { id: 'shuttleBack', label: 'Shuttle back (step back a frame)', defaults: ['J'] },
-  { id: 'shuttleStop', label: 'Stop shuttle (pause)', defaults: ['K'] },
-  { id: 'shuttleFwd', label: 'Shuttle forward (1× → 2× → 4×)', defaults: ['L'] },
   { id: 'split', label: 'Split clip at playhead', defaults: ['S', 'Ctrl+B'] },
   { id: 'trimLeft', label: 'Delete left of playhead', defaults: ['Q'] },
   { id: 'trimRight', label: 'Delete right of playhead', defaults: ['W'] },
@@ -53,47 +50,18 @@ export const KEY_ACTIONS = [
   { id: 'cut', label: 'Cut clip', defaults: ['Ctrl+X'] },
   { id: 'paste', label: 'Paste clip', defaults: ['Ctrl+V'] },
   { id: 'extractAudio', label: 'Detach audio', defaults: ['Ctrl+Shift+S'] },
-  { id: 'jCutToPlayhead', label: 'J-cut: linked audio starts at playhead', defaults: ['Alt+J'] },
-  { id: 'lCutToPlayhead', label: 'L-cut: linked audio ends at playhead', defaults: ['Alt+L'] },
   { id: 'save', label: 'Save project (with Alt: Save as)', defaults: ['Ctrl+S', 'Ctrl+Alt+S'] },
   { id: 'undo', label: 'Undo', defaults: ['Ctrl+Z'] },
   { id: 'redo', label: 'Redo', defaults: ['Ctrl+Shift+Z', 'Ctrl+Y'] },
   { id: 'seekBack', label: 'Step back (Shift: 1 second)', defaults: ['ArrowLeft'] },
   { id: 'seekFwd', label: 'Step forward (Shift: 1 second)', defaults: ['ArrowRight'] },
-  // Frame step (P1-04): dedicated NLE-style , / . keys that move exactly one
-  // frame at the project rate — the arrows do the same, but these are
-  // separately rebindable and read as "one frame" in the shortcuts dialog.
-  { id: 'frameStepBack', label: 'Step back one frame', defaults: [','] },
-  { id: 'frameStepFwd', label: 'Step forward one frame', defaults: ['.'] },
   { id: 'seekStart', label: 'Go to start', defaults: ['Home'] },
   { id: 'marker', label: 'Marker at playhead', defaults: ['M'] },
-  { id: 'markerPrev', label: 'Previous marker', defaults: ['Ctrl+ArrowLeft'] },
-  { id: 'markerNext', label: 'Next marker', defaults: ['Ctrl+ArrowRight'] },
-  { id: 'toggleRipple', label: 'Toggle ripple (magnet)', defaults: ['R'] },
-  { id: 'lockLayer', label: 'Lock / unlock selected layer', defaults: ['Ctrl+L'] },
-  { id: 'hideLayer', label: 'Hide / show selected layer', defaults: ['Ctrl+H'] },
   { id: 'toolRazor', label: 'Razor tool', defaults: ['B'] },
   { id: 'toolSelect', label: 'Select tool', defaults: ['V', 'Escape'] },
   { id: 'fullscreen', label: 'Full-screen player', defaults: ['F'] },
   { id: 'toggleDock', label: 'Show / hide the left panel', defaults: ['Ctrl+1'] },
   { id: 'toggleInspector', label: 'Show / hide the properties panel', defaults: ['Ctrl+2'] },
-  { id: 'zoomIn', label: 'Zoom timeline in', defaults: ['='] },
-  { id: 'zoomOut', label: 'Zoom timeline out', defaults: ['-'] },
-  { id: 'zoomFit', label: 'Zoom timeline to fit', defaults: ['0'] },
-  { id: 'openCaptions', label: 'Open Captions panel', defaults: ['C'] },
-  { id: 'openAudio', label: 'Open Audio panel', defaults: ['A'] },
-  { id: 'toggleFlowAI', label: 'Open / close FlowAI', defaults: ['Ctrl+Space'] },
-  { id: 'removeSilence', label: 'Remove silence from selected clip', defaults: ['Shift+Delete'] },
-  // Keyframe work (CC-04): the selected picture clip at the playhead. I adds
-  // keys on every property, D deletes the keys at the playhead, [ / ] jump to
-  // the previous / next key, Alt+arrows nudge the keys at the playhead one
-  // frame. None of these chords is used by any other action.
-  { id: 'kfAdd', label: 'Add keyframe at playhead', defaults: ['I'] },
-  { id: 'kfDelete', label: 'Delete keyframe at playhead', defaults: ['D'] },
-  { id: 'kfPrev', label: 'Go to previous keyframe', defaults: ['['] },
-  { id: 'kfNext', label: 'Go to next keyframe', defaults: [']'] },
-  { id: 'kfNudgeBack', label: 'Nudge keyframe one frame earlier', defaults: ['Alt+ArrowLeft'] },
-  { id: 'kfNudgeFwd', label: 'Nudge keyframe one frame later', defaults: ['Alt+ArrowRight'] },
 ];
 export const KEY_ACTION_IDS = KEY_ACTIONS.map((a) => a.id);
 const ACTION_BY_ID = Object.fromEntries(KEY_ACTIONS.map((a) => [a.id, a]));

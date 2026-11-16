@@ -38,15 +38,6 @@ export const LUT_CREDIT_URL = 'https://www.slaycamera.com';
 export const lutKey = (ref) => (ref?.bundled ? `b:${ref.bundled}` : ref?.path ? `p:${ref.path}` : '');
 export const lutOn = (lut) => !!(lut && lutKey(lut.ref) && (lut.intensity ?? 100) > 0);
 
-// P1-53: the grade slot's LUT duplicates the filter slot's LUT when both
-// resolve to the same file. Pass the FILTER REF from lutFilterRef (not the
-// raw clip.filter string): lutFilterRef already returns null when the
-// filter intensity is 0, so a switched-off filter never suppresses the
-// grade LUT. pixelPasses then runs that file ONCE (the filter slot wins);
-// a different file in the grade slot still applies on top, as before.
-export const gradeLutDuplicatesFilter = (gradeLut, filterRef) =>
-  !!(gradeLut && lutKey(gradeLut.ref) && filterRef && lutKey(filterRef) === lutKey(gradeLut.ref));
-
 // .cube text -> { size, data: Uint8Array RGBA laid out as size slices of size x size (red across, green down,
 // blue picks the slice) }, or throws.
 export function parseCube(text) {
@@ -143,13 +134,9 @@ export function loadLut(ref) {
 // Every LUT a project uses, loaded (before an export).
 export function loadProjectLuts(project) {
   const clips = [...project.videoClips, ...(project.overlayClips || [])];
-  // P2-16 — grade layers carry LUTs too (grade slot and filter slot).
-  const layers = (project.effectClips || []).filter((e) => e.kind === 'grade');
   const refs = [
     ...clips.filter((c) => lutOn(c.grade?.lut)).map((c) => c.grade.lut.ref),
     ...clips.filter((c) => typeof c.filter === 'string' && c.filter.startsWith('lut:')).map((c) => ({ bundled: c.filter.slice(4) })),
-    ...layers.filter((e) => lutOn(e.grade?.lut)).map((e) => e.grade.lut.ref),
-    ...layers.filter((e) => typeof e.filter === 'string' && e.filter.startsWith('lut:')).map((e) => ({ bundled: e.filter.slice(4) })),
   ];
   return Promise.all(refs.map(loadLut));
 }

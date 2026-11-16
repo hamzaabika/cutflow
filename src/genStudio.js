@@ -5,10 +5,7 @@
 // electron/gen.cjs stays the only place that knows the ElevenLabs API; this module only
 // shapes what the panel hands it.
 
-// Same hardening as src/store.js uid (counter + timestamp + random); the two
-// copies must stay in sync — ids from either module share one project id space.
-let uidCounter = 0;
-export const uid = () => `u${(uidCounter++).toString(36)}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+export const uid = () => Math.random().toString(36).slice(2, 10);
 
 const pick = (list, v, fallback) => (list && list.includes(v) ? v : fallback);
 

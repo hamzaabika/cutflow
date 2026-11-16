@@ -2,7 +2,7 @@
 // file while the next ones are drawn (electron/textstream.cjs). Only what changed since the previous frame is sent:
 // the rectangle around the changed pixels, or a count for runs of transparent or unchanged frames.
 import { drawTextLayer, textVisible } from './text/render.js';
-import { ensureFontsForProject } from './fonts.js';
+import { fontsReady } from './fonts.js';
 import { exportDuration } from './store.js';
 import { overlayRanges } from './fx/apply.js';
 import { drawFxOverlays } from './components/Preview.jsx';
@@ -12,20 +12,14 @@ import { textLayerSignature } from './text/staticFrame.js';
 
 // Returns the number of frames written (0 when the project has no text), or -1 when canceled.
 // onProgress(0..1); isCanceled() is polled between frames.
-// isPaused() (P1-52) is polled the same way: while it is true the loop waits
-// instead of drawing — the main-process encode is SIGSTOP'd in parallel, so a
-// paused export truly stops working instead of racing ahead.
 // Progress is reported for EVERY frame — visible, blank or unchanged — through a
 // throttled monotonic reporter, so the bar keeps moving inside caption gaps
 // (previously it was only reported inside the visible-text branch, every 5
 // frames, and froze for the whole length of a gap).
-export async function renderTextFrames(project, frameDir, onProgress, isCanceled, isPaused) {
+export async function renderTextFrames(project, frameDir, onProgress, isCanceled) {
   const fxClips = overlayRanges(project);
   if (!project.textClips.length && !fxClips.length) return 0;
-  // FB-33: the load gate — only the fonts this project actually uses are
-  // loaded, and every frame waits until they are confirmed loaded, so a
-  // frame can never render with a font that is still loading.
-  await ensureFontsForProject(project);
+  await fontsReady();
   const { width: W, height: H, fps } = project;
   const count = Math.ceil(exportDuration(project) * fps);
   const reporter = createProgressReporter(onProgress || (() => {}));
@@ -48,8 +42,6 @@ export async function renderTextFrames(project, frameDir, onProgress, isCanceled
     else { await send(); run = { [kind]: 1 }; }
   };
   for (let i = 0; i < count; i++) {
-    if (isCanceled()) return -1;
-    while (isPaused?.() && !isCanceled()) await new Promise((r) => setTimeout(r, 150));
     if (isCanceled()) return -1;
     const t = i / fps;
     reporter.report(count ? i / count : 1);

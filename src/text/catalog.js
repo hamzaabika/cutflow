@@ -47,8 +47,6 @@ export const ANIM_IN = [
   { id: 'slideRight', name: 'Slide Right' },
   { id: 'blurIn', name: 'Blur In' },
   { id: 'drop', name: 'Drop' },
-  { id: 'springSettle', name: 'Spring Settle' }, // P3-06: true damped spring
-  { id: 'gravityDrop', name: 'Gravity Drop' }, // P3-06: true gravity bounce
   { id: 'rotateIn', name: 'Rotate In' },
   { id: 'stretch', name: 'Stretch' },
   { id: 'flip', name: 'Flip' },
@@ -58,15 +56,6 @@ export const ANIM_IN = [
   { id: 'wordSpin', name: 'Word Spin' },
   { id: 'waveIn', name: 'Wave In' },
   { id: 'flicker', name: 'Flicker' },
-  // CC-03: the safe-flicker envelope (flickerSoft — weak uneven pulses, then
-  // a smooth hold; degrades to a plain fade under Reduce Flashing), the RGB
-  // split reveal (rgbGlitch), the word-by-word scan (scan) and the per-word
-  // flicker (wordFlicker). Scan / wordFlicker are unit kinds the renderer
-  // plays per word, never per character — Arabic shaping stays intact.
-  { id: 'flickerSoft', name: 'Soft Flicker' },
-  { id: 'rgbGlitch', name: 'RGB Glitch' },
-  { id: 'scan', name: 'Character Scan' },
-  { id: 'wordFlicker', name: 'Word Flicker' },
   { id: 'glitchIn', name: 'Glitch In' },
   { id: 'slideUpSmooth', name: 'Slide Up Smooth' },
   { id: 'slideDownSmooth', name: 'Slide Down Smooth' },
@@ -99,8 +88,6 @@ export const ANIM_IN = [
   { id: 'charFade', name: 'Fade Characters' },
   { id: 'decode', name: 'Decode' },
   { id: 'charFlicker', name: 'Flicker Characters' },
-  { id: 'maskedLineReveal', name: 'Masked Line Reveal' },
-  { id: 'lightSweepReveal', name: 'Light Sweep Reveal' },
 ];
 
 export const ANIM_OUT = [
@@ -120,10 +107,6 @@ export const ANIM_OUT = [
   { id: 'wordPop', name: 'Word Pop Out' },
   { id: 'wordSpin', name: 'Word Spin Out' },
   { id: 'flicker', name: 'Flicker' },
-  { id: 'flickerSoft', name: 'Soft Flicker' },
-  { id: 'rgbGlitch', name: 'RGB Glitch' },
-  { id: 'scan', name: 'Character Scan' },
-  { id: 'wordFlicker', name: 'Word Flicker' },
   { id: 'glitchIn', name: 'Glitch Out' },
   { id: 'slideUpSmooth', name: 'Slide Up Smooth' },
   { id: 'slideDownSmooth', name: 'Slide Down Smooth' },
@@ -160,7 +143,6 @@ export const ANIM_OUT = [
   { id: 'charFade', name: 'Fade Characters' },
   { id: 'decode', name: 'Decode' },
   { id: 'charFlicker', name: 'Flicker Characters' },
-  { id: 'charScatter', name: 'Character Scatter' },
 ];
 
 export const ANIM_LOOP = [
@@ -175,9 +157,6 @@ export const ANIM_LOOP = [
   { id: 'blink', name: 'Blink' },
   { id: 'rainbow', name: 'Rainbow' },
   { id: 'glitch', name: 'Glitch' },
-  { id: 'lightsweep', name: 'Light Sweep Loop' },
-  { id: 'typeOsc', name: 'Gentle Type Oscillation' },
-  { id: 'tracking', name: 'Tracking' },
 ];
 
 // How the spoken word is emphasised in captions (uses word timings from auto captions,
@@ -252,17 +231,6 @@ export const TEXT_TEMPLATES = [
   // land, and bounce once — no scale pop, scale stays 1.0. Line-2 typing is
   // untouched. The original stays bounce-off, exactly as it was.
   { id: 'neon-pop-duo-bounce', name: 'Neon Pop Duo Bounce', cat: 'Captions', caption: true, patch: { font: 'inter', size: 64, y: 0.6, duration: 3, color: '#ffffff', stroke: stroke(0), shadow: NO_SHADOW, effect: 'none', bubble: 'none', bg: NO_BG, highlight: { mode: 'none' }, ...anim('none', 'none'), text: 'Bezaf dyal lmgharba\nMachi Professionnel', duo: { bounce: true } } },
-  // Brand Caption Packs (P2-25): professional creator subtitles — Arabic,
-  // Darija, bilingual and English. All four are word-by-word (wordPop /
-  // wordRise entrances, per-word highlights) and tuned for 9:16: base y 0.78
-  // sits inside the 9:16 safe zone, and the explicit responsive override pins
-  // it there even if the base moves. The bilingual one is the Duo two-line
-  // model — Arabic line 1 (Cairo Medium via the rtl tokens), Latin line 2
-  // (Montserrat, gold); Arabic animates per word on both lines, never per letter.
-  { id: 'cap-brand-ar', name: 'Brand Arabic', cat: 'Brand', caption: true, previewText: 'النجاح يبدأ بخطوة', patch: { font: 'cairo', bold: true, size: 64, y: 0.78, color: '#ffffff', stroke: stroke(5), shadow: shadow(), effect: 'none', bubble: 'none', bg: NO_BG, highlight: { mode: 'color', color: '#ffd400' }, animIn: { id: 'wordPop', dur: 0.6 }, animOut: { id: 'fade', dur: 0.25 }, animLoop: { id: 'none', speed: 1 }, responsive: { '9:16': { x: 0.5, y: 0.78 } } } },
-  { id: 'cap-brand-darija', name: 'Brand Darija', cat: 'Brand', caption: true, previewText: 'هاد الفيديو غادي يعجبك', patch: { font: 'tajawal', bold: true, size: 64, y: 0.78, color: '#ffffff', stroke: stroke(0), shadow: NO_SHADOW, effect: 'none', bubble: 'none', bg: NO_BG, highlight: { mode: 'box', color: '#ffffff', bg: '#CE0120' }, animIn: { id: 'wordRise', dur: 0.7 }, animOut: { id: 'fade', dur: 0.25 }, animLoop: { id: 'none', speed: 1 }, responsive: { '9:16': { x: 0.5, y: 0.78 } } } },
-  { id: 'cap-brand-bilingual', name: 'Brand Bilingual', cat: 'Brand', caption: true, patch: { font: 'inter', size: 64, y: 0.6, duration: 3, color: '#ffffff', stroke: stroke(0), shadow: NO_SHADOW, effect: 'none', bubble: 'none', bg: NO_BG, highlight: { mode: 'none' }, ...anim('none', 'none'), text: 'النجاح يبدأ بخطوة\nSuccess starts with a step', duo: { line1: { color: '#FFFFFF' }, line2: { font: 'montserrat', bold: true, italic: false, color: '#FFD400' } } } },
-  { id: 'cap-brand-en', name: 'Brand English', cat: 'Brand', caption: true, patch: { font: 'montserrat', bold: true, uppercase: true, size: 64, y: 0.78, color: '#ffffff', stroke: stroke(6), shadow: shadow(), effect: 'none', bubble: 'none', bg: NO_BG, highlight: { mode: 'color', color: '#ffd400' }, animIn: { id: 'wordPop', dur: 0.6 }, animOut: { id: 'fade', dur: 0.25 }, animLoop: { id: 'none', speed: 1 }, responsive: { '9:16': { x: 0.5, y: 0.78 } } } },
   // Titles
   { id: 'title-bold', name: 'Big Title', cat: 'Titles', patch: { font: 'anton', bold: false, uppercase: true, size: 120, color: '#ffffff', stroke: stroke(0), shadow: shadow('#000000', 20, 6, 0.7), effect: 'none', bubble: 'none', bg: NO_BG, y: 0.5, ...anim('zoomOut', 'fade') } },
   { id: 'title-3d', name: '3D Pop', cat: 'Titles', patch: { font: 'luckiest', uppercase: true, size: 110, color: '#ffd400', color2: '#c2410c', stroke: stroke(5, '#3b1d00'), shadow: NO_SHADOW, effect: 'shadow3d', bubble: 'none', bg: NO_BG, y: 0.5, ...anim('drop', 'pop', 'float') } },
@@ -380,42 +348,6 @@ export const TEXT_TEMPLATES = [
   { id: 'cap-glowsoft', name: 'Soft Glow', cat: 'Captions', caption: true, patch: { font: 'poppins', bold: true, color: '#ffffff', stroke: stroke(2, '#4c1d95'), shadow: NO_SHADOW, effect: 'glow', glowColor: '#825cfb', bubble: 'none', bg: NO_BG, highlight: { mode: 'color', color: '#c4b5fd' }, ...anim('blurIn', 'fade') } },
   { id: 'cap-arabic-glow', name: 'Arabic Glow', cat: 'Captions', caption: true, previewText: 'صُنع بواسطة Cutflow', patch: { font: 'cairo', bold: true, color: '#ffffff', stroke: stroke(3, '#0e7490'), shadow: NO_SHADOW, effect: 'neon', glowColor: '#22d3ee', bubble: 'none', bg: NO_BG, highlight: { mode: 'color', color: '#fde047' }, ...anim('pop', 'fade') } },
   { id: 'cap-news', name: 'News Lower', cat: 'Captions', caption: true, patch: { font: 'montserrat', bold: true, color: '#ffffff', stroke: stroke(0), shadow: NO_SHADOW, effect: 'none', bubble: 'none', bg: bg('#b91c1c', 0.92, 4, 'line'), highlight: { mode: 'box', color: '#ffffff', bg: '#111827' }, ...anim('slideRight', 'fade') } },
-  // --- CC-03: flicker / decode / scan presets (flk-) --------------------------------
-  // All thirteen reuse the text layer model (animIn/animOut/animLoop + the
-  // existing engines): the safe-flicker envelope (flickerSoft), decode,
-  // the RGB split (rgbGlitch), the word scan and the per-word flicker.
-  // Character motion is word-level for Arabic — the renderer never splits
-  // joined script into characters (see src/text/render.js + flicker.js).
-  { id: 'flk-soft-neon', name: 'Soft Neon Flicker', cat: 'Titles', patch: { font: 'montserrat', bold: true, size: 96, color: '#ffffff', stroke: stroke(0), shadow: NO_SHADOW, effect: 'neon', glowColor: '#22d3ee', bubble: 'none', bg: NO_BG, y: 0.5, animIn: { id: 'flickerSoft', dur: 1.2 }, animOut: { id: 'fade', dur: 0.3 }, animLoop: { id: 'none', speed: 1 } } },
-  { id: 'flk-startup-neon', name: 'Startup Neon', cat: 'Titles', patch: { font: 'montserrat', bold: true, size: 96, color: '#ffffff', stroke: stroke(0), shadow: NO_SHADOW, effect: 'neon', glowColor: '#ff2bd6', bubble: 'none', bg: NO_BG, y: 0.5, animIn: { id: 'flickerSoft', dur: 1.6 }, animOut: { id: 'fade', dur: 0.4 }, animLoop: { id: 'none', speed: 1 } } },
-  { id: 'flk-flicker-reveal', name: 'Flicker Reveal', cat: 'Titles', patch: { font: 'oswald', bold: true, uppercase: true, size: 110, color: '#ffffff', stroke: stroke(5), shadow: shadow(), effect: 'none', bubble: 'none', bg: NO_BG, y: 0.5, animIn: { id: 'flickerSoft', dur: 1.0 }, animOut: { id: 'fade', dur: 0.25 }, animLoop: { id: 'none', speed: 1 } } },
-  { id: 'flk-flicker-out', name: 'Flicker Out', cat: 'Titles', patch: { font: 'anton', bold: false, uppercase: true, size: 120, color: '#ffffff', stroke: stroke(0), shadow: shadow('#000000', 20, 6, 0.7), effect: 'none', bubble: 'none', bg: NO_BG, y: 0.5, animIn: { id: 'fade', dur: 0.3 }, animOut: { id: 'flickerSoft', dur: 0.9 }, animLoop: { id: 'none', speed: 1 } } },
-  { id: 'flk-digital-decode', name: 'Digital Decode', cat: 'Titles', patch: { font: 'consolas', size: 64, color: '#ffffff', stroke: stroke(0), shadow: shadow('#000000', 6, 2, 0.8), effect: 'none', bubble: 'none', bg: NO_BG, y: 0.5, animIn: { id: 'decode', dur: 1.2 }, animOut: { id: 'fade', dur: 0.25 }, animLoop: { id: 'none', speed: 1 } } },
-  { id: 'flk-terminal-resolve', name: 'Terminal Resolve', cat: 'Titles', patch: { font: 'consolas', size: 64, color: '#4ade80', stroke: stroke(0), shadow: shadow('#000000', 6, 2, 0.8), effect: 'none', bubble: 'none', bg: bg('#000000', 0.65, 8, 'line'), y: 0.5, animIn: { id: 'decode', dur: 1.4 }, animOut: { id: 'fade', dur: 0.25 }, animLoop: { id: 'none', speed: 1 } } },
-  { id: 'flk-signal-error', name: 'Signal Error', cat: 'Titles', patch: { font: 'consolas', bold: true, size: 72, color: '#ff5a5a', stroke: stroke(0), shadow: shadow('#000000', 6, 2, 0.8), effect: 'glitch', bubble: 'none', bg: NO_BG, y: 0.5, animIn: { id: 'rgbGlitch', dur: 0.9 }, animOut: { id: 'glitchIn', dur: 0.4 }, animLoop: { id: 'glitch', speed: 1 } } },
-  { id: 'flk-rgb-glitch', name: 'RGB Glitch Reveal', cat: 'Titles', patch: { font: 'oswald', bold: true, uppercase: true, size: 110, color: '#ffffff', stroke: stroke(0), shadow: NO_SHADOW, effect: 'glitch', bubble: 'none', bg: NO_BG, y: 0.5, animIn: { id: 'rgbGlitch', dur: 0.8 }, animOut: { id: 'fade', dur: 0.25 }, animLoop: { id: 'none', speed: 1 } } },
-  { id: 'flk-char-scan', name: 'Character Scan', cat: 'Titles', patch: { font: 'montserrat', bold: true, size: 96, color: '#ffffff', stroke: stroke(0), shadow: shadow('#000000', 10, 3, 0.7), effect: 'none', bubble: 'none', bg: NO_BG, y: 0.5, animIn: { id: 'scan', dur: 1.0 }, animOut: { id: 'fade', dur: 0.25 }, animLoop: { id: 'none', speed: 1 } } },
-  { id: 'flk-word-flicker', name: 'Word Flicker', cat: 'Captions', caption: true, patch: { font: 'montserrat', bold: true, color: '#ffffff', stroke: stroke(5), shadow: shadow(), effect: 'none', bubble: 'none', bg: NO_BG, highlight: { mode: 'none' }, animIn: { id: 'wordFlicker', dur: 0.9 }, animOut: { id: 'fade', dur: 0.25 }, animLoop: { id: 'none', speed: 1 } } },
-  { id: 'flk-electric-subtitle', name: 'Electric Subtitle', cat: 'Captions', caption: true, patch: { font: 'poppins', bold: true, color: '#ffffff', stroke: stroke(0), shadow: NO_SHADOW, effect: 'none', bubble: 'none', bg: bg('#000000', 0.65, 8, 'line'), highlight: { mode: 'box', color: '#ffffff', bg: '#2563eb' }, animIn: { id: 'flickerSoft', dur: 0.7 }, animOut: { id: 'fade', dur: 0.25 }, animLoop: { id: 'none', speed: 1 } } },
-  { id: 'flk-gentle-pulse', name: 'Gentle Pulse', cat: 'Titles', patch: { font: 'poppins', bold: true, size: 88, color: '#ffffff', stroke: stroke(0), shadow: shadow('#000000', 14, 3, 0.7), effect: 'soft', bubble: 'none', bg: NO_BG, y: 0.5, animIn: { id: 'softFade', dur: 0.6 }, animOut: { id: 'fade', dur: 0.3 }, animLoop: { id: 'pulse', speed: 0.5 } } },
-  { id: 'flk-slow-neon', name: 'Slow Staggered Neon', cat: 'Titles', patch: { font: 'montserrat', bold: true, size: 96, color: '#ffffff', stroke: stroke(0), shadow: NO_SHADOW, effect: 'neon', glowColor: '#c084fc', bubble: 'none', bg: NO_BG, y: 0.5, animIn: { id: 'flickerSoft', dur: 1.8, unit: 'word' }, animOut: { id: 'fade', dur: 0.3 }, animLoop: { id: 'none', speed: 1 } } },
-  // --- CC-06: animated graphics (gfx-) --------------------------------------------
-  // Each carries a `graphic` spec (see src/text/graphic.js) drawn by
-  // drawGraphicClip in render.js — the duo pattern, not a second system.
-  // The clip text stays editable: the number counts to the value in the
-  // text, the timer counts down from the duration in the text, the ring's
-  // label is the text, and the rest render the text itself. No audio ships
-  // with a graphic — a user-supplied SFX goes on the audio track instead.
-  { id: 'gfx-minimal-title', name: 'Minimal Title', cat: 'Graphics', patch: { font: 'poppins', bold: false, uppercase: true, size: 72, color: '#ffffff', stroke: stroke(0), shadow: shadow('#000000', 10, 2, 0.55), effect: 'none', bubble: 'none', bg: NO_BG, letterSpacing: 6, y: 0.5, animIn: { id: 'fadeUp', dur: 0.7 }, animOut: { id: 'fade', dur: 0.3 }, animLoop: { id: 'none', speed: 1 }, graphic: { kind: 'title', rule: true, ruleColor: '#ffffff' } } },
-  { id: 'gfx-editorial-third', name: 'Editorial Lower Third', cat: 'Graphics', patch: { font: 'poppins', bold: true, size: 58, color: '#ffffff', stroke: stroke(0), shadow: NO_SHADOW, effect: 'none', bubble: 'none', bg: NO_BG, x: 0.3, y: 0.8, animIn: { id: 'slideRightSmooth', dur: 0.7 }, animOut: { id: 'fade', dur: 0.3 }, animLoop: { id: 'none', speed: 1 }, text: 'Your Name\nYour Role', graphic: { kind: 'lowerThird', accent: '#CE0120' } } },
-  { id: 'gfx-rounded-label', name: 'Rounded Label', cat: 'Graphics', patch: { font: 'poppins', bold: true, size: 56, color: '#111111', stroke: stroke(0), shadow: NO_SHADOW, effect: 'none', bubble: 'none', bg: NO_BG, y: 0.3, animIn: { id: 'pop', dur: 0.5 }, animOut: { id: 'fade', dur: 0.25 }, animLoop: { id: 'none', speed: 1 }, graphic: { kind: 'label', shape: 'rounded', fill: '#ffffff' } } },
-  { id: 'gfx-outline-label', name: 'Outline Label', cat: 'Graphics', patch: { font: 'anton', bold: false, uppercase: true, size: 84, color: '#ffffff', stroke: stroke(4, '#ffffff'), shadow: NO_SHADOW, effect: 'hollow', bubble: 'none', bg: NO_BG, y: 0.5, animIn: { id: 'zoomIn', dur: 0.5 }, animOut: { id: 'fade', dur: 0.25 }, animLoop: { id: 'none', speed: 1 }, graphic: { kind: 'label', shape: 'outline', frame: '#ffffff' } } },
-  { id: 'gfx-callout-arrow', name: 'Callout Arrow', cat: 'Graphics', patch: { font: 'poppins', bold: true, size: 54, color: '#ffffff', stroke: stroke(5), shadow: shadow(), effect: 'none', bubble: 'none', bg: NO_BG, y: 0.3, animIn: { id: 'fadeUp', dur: 0.6 }, animOut: { id: 'fade', dur: 0.25 }, animLoop: { id: 'none', speed: 1 }, text: 'Look here', graphic: { kind: 'callout', color: '#ffd400', arrow: { dx: 0.16, dy: 0.24 } } } },
-  { id: 'gfx-kinetic-number', name: 'Kinetic Number', cat: 'Graphics', patch: { font: 'anton', bold: false, size: 150, color: '#ffffff', stroke: stroke(0), shadow: shadow('#000000', 18, 6, 0.6), effect: 'none', bubble: 'none', bg: NO_BG, y: 0.5, animIn: { id: 'fade', dur: 0.3 }, animOut: { id: 'fade', dur: 0.25 }, animLoop: { id: 'none', speed: 1 }, text: '1,250', graphic: { kind: 'number', from: 0, decimals: 0, prefix: '', suffix: '' } } },
-  { id: 'gfx-progress-ring', name: 'Progress Ring', cat: 'Graphics', patch: { font: 'montserrat', bold: true, size: 64, color: '#ffffff', stroke: stroke(0), shadow: shadow('#000000', 10, 2, 0.55), effect: 'none', bubble: 'none', bg: NO_BG, y: 0.5, animIn: { id: 'fade', dur: 0.3 }, animOut: { id: 'fade', dur: 0.25 }, animLoop: { id: 'none', speed: 1 }, text: 'Progress', graphic: { kind: 'ring', color: '#825cfb', track: 'rgba(255,255,255,0.25)' } } },
-  { id: 'gfx-timer-countdown', name: 'Timer Countdown', cat: 'Graphics', patch: { font: 'consolas', bold: true, size: 110, color: '#ffffff', stroke: stroke(0), shadow: shadow('#000000', 10, 3, 0.7), effect: 'none', bubble: 'none', bg: NO_BG, y: 0.5, animIn: { id: 'fade', dur: 0.3 }, animOut: { id: 'fade', dur: 0.25 }, animLoop: { id: 'none', speed: 1 }, text: '0:10', graphic: { kind: 'timer', seconds: 10 } } },
-  { id: 'gfx-text-box-pop', name: 'Text Box Pop', cat: 'Graphics', patch: { font: 'montserrat', bold: true, size: 72, color: '#ffffff', stroke: stroke(0), shadow: NO_SHADOW, effect: 'none', bubble: 'none', bg: NO_BG, y: 0.5, animIn: { id: 'pop', dur: 0.5 }, animOut: { id: 'fade', dur: 0.25 }, animLoop: { id: 'none', speed: 1 }, graphic: { kind: 'boxpop', fill: '#111118', radius: 16 } } },
-  { id: 'gfx-two-line-scale', name: 'Two-Line Scale Reveal', cat: 'Graphics', patch: { font: 'montserrat', bold: true, size: 96, color: '#ffffff', color2: '#ffd400', stroke: stroke(0), shadow: shadow('#000000', 14, 4, 0.6), effect: 'none', bubble: 'none', bg: NO_BG, y: 0.5, animIn: { id: 'fade', dur: 0.4 }, animOut: { id: 'fade', dur: 0.25 }, animLoop: { id: 'none', speed: 1 }, text: 'Big ideas\nSmall steps', graphic: { kind: 'twoline', line2Scale: 0.72 } } },
 ];
 
 
@@ -426,9 +358,7 @@ const TAGS = {
   Word: ['cap-karaoke', 'cap-boxed', 'cap-tealblock', 'cap-blackbox', 'cap-marker', 'cap-oneword', 'cap-reveal', 'cap-hormozi', 'cap-beast', 'cap-rainbow', 'cap-redpunch', 'cap-spin', 'neon-pop-duo', 'neon-pop-duo-bounce', 'pin-type-violet', 'pin-type-coral', 'pin-type-magenta', 'pin-type-smear', 'pin-type-cursor', 'pin-rise-gradient', 'pin-rise-large', 'pin-rise-fall', 'pin-rise-heavy', 'pin-rise-flash', 'pin-zoom-title', 'pin-slide-type', 'pin-slide-line'],
   Pinterest: ['pin-type-violet', 'pin-type-coral', 'pin-type-magenta', 'pin-type-smear', 'pin-type-cursor', 'pin-rise-gradient', 'pin-rise-large', 'pin-rise-fall', 'pin-rise-heavy', 'pin-rise-flash', 'pin-zoom-title', 'pin-slide-type', 'pin-slide-line'],
   Glow: ['cap-neon', 'cap-gradient', 'neon-pop-duo', 'neon-pop-duo-bounce', 'title-fire', 'title-ice', 'title-neon', 'title-glitch'],
-  Flicker: ['flk-soft-neon', 'flk-startup-neon', 'flk-flicker-reveal', 'flk-flicker-out', 'flk-digital-decode', 'flk-terminal-resolve', 'flk-signal-error', 'flk-rgb-glitch', 'flk-char-scan', 'flk-word-flicker', 'flk-electric-subtitle', 'flk-gentle-pulse', 'flk-slow-neon'],
-  Graphics: ['gfx-minimal-title', 'gfx-editorial-third', 'gfx-rounded-label', 'gfx-outline-label', 'gfx-callout-arrow', 'gfx-kinetic-number', 'gfx-progress-ring', 'gfx-timer-countdown', 'gfx-text-box-pop', 'gfx-two-line-scale'],
-  Arabic: ['cap-arabic', 'cap-arabic-box', 'title-arabic', 'cap-arabic-glow', 'cap-goldquote', 'cap-brand-ar', 'cap-brand-darija', 'cap-brand-bilingual'],
+  Arabic: ['cap-arabic', 'cap-arabic-box', 'title-arabic', 'cap-arabic-glow', 'cap-goldquote'],
   Craft: ['mat-duo-title', 'mat-pill-label', 'mat-accent-bar', 'mat-caption-chip', 'mat-quote', 'mat-lower-third', 'mat-big-number', 'mat-minimal', 'mat-duo-caption', 'mat-chip-dark', 'mat-headline-bar', 'mat-caption-clean'],
   Motion: ['mot-slide-up', 'mot-smooth-slide', 'mot-slide-down', 'mot-smooth-left', 'mot-smooth-right', 'mot-rise-fade', 'mot-slide-blur', 'title-retro', 'mat-duo-title', 'mat-headline-bar'],
   Studio: ['stu-teal-chip', 'stu-ink-line', 'stu-teal-title', 'stu-amber-rule', 'stu-name-third', 'stu-tag-amber'],
@@ -440,5 +370,4 @@ TEXT_TEMPLATES.forEach((t) => {
   t.tags = [t.cat, ...Object.keys(TAGS).filter((k) => TAGS[k].includes(t.id))];
 });
 
-export const TEMPLATE_CATEGORIES = ['All', 'Favorites', 'Trending', 'Craft', 'Studio', 'Noir', 'Zest', 'Slate', 'Motion', 'Basics', 'Word', 'Glow', 'Flicker', 'Graphics', 'Captions', 'Brand', 'Titles', 'Labels', 'Arabic'];
-
+export const TEMPLATE_CATEGORIES = ['All', 'Favorites', 'Trending', 'Craft', 'Studio', 'Noir', 'Zest', 'Slate', 'Motion', 'Basics', 'Word', 'Glow', 'Captions', 'Titles', 'Labels', 'Arabic'];
