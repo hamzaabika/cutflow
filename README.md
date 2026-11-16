@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  Timeline editing · transitions &amp; effects · animated text · auto captions · offline templates · an AI assistant that works with your own API keys.<br>
+  Timeline editing · transitions &amp; effects · animated text · auto captions · text templates · an AI assistant that works with your own API keys.<br>
   By <b>Hamza Abika</b>.
 </p>
 
@@ -59,7 +59,7 @@
 
 ## About
 
-Cutflow is a free, open-source desktop video editor and covers what people actually open an editor for: multi-track cutting, transitions and effects, animated titles, auto-captions, templates, stock media and clean 4K export. With none of the catches: **no watermark, no account, no subscription, no upload.** Your projects and footage stay on your computer, and everything — including the template library — works offline.
+Cutflow is a free, open-source desktop video editor and covers what people actually open an editor for: multi-track cutting, transitions and effects, animated titles, auto-captions, templates, stock media and clean 4K export. With none of the catches: **no watermark, no account, no subscription, no upload.** Your projects and footage stay on your computer, and everything — including the text-template library — works offline.
 
 **Good for:** TikTok, Reels and Shorts, YouTube videos, tutorials and screen recordings, podcast clips.
 
@@ -84,7 +84,7 @@ Cutflow is a free, open-source desktop video editor and covers what people actua
 - 💬 **Auto-captions.** Free on-device Whisper — including a Darija model — or bring a cloud key for speed.
 - **"Clean up my speech" — cuts the ums, stutters, repeated sentences, retakes and long pauses, word by word.**
 - 🔤 **Animated text done properly.** 54 text templates, word-by-word styling, and real RTL/Arabic shaping.
-- 🧩 **Offline templates + built-in stock.** And a screen recorder that drops captures straight onto the timeline.
+- 🧩 **Offline text templates + built-in stock.** And a screen recorder that drops captures straight onto the timeline.
 - **Screen recording** — remembers your microphone, warns when it is off, and tells you if a recording came out without sound.
 - 🌐 **Interface in English, French and Arabic.** The whole interface — menus, panels, timeline, settings — in English, French or Arabic (Modern Standard), switched live in **Settings › Language**. The first start follows your system language, and Arabic lays out fully right-to-left while the timeline and the player keep time running left to right.
 - ✨ **AI Video Enhance.** Upscale any clip 2x or 4x with local Real-ESRGAN models — Realistic, Animation and Fast. It runs entirely on your machine: free, offline, nothing uploaded. The result lands in your library as a new clip; the original is untouched.

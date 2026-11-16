@@ -85,9 +85,13 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "node scripts/gen-font-manifest.cjs && vite build",
     "start": "vite build && electron .",
-    "package:linux": "vite build && electron-builder --linux deb --x64"
+    "package:linux": "vite build && electron-builder --linux deb --x64",
+    "test": "node scripts/run-tests.mjs",
+    "test:ci": "node scripts/run-tests.mjs --ci",
+    "test:one": "node scripts/run-tests.mjs --filter",
+    "lint": "node scripts/lint.cjs"
   },
   "build": {
     "appId": "com.clipcraft.app",
@@ -99,6 +103,7 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
+      "src/packs.js",
       "shared/**/*",
       "assets/**/*",
       "package.json",

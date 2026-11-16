@@ -1,0 +1,135 @@
+{
+  "name": "Composer vertical demo",
+  "width": 1080,
+  "height": 1920,
+  "ratio": "9:16",
+  "resolution": 1080,
+  "fps": 30,
+  "background": "#000000",
+  "media": [
+    {
+      "id": "demo-a",
+      "name": "clip-a.mp4",
+      "path": "media/clip-a.mp4",
+      "type": "video",
+      "duration": 3,
+      "width": 1080,
+      "height": 1920
+    },
+    {
+      "id": "demo-b",
+      "name": "clip-b.mp4",
+      "path": "media/clip-b.mp4",
+      "type": "video",
+      "duration": 3,
+      "width": 1080,
+      "height": 1920
+    }
+  ],
+  "videoClips": [
+    {
+      "id": "demo-v1",
+      "mediaId": "demo-a",
+      "in": 0,
+      "out": 3,
+      "speed": 1,
+      "effects": [
+        "fx_bloom2"
+      ]
+    },
+    {
+      "id": "demo-v2",
+      "mediaId": "demo-b",
+      "in": 0,
+      "out": 3,
+      "speed": 1,
+      "effects": [
+        "fx_dreambloom"
+      ],
+      "transition": {
+        "type": "fx_lightburn",
+        "duration": 0.9
+      }
+    },
+    {
+      "id": "demo-v3",
+      "mediaId": "demo-a",
+      "in": 0,
+      "out": 3,
+      "speed": 1,
+      "effects": [],
+      "transition": {
+        "type": "fx_zoomin",
+        "duration": 0.7
+      }
+    }
+  ],
+  "textClips": [
+    {
+      "id": "demo-cap1",
+      "text": "Glow burn flicker zoom",
+      "start": 0.5,
+      "duration": 8,
+      "caption": true,
+      "font": "montserrat",
+      "bold": true,
+      "color": "#ffffff",
+      "size": 81,
+      "y": 0.8,
+      "stroke": {
+        "width": 5,
+        "color": "#000000"
+      },
+      "shadow": {
+        "color": "#000000",
+        "blur": 12,
+        "x": 0,
+        "y": 3,
+        "opacity": 0.8
+      },
+      "highlight": {
+        "mode": "box",
+        "color": "#ffffff",
+        "bg": "#7c3aed"
+      },
+      "animIn": {
+        "id": "flicker",
+        "dur": 0.6
+      },
+      "animOut": {
+        "id": "fade",
+        "dur": 0.25
+      },
+      "animLoop": {
+        "id": "none",
+        "speed": 1
+      },
+      "words": [
+        {
+          "text": "Glow",
+          "start": 0,
+          "end": 1.9
+        },
+        {
+          "text": "burn",
+          "start": 2,
+          "end": 3.9
+        },
+        {
+          "text": "flicker",
+          "start": 4,
+          "end": 5.9
+        },
+        {
+          "text": "zoom",
+          "start": 6,
+          "end": 8
+        }
+      ]
+    }
+  ],
+  "audioClips": [],
+  "overlayClips": [],
+  "effectClips": [],
+  "stickerClips": []
+}
