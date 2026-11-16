@@ -125,7 +125,12 @@ assert.ok(renderSrc.includes("from './units.js'"), 'renderer imports the shared 
 assert.ok(renderSrc.includes("unit: 'whole'"), 'text defaults carry unit: whole');
 assert.ok(renderSrc.includes('effectiveUnit') && renderSrc.includes('unitProgress'), 'renderer staggers via the shared math');
 const browserSrc = fs.readFileSync(new URL('../src/components/TextAnimBrowser.jsx', import.meta.url), 'utf8');
-assert.ok(browserSrc.includes('Word by word') && browserSrc.includes('Letters'), 'browser offers Word by word and Letters');
+// Unit labels moved into i18n (P0-07): the browser renders tr(UNIT_KEYS[u])
+// with word -> tab2.word, char -> tab2.letters. Assert the wiring AND the
+// resolved English text.
+assert.ok(browserSrc.includes("word: 'tab2.word'") && browserSrc.includes("char: 'tab2.letters'"), 'browser offers Word by word and Letters');
+const enSrc = fs.readFileSync(new URL('../src/i18n/en.js', import.meta.url), 'utf8');
+assert.ok(enSrc.includes('"tab2.word": "Word by word"') && enSrc.includes('"tab2.letters": "Letters"'), 'the resolved English unit labels read "Word by word" / "Letters"');
 assert.ok(browserSrc.includes('INHERENT_UNIT_ANIMS'), 'browser disables the unit control for inherent per-unit presets');
 for (const id of INHERENT_UNIT_ANIMS) {
   assert.ok(animStateSrc.includes(`case '${id}'`), `inherent per-unit preset ${id} exists in the renderer`);

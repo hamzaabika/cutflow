@@ -269,7 +269,18 @@ const ok = (cond, msg) => { console.log(`${cond ? 'PASS' : 'FAIL'}  ${msg}`); if
   // (Clock Wipe, Band Wipe, Zoom Through, Spin Fall) — the pin moves WITH the
   // catalogue on purpose: it exists to catch accidental loss, not growth.
   // 75 through Sprint 12; 111 after the 10/10 step-3 library growth (+36 GROWTH_TRANSITIONS).
-  ok(TRANSITIONS.length === 111, `transition catalogue totals 111 entries (got ${TRANSITIONS.length})`);
+  // 116 after the Animation Composer build (5 more GROWTH_TRANSITIONS: White Flash,
+  // Film Burn, Tricolour Wipe, VHS Tracking, Zoom Spin) — back to 111 when those
+  // 19 were removed 2026-11-14 (Hamza: keep text animation only).
+  // 118 after P2: +7 originals — Gradient/Luma Wipe + Mask Reveal (P2-04),
+  // Seamless Zoom In/Out + Smooth Push/Pull (P2-05).
+  // 119 after P3-03: +1 — the true Morph Cut (real flow-field warp).
+  // 123 after CC-05: +4 — Smooth Push Right, Directional Blur Reveal,
+  // RGB Split Cut, Bloom Flash (real named renderers, first/mid/last tested).
+  // 124 after Gap-build B: +1 — Card Flip (fx_cardflip, a real transition).
+  // 130 after Gap-build C: +6 — Smooth Push Up/Down, Parallax Zoom,
+  // Perspective Push, Motion Match Blur, Signal Line Cut (CSV rows 61/62/77/79/100/109).
+  ok(TRANSITIONS.length === 130, `transition catalogue totals 130 entries (got ${TRANSITIONS.length})`);
 
   // ---- 3) Investigation record: what raw xfade ACTUALLY does with the four ----
   const xfadeRaw = (type, p) => execFileSync(ffmpegPath, ['-hide_banner', '-loglevel', 'error',
