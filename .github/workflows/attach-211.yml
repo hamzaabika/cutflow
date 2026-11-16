@@ -1,0 +1,97 @@
+name: Attach 2.1.1 deb
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  attach:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch and attach deb from SwissTransfer
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LINK_UUID: 01a1e556-5073-702d-b9f8-d540ded5ae47
+          EXPECTED_SHA: 8ceddf40e2f69416e7065e29b7703b04bdb4ff04b67fed0b485f0184cf8ac18d
+          EXPECTED_SIZE: "311965020"
+        run: |
+                    python3 - <<'PY'
+                    import re, os, hashlib, subprocess, urllib.request, urllib.error
+                    uuid = os.environ['LINK_UUID']
+                    exp_sha = os.environ['EXPECTED_SHA']
+                    exp_size = int(os.environ['EXPECTED_SIZE'])
+                    headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120 Safari/537.36', 'Accept': 'text/html,application/json'}
+                    def get(url):
+                        req = urllib.request.Request(url, headers=headers)
+                        try:
+                            with urllib.request.urlopen(req, timeout=60) as r:
+                                return r.status, r.read()
+                        except urllib.error.HTTPError as e:
+                            return e.code, e.read()
+                        except Exception as e:
+                            print('ERR', url, e)
+                            return None, b''
+                    status, page = get(f'https://www.swisstransfer.com/dl/{uuid}')
+                    print('page status', status, 'len', len(page))
+                    text = page.decode('utf-8', 'ignore')
+                    hosts = sorted(set(re.findall(r'dl-[a-z0-9]+\.swisstransfer\.com', text)))
+                    uuids = sorted(set(re.findall(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', text))))
+                    print('hosts:', hosts)
+                    print('uuids:', uuids)
+                    print('api paths:', sorted(set(re.findall(r'/api/[A-Za-z0-9/_.-]+', text)))[:60])
+                    candidates = []
+                    for h in hosts:
+                        candidates.append(f'https://{h}/api/download/{uuid}')
+                        for u in uuids:
+                            if u != uuid:
+                                candidates.append(f'https://{h}/api/download/{uuid}/{u}')
+                                candidates.append(f'https://{h}/api/download/{u}')
+                    for base in ['https://www.swisstransfer.com']:
+                        for path in [f'/api/download/{uuid}']:
+                            s, b = get(base + path)
+                            print('try', base + path, s, b[:300])
+                    ok = False
+                    for url in candidates:
+                        print('trying download', url)
+                        req = urllib.request.Request(url, headers=headers)
+                        try:
+                            with urllib.request.urlopen(req, timeout=120) as r:
+                                print('  status', r.status, 'len', r.headers.get('Content-Length'), 'type', r.headers.get('Content-Type'))
+                                head = r.read(8)
+                                if head != b'!<arch>\n':
+                                    print('  not a deb, first bytes:', head)
+                                    continue
+                                h = hashlib.sha256()
+                                h.update(head)
+                                size = len(head)
+                                with open('cutflow_2.1.0_amd64.deb', 'wb') as f:
+                                    f.write(head)
+                                    while True:
+                                        chunk = r.read(1024 * 1024)
+                                        if not chunk:
+                                            break
+                                        h.update(chunk)
+                                        f.write(chunk)
+                                        size += len(chunk)
+                                print('  downloaded size', size, 'sha256', h.hexdigest())
+                                if size == exp_size and h.hexdigest() == exp_sha:
+                                    print('  VERIFIED')
+                                    ok = True
+                                    break
+                                else:
+                                    print('  mismatch, removing')
+                                    os.remove('cutflow_2.1.0_amd64.deb')
+                        except Exception as e:
+                            print('  ERR', e)
+                    if not ok:
+                        print('DOWNLOAD FAILED')
+                        raise SystemExit(1)
+                    print(subprocess.run(['gh', 'release', 'view', 'v2.1.1', '--json', 'tagName,name,isDraft,assets'], capture_output=True, text=True).stdout)
+                    r = subprocess.run(['gh', 'release', 'upload', 'v2.1.1', 'cutflow_2.1.0_amd64.deb', '--clobber'], capture_output=True, text=True)
+                    print('gh upload rc', r.returncode)
+                    print(r.stdout)
+                    print(r.stderr)
+                    if r.returncode != 0:
+                        raise SystemExit(1)
+                    print(subprocess.run(['gh', 'release', 'view', 'v2.1.1', '--json', 'assets'], capture_output=True, text=True).stdout)
+                    print('UPLOAD DONE')
+                    PY
