@@ -23,7 +23,10 @@ const VERTEX_EXPRESS_BASE = 'https://aiplatform.googleapis.com';
 // Server-side "busy / overloaded" answers worth retrying.
 const BUSY = [500, 502, 503, 504];
 
-const redact = (text, key) => (key ? String(text).split(key).join('***') : String(text));
+const { redactSecrets } = require('./redact.cjs');
+// Exact-key redaction, plus the key-shape backstop (a provider body can
+// echo a key this call never used — see electron/redact.cjs).
+const redact = (text, key) => redactSecrets(key ? String(text).split(key).join('***') : String(text));
 
 class AiError extends Error {
   constructor(message, status, link, short, linkLabel, suggestModel) {
@@ -117,7 +120,7 @@ async function geminiGenerate(cfg, body, timeoutMs) {
   const base = (cfg.baseUrl || '').replace(/\/+$/, '');
   // Keys starting with "AQ." are Vertex AI express keys; they use another endpoint than AI Studio keys.
   const vertexFirst = /^AQ\./.test(apiKey);
-  const vertex = { label: 'Vertex AI', run: () => http(`${cfg.vertexBase || base || VERTEX_EXPRESS_BASE}/v1/publishers/google/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`, { body, timeoutMs }, apiKey) };
+  const vertex = { label: 'Vertex AI', run: () => http(`${cfg.vertexBase || base || VERTEX_EXPRESS_BASE}/v1/publishers/google/models/${model}:generateContent`, { headers: { 'x-goog-api-key': apiKey }, body, timeoutMs }, apiKey) };
   const studio = { label: 'Google AI Studio (Gemini API)', run: () => http(`${cfg.studioBase || base || GEMINI_BASE}/v1beta/models/${model}:generateContent`, { headers: { 'x-goog-api-key': apiKey }, body, timeoutMs }, apiKey) };
   const attempts = vertexFirst ? [vertex, studio] : [studio, vertex];
   const failures = [];
@@ -392,6 +395,30 @@ async function testConnection(cfg) {
 
 // Asks the provider which models this key can use, so the user picks a real model id instead of typing one.
 // Returns { ok, models: [id...] } or { ok: false, error }.
+// Ollama free path (P1-30): is the local server up, and which models are already
+// pulled? Never throws — the UI decides what to show from { running, models }:
+// not running -> install/start Ollama; running with no models -> offer a pull;
+// running with models -> the free path works, no key, no internet.
+async function ollamaStatus(baseUrl) {
+  const root = (baseUrl || '').replace(/\/+$/, '') || OLLAMA_DEFAULT;
+  try {
+    const j = await http(`${root}/api/tags`, { timeoutMs: 5000 });
+    return { running: true, models: (j?.models || []).map((m) => m.name).filter(Boolean) };
+  } catch {
+    return { running: false, models: [] };
+  }
+}
+
+// Model names for `ollama pull`: a plain registry id (letters, digits, . _ : -,
+// optionally namespaced like library/qwen2.5:3b). Anything else is refused before
+// it ever reaches a process spawn (no shell is used at all, but a bad name must
+// not become a confusing spawn error either).
+const OLLAMA_MODEL_RE = /^[a-z0-9][a-z0-9._:\/-]{0,63}$/i;
+function validOllamaModel(name) {
+  const m = String(name || '').trim();
+  return OLLAMA_MODEL_RE.test(m) && !m.includes('..');
+}
+
 async function listModels(cfg) {
   const { provider, apiKey } = cfg;
   const base = (cfg.baseUrl || '').replace(/\/+$/, '');
@@ -424,4 +451,4 @@ async function listModels(cfg) {
   }
 }
 
-module.exports = { chat, agentStep, testConnection, listModels, normalizeModel, AiError, toOpenAiMessages, toJsonSchema, toAnthropicMessages, openAiBase };
+module.exports = { chat, agentStep, testConnection, listModels, ollamaStatus, validOllamaModel, normalizeModel, AiError, toOpenAiMessages, toJsonSchema, toAnthropicMessages, openAiBase };

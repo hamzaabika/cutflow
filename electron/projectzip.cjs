@@ -14,9 +14,14 @@
 // Cache fields (thumbnails, waveforms, preview proxies) are stripped
 // from the bundled JSON — they are regenerable, and a stale absolute
 // cache path from another PC must never ride along.
+// archiver 8 is pure ESM ("type": "module") — a top-level require() throws
+// ERR_REQUIRE_ESM on the app's Node (Electron 33 / Node 20), so the ZIP
+// job failed the moment the main process loaded this module, while the
+// ESM test suite passed (system Node supports require(esm)). Load archiver
+// lazily with dynamic import() inside the async writer instead — import()
+// of ESM works on Node 20 and inside the packaged app.
 const fs = require('fs');
 const path = require('path');
-const { ZipArchive } = require('archiver');
 
 const CACHE_FIELDS = ['thumb', 'thumbCount', 'thumbInterval', 'thumbW', 'thumbH', 'wave', 'proxy', 'poster', 'lightProxy', 'proxies', 'optimizing'];
 
@@ -88,11 +93,19 @@ async function writeProjectZip(project, name, outPath, onProgress) {
   const totalBytes = manifest.files.reduce((n, f) => {
     try { return n + fs.statSync(f.src).size; } catch { return n; }
   }, 0);
+  // Set the in-flight slot synchronously, before the first await: a caller
+  // may cancel in the same tick (the test does), and cancelProjectZip must
+  // see the job. The archive/stream attach once the ESM import lands.
+  const cur = { archive: null, out: null, outPath, canceled: false, abort: null };
+  current = cur;
+  // Dynamic import: archiver 8 is ESM-only (see the note at the top).
+  const { ZipArchive } = await import('archiver');
+  if (cur.canceled) return { canceled: true }; // cancelled during the import
   const archive = new ZipArchive({ zlib: { level: 6 } });
   const out = fs.createWriteStream(outPath);
   archive.pipe(out);
-  const cur = { archive, out, outPath, canceled: false, abort: null };
-  current = cur;
+  cur.archive = archive;
+  cur.out = out;
   try {
     const finished = new Promise((resolve, reject) => {
       out.on('close', resolve);

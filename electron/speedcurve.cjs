@@ -124,6 +124,36 @@ function sourceOffsetAt(clip, lt) {
   return k.t + (k.speed * (Math.exp(slope * tau) - 1)) / slope;
 }
 
+function validFrameHold(clip) {
+  if (!clip || !clip.frameHold || hasCurve(clip) || clip.videoOverride) return null;
+  const len = clipDuration(clip);
+  const at = Number(clip.frameHold.at);
+  const dur = Number(clip.frameHold.duration);
+  if (!Number.isFinite(at) || !Number.isFinite(dur)) return null;
+  if (at < 0 || dur <= 0 || at + dur > len + 1e-9) return null;
+  return { at, duration: dur };
+}
+
+function holdSourceOffsetAt(clip, lt) {
+  const h = validFrameHold(clip);
+  if (!h) return sourceOffsetAt(clip, lt);
+  if (lt >= h.at && lt < h.at + h.duration) return sourceOffsetAt(clip, h.at);
+  return sourceOffsetAt(clip, lt);
+}
+
+function pieceFrameHold(hold, s, e) {
+  if (!hold || !Number.isFinite(hold.at) || !Number.isFinite(hold.duration)) return null;
+  if (hold.at >= s - 1e-9 && hold.at + hold.duration <= e + 1e-9) return { at: hold.at - s, duration: hold.duration };
+  return null;
+}
+
+function splitFrameHold(hold, cut) {
+  if (!hold || !Number.isFinite(hold.at) || !Number.isFinite(hold.duration)) return { left: null, right: null };
+  if (hold.at + hold.duration <= cut + 1e-9) return { left: { at: hold.at, duration: hold.duration }, right: null };
+  if (hold.at >= cut - 1e-9) return { left: null, right: { at: hold.at - cut, duration: hold.duration } };
+  return { left: null, right: null };
+}
+
 function timelineOffsetAt(clip, srcOff) {
   const s = sampler(clip);
   if (!s) return srcOff / (clip.speed || 1);
@@ -184,7 +214,19 @@ function sliceCurve(clip, from, to) {
   return { points: normalizePoints(pts, span) };
 }
 
+// The playback rate at a clip edge (first / last knot speed, or the
+// constant speed): the linear extrapolation a J/L extension needs, since
+// the sampler clamps to the clip's own window and cannot answer for time
+// just outside it. P1-03: the lead/trail source seconds of a linked pair.
+function edgeRate(clip, atStart) {
+  const s = sampler(clip);
+  if (!s) return clip.speed || 1;
+  const k = atStart ? s.knots[0] : s.knots[s.knots.length - 1];
+  return (k && k.speed) || 1;
+}
+
 module.exports = {
   CURVE_MIN_SPEED, CURVE_MAX_SPEED, hasCurve, spanOf, normalizePoints,
   clipDuration, speedAtSource, speedAtTime, sourceOffsetAt, timelineOffsetAt, curveSegments, sliceCurve,
+  validFrameHold, holdSourceOffsetAt, pieceFrameHold, splitFrameHold, edgeRate,
 };

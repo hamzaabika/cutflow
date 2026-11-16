@@ -16,7 +16,7 @@ module.exports = async function textsmoothSmoke(win, dir, result) {
 
   win.setContentSize(1440, 900);
   await wait(800);
-  await q(`document.querySelector('[aria-label="New 16:9 project"]').click()`);
+  await q(`document.querySelector('.home-create').click()`);
   await wait(600);
   await q(`window.__fve.load(${fs.readFileSync(path.join(dir, 'project.json'), 'utf8')})`);
   await wait(800);

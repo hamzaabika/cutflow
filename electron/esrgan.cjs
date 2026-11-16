@@ -29,6 +29,76 @@ const { ffmpegPath, ffprobePath, probe } = require('./ffmpeg.cjs');
 // tiles and run out of memory on an iGPU at 4x).
 const TILE_SIZE = 256;
 
+// P0-05 — disk-space / duration guard. The pipeline below extracts the WHOLE
+// video to a full-res PNG sequence and then upscales it folder-to-folder, so
+// a long clip can need tens of GB (or TB) of temp space before anything
+// useful happens. The guard runs after the probe and before any extraction:
+// it refuses with the estimate shown instead of grinding the disk full.
+//
+// The estimate is deliberately worst-case — uncompressed RGB24 bytes per
+// frame (PNG compresses, usually a lot, so real usage is smaller). A guard
+// that underestimates is worse than useless: it would let the job start and
+// die mid-way with a full disk.
+//
+// MAX_ENHANCE_FRAMES bounds the JOB, not just the disk: on the reference
+// machine (ThinkPad i5-7300U, Intel HD 620 iGPU) the engine manages roughly
+// 0.5–2 frames a second at 1080p, so 9,000 frames (≈5 min at 30 fps) is
+// already a 2–5 hour job. Longer than that is not a clip enhance any more.
+const MAX_ENHANCE_FRAMES = 9000; // ≈5 min at 30 fps
+const ENHANCE_DISK_RESERVE_BYTES = 1024 ** 3; // keep 1 GiB headroom after the job's temp need
+
+const group = (n) => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+// Decimal (SI) units, so "31.7 GB" means 31.7 × 10^9 bytes — the figure a
+// user can compare against their disk's free space.
+const fmtBytes = (n) => {
+  if (n >= 1000 ** 3) return `${(n / 1000 ** 3).toFixed(1)} GB`;
+  if (n >= 1000 ** 2) return `${(n / 1000 ** 2).toFixed(0)} MB`;
+  if (n >= 1000) return `${(n / 1000).toFixed(0)} KB`;
+  return `${n} B`;
+};
+
+// Worst-case temp need for a job: the input PNG sequence plus the upscaled
+// sequence, at 3 bytes per pixel per frame. Returns { frames, bytesIn,
+// bytesUp, bytesTotal }.
+function estimateEnhance({ width, height, duration, fps, scale }) {
+  const frames = Math.max(0, Math.ceil((Number(duration) || 0) * (Number(fps) || 0)));
+  const px = Math.max(0, Number(width) || 0) * Math.max(0, Number(height) || 0);
+  const bytesIn = frames * px * 3;
+  const bytesUp = frames * px * (Number(scale) || 1) ** 2 * 3;
+  return { frames, bytesIn, bytesUp, bytesTotal: bytesIn + bytesUp };
+}
+
+// The guard itself: throws a plain-language refusal when the job does not
+// fit, returns the estimate when it does. freeBytes is the temp filesystem's
+// free space; Infinity (statfs unavailable) skips the disk check but keeps
+// the frame cap.
+function checkEnhancePlan(meta, freeBytes) {
+  const est = estimateEnhance(meta);
+  if (est.frames > MAX_ENHANCE_FRAMES) {
+    throw new Error(`This video is too long to enhance: ${group(est.frames)} frames (${meta.duration} s at ${meta.fps} fps). The limit is ${group(MAX_ENHANCE_FRAMES)} frames (about 5 min at 30 fps). Enhance a shorter clip instead.`);
+  }
+  const free = Number(freeBytes);
+  if (Number.isFinite(free)) {
+    // Keep 1 GiB headroom after the job's temp need — or 10% of the free
+    // space, whichever is smaller, so the guard does not refuse every job
+    // outright on a small temp filesystem (this VM's /tmp is a 512 MB tmpfs).
+    const reserve = Math.min(ENHANCE_DISK_RESERVE_BYTES, Math.floor(free * 0.1));
+    if (est.bytesTotal > Math.max(0, free - reserve)) {
+      throw new Error(`Not enough free disk space to enhance this video. It needs up to about ${fmtBytes(est.bytesTotal)} of temporary space, but only ${fmtBytes(free)} is free here. Shorten the clip or free some space first.`);
+    }
+  }
+  return est;
+}
+
+// Free bytes on the filesystem holding `dir` (statfs). Infinity when the
+// platform cannot answer — the caller then relies on the frame cap alone.
+function freeDiskBytes(dir) {
+  try {
+    const s = fs.statfsSync(dir);
+    return Number(s.bfree) * Number(s.bsize);
+  } catch { return Infinity; }
+}
+
 // The engine's path RELATIVE to vendor/realesrgan, per platform — a pure
 // helper so the platform selection is testable without a Windows/Mac host.
 // Each OS package of the same engine build (v0.2.5.0) ships its own binary
@@ -102,6 +172,10 @@ async function exactFps(file) {
     }
   } catch { /* fall through to the rounded probe value */ }
   const info = await probe(file).catch(() => null);
+  // probe() keeps the exact rate (fpsExact / fpsRational) next to the rounded
+  // UI fps — use it, so the enhancer and the probe agree about the same file
+  // instead of the enhancer re-deriving a second answer.
+  if (info && info.fpsExact > 0) return { str: info.fpsRational || String(info.fpsExact), value: info.fpsExact };
   const fps = info && info.fps > 0 ? info.fps : 30;
   return { str: String(fps), value: fps };
 }
@@ -156,6 +230,13 @@ async function runEnhance({ src, model, scale, outFile, onProgress, isCanceled, 
   if (!info || !info.hasVideo) throw new Error('The selected file has no video track to enhance.');
   const fps = await exactFps(src);
   const report = (phase, fraction) => { if (onProgress) onProgress({ phase, fraction }); };
+  // P0-05: refuse before extracting when the job does not fit — the temp
+  // need is estimated from the probe, and the disk check reads the temp
+  // filesystem the work dir will actually live on.
+  checkEnhancePlan(
+    { width: info.width, height: info.height, duration: info.duration, fps: fps.value, scale: plan.engineScale },
+    freeDiskBytes(tmpRoot || os.tmpdir()),
+  );
 
   const work = fs.mkdtempSync(path.join(tmpRoot || os.tmpdir(), 'cutflow-enhance-'));
   const framesDir = path.join(work, 'frames');
@@ -215,4 +296,4 @@ async function runEnhance({ src, model, scale, outFile, onProgress, isCanceled, 
   }
 }
 
-module.exports = { MODELS, TILE_SIZE, engineRelPath, enginePaths, planFor, outputNameFor, exactFps, extractArgs, engineArgs, encodeArgs, runEnhance };
+module.exports = { MODELS, TILE_SIZE, MAX_ENHANCE_FRAMES, ENHANCE_DISK_RESERVE_BYTES, engineRelPath, enginePaths, planFor, outputNameFor, exactFps, extractArgs, engineArgs, encodeArgs, runEnhance, estimateEnhance, checkEnhancePlan, freeDiskBytes };

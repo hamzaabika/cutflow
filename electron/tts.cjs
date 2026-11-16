@@ -9,6 +9,7 @@ const crypto = require('crypto');
 const { spawn, execFile } = require('child_process');
 const { Readable, Transform } = require('stream');
 const { pipeline } = require('stream/promises');
+const { redactSecrets } = require('./redact.cjs');
 
 const PIPER_RELEASE = 'https://github.com/rhasspy/piper/releases/download/2023.11.14-2/';
 // Engine builds published with Piper 2023.11.14-2, one per platform. Every archive holds a
@@ -168,7 +169,7 @@ async function elError(res) {
   if (res.status === 401) return new Error('ElevenLabs refused the API key. Check it in Settings.');
   if (/quota|credits/i.test(String(msg))) return new Error('Your ElevenLabs credits for this month are used up.');
   if (res.status === 429) return new Error('ElevenLabs is busy or your plan limit was reached. Try again in a moment.');
-  return new Error(`ElevenLabs answered ${res.status}${msg ? `: ${String(msg).slice(0, 200)}` : ''}.`);
+  return new Error(`ElevenLabs answered ${res.status}${msg ? `: ${redactSecrets(String(msg).slice(0, 200))}` : ''}.`);
 }
 
 async function elevenVoices(fetchImpl, key) {

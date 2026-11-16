@@ -16,15 +16,16 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
-const { audioFxFilters } = require('./audiofx.cjs');
+const { audioFxFilters, cleanVoiceChain, cleanVoiceFilters, repairFilters } = require('./audiofx.cjs');
 
 const num = (v) => String(Math.round(v * 1000) / 1000);
 
-// The full filter list for a derivative render: source conditioning + the shared chain.
+// The full filter list for a derivative render: source conditioning + the shared chain
+// (Repair first, then Clean Voice, then audioFx — the same order the export applies).
 // Exported for scripts/test-audiofx-preview.mjs, which rebuilds the same graph from
 // audiofx.cjs directly and compares the rendered samples.
-function derivativeFilters(fx, channels) {
-  return [...(channels === 1 ? ['pan=stereo|c0=c0|c1=c0'] : []), 'aresample=48000', ...audioFxFilters(fx)];
+function derivativeFilters(fx, channels, cleanVoice, repair) {
+  return [...(channels === 1 ? ['pan=stereo|c0=c0|c1=c0'] : []), 'aresample=48000', ...repairFilters(repair), ...cleanVoiceFilters(cleanVoice), ...audioFxFilters(fx)];
 }
 
 function outFile(srcPath, from, to, chain, cacheDir) {
@@ -63,8 +64,8 @@ function run(ffmpegPath, args, cwd, onTime, isCanceled, len) {
 // Enhance replaces the sound (the caller resolves that, exactly as the preview does).
 // Returns { path, chain } — the cached WAV covering exactly [from, to] of the source —
 // or null when the fx produce no filters (nothing to render).
-async function renderAudioFx({ srcPath, from = 0, to, fx, channels = 2, cacheDir, ffmpegPath, onProgress = () => {}, isCanceled = () => false }) {
-  const chain = audioFxFilters(fx).join(',');
+async function renderAudioFx({ srcPath, from = 0, to, fx, cleanVoice, repair, channels = 2, cacheDir, ffmpegPath, onProgress = () => {}, isCanceled = () => false }) {
+  const chain = cleanVoiceChain(cleanVoice, fx, repair);
   if (!chain) return null;
   const a = Math.max(0, from);
   const b = to ?? a;
@@ -74,7 +75,7 @@ async function renderAudioFx({ srcPath, from = 0, to, fx, channels = 2, cacheDir
   if (fs.existsSync(out)) { onProgress(1); return { path: out, chain }; }
   const part = `${path.basename(out, '.wav')}.part.wav`;
   const args = ['-ss', num(a), '-t', num(len), '-i', srcPath,
-    '-map', '0:a:0', '-vn', '-af', derivativeFilters(fx, channels).join(','), '-c:a', 'pcm_s16le', '-ar', '48000', '-ac', '2', '-y', part];
+    '-map', '0:a:0', '-vn', '-af', derivativeFilters(fx, channels, cleanVoice, repair).join(','), '-c:a', 'pcm_s16le', '-ar', '48000', '-ac', '2', '-y', part];
   try {
     await run(ffmpegPath, args, cacheDir, (t) => onProgress(Math.min(0.99, t / len)), isCanceled, len);
     fs.renameSync(path.join(cacheDir, part), out);

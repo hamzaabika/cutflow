@@ -27,12 +27,33 @@ module.exports = async function gradeSmoke(win, dir, result) {
     };
     return { center: mean(0.35, 0.35, 0.65, 0.65), corner: mean(0.02, 0.02, 0.12, 0.12) };
   };
-  const setNum = (name, v) => q(`(() => { const el = document.querySelector('.left input[aria-label="${name} value"]');
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, '${v}'); el.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+  // NumBox only commits on Enter / blur / arrow keys — typing (the 'input'
+  // event) merely edits its local text. Setting the value without blurring
+  // leaves the grade untouched (the pre-fix run recorded grade/hsl as
+  // undefined and after == before). Focus, set, input, blur — as separate
+  // evaluate calls with small waits, so React flushes the focus/input state
+  // between steps instead of batching the whole sequence (a starved
+  // renderer dropped the commit when all three ran in one synchronous task).
+  const setNum = async (name, v) => {
+    const sel = `.left input[aria-label="${name} value"]`;
+    await q(`(() => { const el = document.querySelector(${JSON.stringify(sel)}); if (el) el.focus(); return !!el; })()`);
+    await wait(100);
+    await q(`(() => { const el = document.querySelector(${JSON.stringify(sel)}); if (!el) return false;
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, '${v}');
+      el.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
+    await wait(100);
+    await q(`(() => { const el = document.querySelector(${JSON.stringify(sel)}); if (el) el.blur(); })()`);
+    await wait(100);
+  };
 
   win.show();
   win.moveTop();
   await wait(800);
+  // The app starts on the Home screen: enter the editor through a preset card first, then load.
+  // (Same entry step as smoke-textanim.cjs; without it __fve.load() leaves the app on Home
+  // and every editor query below throws — .stage null.)
+  await q(`document.querySelector('.home-create')?.click()`);
+  await wait(600);
   // One clip only (the city), so the export is short.
   const project = JSON.parse(fs.readFileSync(path.join(dir, 'project.json'), 'utf8'));
   project.videoClips = project.videoClips.slice(0, 1).map((c) => ({ ...c, filter: 'none', effects: [], transition: null }));
@@ -45,7 +66,16 @@ module.exports = async function gradeSmoke(win, dir, result) {
   await wait(1500);
   await q(`window.__fve.seek(1); window.__fve.select({ track: 'video', id: '${project.videoClips[0].id}' }); window.__fve.tab('adjust')`);
   await wait(1200);
-  result.before = await playerColor();
+  // Wait for a decoded frame: reading the player colour while the video is
+  // still buffering records black ([0,0,0]) instead of the picture. Retry
+  // the read until the centre is non-black (bounded — a stuck decode fails
+  // the run on the colour assertions, not here).
+  await until(`[...document.querySelectorAll('video')].some((v) => v.readyState >= 3 && v.currentTime > 0)`, 20000);
+  for (let i = 0; i < 5; i++) {
+    result.before = await playerColor();
+    if (result.before.center.some((v) => v !== 0) || result.before.corner.some((v) => v !== 0)) break;
+    await wait(1000);
+  }
   result.rows = await q(`[...document.querySelectorAll('.left .grade-row .grade-top span')].map((s) => s.textContent)`);
   await setNum('Temp', 80);
   await setNum('Exposure', -40);
@@ -90,6 +120,9 @@ module.exports = async function gradeSmoke(win, dir, result) {
   await q(`(() => { const el = document.querySelector('.left select[aria-label="LUT"]'); const o = [...el.options].find((x) => x.textContent === 'Neon');
     Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(el, o.value); el.dispatchEvent(new Event('change', { bubbles: true })); })()`);
   await wait(800);
+  // The LUT row only renders once loadLut() resolves (async .cube load) —
+  // wait for the intensity input instead of assuming 800 ms is enough.
+  await until(`!!document.querySelector('.left input[aria-label="LUT intensity value"]')`, 15000);
   await setNum('LUT intensity', 80);
   await wait(1500);
   result.lut = (await q('window.__fve.exportData().project.videoClips[0].grade')).lut;
@@ -100,7 +133,10 @@ module.exports = async function gradeSmoke(win, dir, result) {
   const out = path.join(dir, 'ui-export.mp4');
   fs.rmSync(out, { force: true });
   await q('window.__fve.exportNow()');
-  result.exportDone = await until(`!!document.querySelector('.modal-icon.ok, .modal-icon.error')`, 300000);
+  // Export completion is signaled by the jobs tray (.xjob-ic.ok), not by a
+  // .modal-icon.ok element — no component renders that class anymore, so the
+  // old selector waited the full 300 s on every run.
+  result.exportDone = await until(`!!document.querySelector('.xjob-ic.ok, .xjob-ic.error')`, 300000);
   result.exportResult = await q(`document.querySelector('#export-title')?.textContent + ' ' + (document.querySelector('.error-log')?.textContent || '').slice(0, 300)`);
   if (fs.existsSync(out)) {
     const info = await probe(out);

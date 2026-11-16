@@ -203,21 +203,30 @@ function runCli(cli, args, onProgress, onFile) {
 // new word; punctuation sticks to the previous one. Token text can split multi-byte characters
 // (e.g. Arabic), so the words' text comes from the segment text when the counts agree; otherwise the
 // segment duration is shared out by word length.
+// AI-03: whisper.cpp tokens carry `p` (the token's probability). A word's
+// confidence is the mean of its tokens' p — only when the engine actually
+// reported one; segments rebuilt from plain text carry no confidence.
 function segmentWords(s, seg) {
   const words = [];
   for (const t of s.tokens || []) {
     if (/^\[_/.test(t.text) || !t.offsets) continue;
     const from = t.offsets.from / 1000;
     const to = t.offsets.to / 1000;
-    if (!words.length || /^\s/.test(t.text)) words.push({ text: t.text.trim(), start: from, end: to });
+    const p = Number(t.p);
+    if (!words.length || /^\s/.test(t.text)) words.push({ text: t.text.trim(), start: from, end: to, _ps: Number.isFinite(p) ? [p] : [] });
     else {
       words[words.length - 1].text += t.text;
       words[words.length - 1].end = to;
+      if (Number.isFinite(p)) words[words.length - 1]._ps.push(p);
     }
   }
   const real = words.filter((w) => w.text);
   const textWords = seg.text.split(/\s+/).filter(Boolean);
-  if (real.length === textWords.length) return real.map((w, i) => ({ ...w, text: textWords[i] }));
+  const withConf = (w) => {
+    const { _ps, ...rest } = w;
+    return _ps.length ? { ...rest, conf: Math.round((_ps.reduce((a, b) => a + b, 0) / _ps.length) * 1000) / 1000 } : rest;
+  };
+  if (real.length === textWords.length) return real.map((w, i) => withConf({ ...w, text: textWords[i] }));
   const total = textWords.reduce((n, w) => n + w.length, 0) || 1;
   let t = seg.start;
   return textWords.map((w) => {
@@ -360,4 +369,4 @@ async function transcribe(dir, wav, { language = 'auto', maxLen = 42, model = 'b
   throw new Error(`Auto captions failed.\n${failureReason(full)}\n\nFull log: ${p.log}`);
 }
 
-module.exports = { status, install, transcribe, MODELS, cutAtPauses, readPiece };
+module.exports = { status, install, transcribe, MODELS, cutAtPauses, readPiece, segmentWords };

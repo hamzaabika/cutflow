@@ -129,4 +129,85 @@ function scanMediaFolder(rootDir, wantedNames, opts = {}) {
   return found;
 }
 
-module.exports = { checkGenerated, refreshSizes, findMissingMedia, scanMediaFolder, resolveRelativeMedia };
+// P1-54 — packaged-project report: a project ZIP's bundled JSON writes its
+// media paths relative to the project file (assets/<basename>), while a
+// project saved on this PC writes absolute paths. A project is "packaged"
+// when ANY media path is relative — that is the signature the open-time
+// report uses to say "this came from a package". Pure (no disk access), so
+// the test suite can pin it without the main process.
+function isPackagedProject(projectJson) {
+  try {
+    const p = JSON.parse(projectJson);
+    return Array.isArray(p.media) && p.media.some((m) => m && typeof m.path === 'string' && m.path && !path.isAbsolute(m.path));
+  } catch {
+    return false;
+  }
+}
+
+// ---- Project schema versions + migrations (FB-19 / P1-27). ----
+// Projects saved before this change carry no schemaVersion at all (v0);
+// the current schema is v1. Old projects must OPEN correctly under the
+// current schema — silently dropping a field the editor now expects, or
+// crashing on a shape it no longer writes, is a data-loss bug, not a
+// cosmetic one. migrateProject is pure (no disk access) so the suite pins
+// it without the main process:
+//   migrateProject(json) -> { json, migrated, fromVersion, toVersion,
+//                             changes, newer }
+// - Unparseable input passes through unchanged (the caller — draftsafety's
+//   fallback chain — decides what a corrupt file means, not the migrator).
+// - A version NEWER than this build also passes through unchanged with
+//   newer:true: a future build's project must not be silently rewritten
+//   by an older one.
+// - v0 -> v1: stamp schemaVersion 1; ensure every clip/media array the
+//   editor iterates exists; fill clip defaults the editor assumes
+//   (speed 1, volume 1, filter 'none', muted false); normalise the legacy
+//   string transition ("dissolve") to { type, duration }; derive
+//   width/height from ratio when absent (16:9 -> 1920x1080, 9:16 ->
+//   1080x1920, 1:1 -> 1080x1080, else 1920x1080); fps defaults to 30.
+//   Nothing else is rewritten: media paths, clip timings, effect settings
+//   and text content pass through byte-for-byte in meaning.
+const PROJECT_SCHEMA_VERSION = 1;
+const CLIP_ARRAYS = ['videoClips', 'overlayClips', 'audioClips', 'stickerClips', 'effectClips', 'textClips'];
+const RATIO_SIZE = { '16:9': [1920, 1080], '9:16': [1080, 1920], '1:1': [1080, 1080], '4:3': [1440, 1080], '21:9': [2560, 1080] };
+function migrateProject(projectJson) {
+  let p;
+  try { p = JSON.parse(projectJson); } catch { return { json: projectJson, migrated: false, fromVersion: null, toVersion: PROJECT_SCHEMA_VERSION, changes: ['unparseable: left unchanged'], newer: false }; }
+  if (!p || typeof p !== 'object' || Array.isArray(p)) return { json: projectJson, migrated: false, fromVersion: null, toVersion: PROJECT_SCHEMA_VERSION, changes: ['not an object: left unchanged'], newer: false };
+  const fromVersion = Number.isInteger(p.schemaVersion) ? p.schemaVersion : 0;
+  if (fromVersion > PROJECT_SCHEMA_VERSION) return { json: projectJson, migrated: false, fromVersion, toVersion: PROJECT_SCHEMA_VERSION, changes: ['newer than this build: left unchanged'], newer: true };
+  if (fromVersion === PROJECT_SCHEMA_VERSION) return { json: projectJson, migrated: false, fromVersion, toVersion: PROJECT_SCHEMA_VERSION, changes: [], newer: false };
+  const changes = [];
+  // v0 -> v1
+  if (!Array.isArray(p.media)) { p.media = []; changes.push('media[] created'); }
+  for (const track of CLIP_ARRAYS) {
+    if (!Array.isArray(p[track])) { p[track] = []; changes.push(`${track}[] created`); }
+  }
+  for (const track of ['videoClips', 'overlayClips', 'audioClips']) {
+    for (const c of p[track]) {
+      if (!c || typeof c !== 'object') continue;
+      if (c.speed === undefined) { c.speed = 1; changes.push(`clip ${c.id || '?'}: speed defaulted to 1`); }
+      if (c.volume === undefined) { c.volume = 1; changes.push(`clip ${c.id || '?'}: volume defaulted to 1`); }
+      if (c.muted === undefined) { c.muted = false; changes.push(`clip ${c.id || '?'}: muted defaulted to false`); }
+      if (track !== 'audioClips' && c.filter === undefined) { c.filter = 'none'; changes.push(`clip ${c.id || '?'}: filter defaulted to 'none'`); }
+      if (typeof c.transition === 'string') {
+        c.transition = { type: c.transition, duration: 0.5 };
+        changes.push(`clip ${c.id || '?'}: string transition normalised to { type, duration }`);
+      }
+    }
+  }
+  if (p.fps === undefined) { p.fps = 30; changes.push('fps defaulted to 30'); }
+  if (p.width === undefined || p.height === undefined) {
+    const [w, h] = RATIO_SIZE[p.ratio] || [1920, 1080];
+    if (p.width === undefined) p.width = w;
+    if (p.height === undefined) p.height = h;
+    changes.push(`size derived from ratio ${p.ratio || '16:9'} -> ${p.width}x${p.height}`);
+  }
+  if (typeof p.name !== 'string' || !p.name) { p.name = 'Untitled'; changes.push('name defaulted to Untitled'); }
+  if (p.background === undefined) { p.background = '#000000'; changes.push('background defaulted to #000000'); }
+  p.schemaVersion = PROJECT_SCHEMA_VERSION;
+  changes.unshift(`schema v${fromVersion} -> v${PROJECT_SCHEMA_VERSION}`);
+  return { json: JSON.stringify(p), migrated: true, fromVersion, toVersion: PROJECT_SCHEMA_VERSION, changes, newer: false };
+}
+
+module.exports = { checkGenerated, refreshSizes, findMissingMedia, scanMediaFolder, resolveRelativeMedia, isPackagedProject, migrateProject, PROJECT_SCHEMA_VERSION };
+

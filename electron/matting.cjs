@@ -65,7 +65,15 @@ function workSize(w, h) {
   return { w: Math.max(2, Math.round((w * k) / 2) * 2), h: Math.max(2, Math.round((h * k) / 2) * 2) };
 }
 
-const fpsOf = (item) => Math.max(1, Math.min(60, Math.round(item.fps || 30)));
+// A-F5: the matte is sampled at the SOURCE rate, not the rounded UI fps —
+// 29.97 sampled at 30 drifts a frame every ~33 s against the clip it masks.
+// fpsExact (30000/1001) rides on the media item from probe(); the rounded
+// fps is only the fallback for items probed before it existed. Rounded to 3
+// decimals so the cache key stays stable.
+const fpsOf = (item) => {
+  const exact = Number(item.fpsExact) || Number(item.fps) || 30;
+  return Math.max(1, Math.min(60, Math.round(exact * 1000) / 1000));
+};
 
 // Where the matte of a file goes: one per file content (path, size, date) and settings.
 function matteFile(item, cacheDir) {
@@ -173,4 +181,4 @@ async function makeMatte(item, { dir, cacheDir, ffmpegPath, toSdr = () => '', on
   return out;
 }
 
-module.exports = { status, install, makeMatte, matteFile, workSize, MODEL };
+module.exports = { status, install, makeMatte, matteFile, workSize, MODEL, fpsOf };

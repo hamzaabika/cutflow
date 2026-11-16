@@ -12,14 +12,25 @@
 // Installing replaces only the app's own program files: projects, recents and settings live
 // in the app's userData folder, which an install-over never touches, so an update loses
 // nothing.
-// Integrity (release gate 7): the feed carries the installer's SHA-256 (the `sha256`
-// field, published alongside the release). When a check returns one, the download is
+// Integrity (release gate 7, tightened 2026-11-15 — A-F8): the feed MUST carry the
+// installer's SHA-256 (the `sha256` field, published alongside the release). A newer
+// version whose feed carries no (or a malformed) hash is NOT downloadable and NOT
+// installable: downloadInstaller refuses it with hashMissing, and installDownloaded
+// refuses any download whose hash was never recorded. There is no "install anyway"
+// path and no silent pre-gate fallback — a missing checksum is a hard stop, with a
+// message that says exactly that. When a check returns a hash, the download is
 // hashed as it streams in and compared BEFORE the file is ever offered for install —
 // a mismatch deletes the file and is reported as what it is, never as a usable
 // download. installDownloaded then re-hashes the file at install time, so a file
 // that was swapped or corrupted between the download and the install is refused too.
-// A feed without the field keeps the pre-gate behaviour (no hash was promised, so
-// none is enforced) — the About card only claims "verified" when a hash was checked.
+// FB-21 (P1-36): a feed WITHOUT the field no longer "keeps the pre-gate behaviour
+// (no hash was promised, so none is enforced)". An update whose checksum is missing
+// is REFUSED by default — { error, missingChecksum: true } — and nothing is
+// downloaded. The ONLY way through is an explicit user override (the About
+// dialog's "Install without checksum verification" checkbox, passed as
+// allowUnverified), and an override download is labelled unverified everywhere
+// it is shown, never dressed up as verified. Refusing is the safe default:
+// a feed that cannot prove what it serves must not install silently.
 // Honest states: "up to date" is reported ONLY after a 200 answer whose version is not newer.
 // Any other outcome (404, 500, offline, a non-feed answer) is an error with its reason — never
 // silently dressed up as "up to date".
@@ -69,17 +80,28 @@ function hashFile(file) {
 
 // Streams the installer at `url` into `destDir`, reporting { received, total } as it goes.
 // The URL is gated to LINK_HOSTS again here (defense in depth — the feed was already gated).
-// Returns { path, fileName, size, sha256, verified } or { error }. When `expectedSha256`
-// (the feed's hash for this installer) is given, the stream is hashed as it lands and a
-// mismatch deletes the file and returns { error, checksumMismatch: true } — the file is
-// never left on disk as an installable download. Nothing is executed here: installing
-// the download afterwards is a separate, explicit user action (installDownloaded below,
+// Returns { path, fileName, size, sha256, verified } or { error }. `expectedSha256`
+// (the feed's hash for this installer) is REQUIRED: without it the download is
+// refused by default ({ error, missingChecksum: true, hashMissing: true }) — an update with no published
+// checksum never lands on disk as an installable file. When given, the stream is
+// hashed as it lands and a mismatch deletes the file and returns
+// { error, checksumMismatch: true } — the file is never left on disk as an
+// installable download. Nothing is executed here: installing the download
+// afterwards is a separate, explicit user action (installDownloaded below,
 // or opening the file with the system installer).
-async function downloadInstaller(url, { fetchImpl = net.fetch, destDir, onProgress, expectedSha256 } = {}) {
+// FB-21: when no hash was promised (expectedSha256 empty) the download is REFUSED
+// unless the caller passes allowUnverified: true — an explicit user override from
+// the About dialog. An override download returns verified: false, unverified: true
+// and is recorded as unverified, so the install gate below can refuse it too
+// unless the override is repeated there.
+async function downloadInstaller(url, { fetchImpl = net.fetch, destDir, onProgress, expectedSha256, allowUnverified = false } = {}) {
   const safe = safeLink(url, LINK_HOSTS);
   if (!safe) return { error: 'The download link is not on an allowed host.' };
   if (!destDir) return { error: 'No download folder available.' };
   const expected = sha256OfText(expectedSha256);
+  if (!expected && !allowUnverified) {
+    return { error: 'The update feed did not publish a checksum for this installer, so it was not downloaded. An update without a checksum is refused unless you explicitly allow it.', missingChecksum: true, hashMissing: true };
+  }
   let base = 'Cutflow-update';
   try { base = decodeURIComponent(new URL(safe).pathname.split('/').pop() || base) || base; } catch { /* keep default */ }
   base = base.replace(/[^\w.\- ]+/g, '_');
@@ -130,7 +152,7 @@ async function downloadInstaller(url, { fetchImpl = net.fetch, destDir, onProgre
     }
     lastDownloadPath = dest;
     lastDownloadSha256 = expected;
-    return { path: dest, fileName: base, size: received, sha256: digest, verified: !!expected };
+    return { path: dest, fileName: base, size: received, sha256: digest, verified: !!expected, unverified: !expected };
   } catch (err) {
     try { fs.rmSync(dest, { force: true }); } catch { /* best effort */ }
     return { error: err?.name === 'AbortError' ? 'The download timed out.' : 'The download failed — check your connection and try again.' };
@@ -163,12 +185,18 @@ function installCommand(file, platform = process.platform) {
 // installer ran clean, { error } with an honest reason otherwise, and { unsupported: true }
 // where there is no silent install (macOS) so the caller can open the file instead.
 // A pkexec exit code of 126 means the password prompt was dismissed without authenticating.
-async function installDownloaded({ destDir, spawnImpl = spawn, platform = process.platform } = {}) {
+// FB-21: a download recorded WITHOUT a checksum (the override path) is refused here
+// too unless allowUnverified is passed again — the download override does not
+// silently become an install override.
+async function installDownloaded({ destDir, spawnImpl = spawn, platform = process.platform, allowUnverified = false } = {}) {
   const file = lastDownloadPath;
   if (!file || !destDir) return { error: 'Download the update first.' };
   let ok = false;
   try { ok = fs.existsSync(file) && path.dirname(file) === path.resolve(destDir); } catch { ok = false; }
   if (!ok) return { error: 'The downloaded installer is no longer there.' };
+  if (!lastDownloadSha256 && !allowUnverified) {
+    return { error: 'This installer was downloaded without a checksum to verify it against, so it will not be installed. Download it again with checksum verification, or explicitly allow the unverified install.', missingChecksum: true, hashMissing: true };
+  }
   // Gate 7, second half: the file is re-hashed NOW, at install time. The download
   // matched the feed's SHA-256 when it landed; if the bytes on disk no longer do
   // (swapped, truncated, corrupted in between), the install is refused before any
@@ -227,11 +255,15 @@ const safeLink = (url, hosts) => {
   }
 };
 
-// { current, latest, newer, downloadUrl, notesUrl, notes, releaseDate, size, sha256 } on a
-// valid feed answer, or { current, error } for ANY failure to check (non-200, offline,
+// { current, latest, newer, downloadUrl, notesUrl, notes, releaseDate, size, sha256, hashMissing }
+// on a valid feed answer, or { current, error } for ANY failure to check (non-200, offline,
 // non-feed body). sha256 is the feed's published SHA-256 of the installer (gate 7), ''
-// when the feed carries none or a malformed one — downloadInstaller then simply has
-// nothing to verify against and says so in its result (verified: false).
+// when the feed carries none or a malformed one — downloadInstaller then REFUSES the
+// download by default (FB-21: a missing checksum is not "nothing to verify", it is a
+// reason not to install), unless the user explicitly overrides it in About.
+// when the feed carries none or a malformed one — and hashMissing is then true on a
+// newer version, so the UI can say the update is held for a missing checksum instead
+// of offering a download that the install gate will refuse.
 // There is deliberately no "none" state: a check that did not succeed must never be shown as
 // "up to date" (that is exactly the lie the old 404 -> none mapping told).
 async function check(fetchImpl = net.fetch) {
@@ -245,16 +277,20 @@ async function check(fetchImpl = net.fetch) {
     try { r = await res.json(); } catch { return { current, error: 'Couldn\'t check for updates — the update feed did not answer with a valid feed.' }; }
     const latest = parse(r.version) ? String(r.version) : '';
     if (!latest) return { current, error: 'The update feed did not contain a valid version.' };
+    const sha256 = sha256OfText(r.sha256);
+    const newer = compare(latest, current) > 0;
     return {
       current,
       latest,
-      newer: compare(latest, current) > 0,
+      newer,
       downloadUrl: safeLink(r.download_url, LINK_HOSTS) || SITE,
       notesUrl: safeLink(r.notes_url, LINK_HOSTS),
       notes: typeof r.notes === 'string' ? r.notes.slice(0, 2000) : '',
       releaseDate: typeof r.release_date === 'string' ? r.release_date : '',
       size: typeof r.size === 'string' ? r.size : '',
-      sha256: sha256OfText(r.sha256),
+      sha256,
+      // A-F8: a newer version with no published checksum is held, not offered.
+      hashMissing: newer && !sha256,
     };
   } catch {
     return { current, error: 'Couldn\'t check for updates — No internet connection, or the update server could not be reached.' };
