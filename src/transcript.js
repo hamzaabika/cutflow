@@ -19,9 +19,13 @@ export function transcriptSentences(project) {
     .map((c) => {
       const end = c.start + c.duration;
       const words = (c.words && c.words.length)
-        ? c.words.map((w) => ({ text: w.text, start: c.start + w.start, end: c.start + w.end }))
+        ? c.words.map((w) => ({ text: w.text, start: c.start + w.start, end: c.start + w.end, ...(Number.isFinite(w.conf) ? { conf: w.conf } : {}) }))
         : [{ text: c.text || '', start: c.start, end }];
-      return { clipId: c.id, start: c.start, end, text: c.text || '', hasWords: !!(c.words && c.words.length), words };
+      // AI-03: the speaker label rides on the sentence (from the clip), and
+      // word confidence rides on the words (from the transcription engine).
+      // speaker is always present ('' when unlabeled) so consumers never
+      // branch on its absence.
+      return { clipId: c.id, start: c.start, end, text: c.text || '', speaker: c.speaker || '', hasWords: !!(c.words && c.words.length), words };
     });
 }
 
@@ -154,3 +158,119 @@ export function retakeGroups(sentences) {
 export function retakeCutRanges(sentences, group) {
   return mergeRanges(group.members.filter((i) => i !== group.keep).map((i) => sentenceRange(sentences[i])));
 }
+
+// --- P1-33 / P1-34 — transcript confidence controls + proofreading --------
+// Words carry `conf` (0..1) when the transcription engine reported one
+// (Whisper word timestamps); a word without one is treated as unknown, never
+// as low-confidence. The project stores the threshold at
+// project.transcript.confidenceThreshold (default 0.6); the panel hides or
+// flags words below it and the proofreader never "fixes" a low-confidence
+// word by guessing — it only flags it for a human.
+export const DEFAULT_CONFIDENCE_THRESHOLD = 0.6;
+
+// Every word whose confidence is below the threshold, with the sentence
+// it belongs to (for the review list: click to seek) and who said it.
+// Sorted by time. Shape is a superset of both predecessors: the P1-33
+// { text, conf, clipId, start, end } plus AI-03's sentence index and
+// speaker, so both test suites read what they pin.
+export function lowConfidenceWords(sentences, threshold = DEFAULT_CONFIDENCE_THRESHOLD) {
+  const out = [];
+  (sentences || []).forEach((s, si) => {
+    for (const w of s.words || []) {
+      if (Number.isFinite(w.conf) && w.conf < threshold) {
+        out.push({ text: w.text, conf: w.conf, clipId: s.clipId, start: w.start, end: w.end, sentence: si, speaker: s.speaker });
+      }
+    }
+  });
+  return out.sort((a, b) => a.start - b.start);
+}
+
+// Coverage stats for the confidence header: how many words actually carry
+// a score, their mean, and how many sit below the threshold.
+export function confidenceStats(sentences, threshold = 0.7) {
+  let total = 0; let withConf = 0; let sum = 0; let low = 0;
+  (sentences || []).forEach((s) => (s.words || []).forEach((w) => {
+    total++;
+    if (Number.isFinite(w.conf)) { withConf++; sum += w.conf; if (w.conf < threshold) low++; }
+  }));
+  return { total, withConf, low, avg: withConf ? Math.round((sum / withConf) * 1000) / 1000 : null };
+}
+
+// The P1-33 summary shape, computed from confidenceStats so the two
+// never drift: { words: scored words, mean, low }.
+export function confidenceSummary(sentences) {
+  const st = confidenceStats(sentences, DEFAULT_CONFIDENCE_THRESHOLD);
+  return { words: st.withConf, mean: st.avg, low: st.low };
+}
+
+// Proofreading: deterministic, rule-based corrections over the caption text.
+// Rules only ever fire on exact patterns (no model, no guessing): collapsed
+// whitespace, a doubled word ("the the"), a space before , . ! ? or ), a
+// missing space after , . ! ? or ), and a capital at the start of a Latin
+// sentence. Arabic script has no case, so the capital rule skips it.
+// Returns { sentences, corrections: [{ clipId, before, after, rule }] } —
+// the caller applies the text edits through the store (one undo step).
+const PROOF_RULES = [
+  { id: 'whitespace', fix: (t) => t.replace(/\s+/g, ' ').trim() },
+  { id: 'double-word', fix: (t) => t.replace(/\b(\p{L}+)\s+\1\b/giu, '$1') },
+  { id: 'space-before-punct', fix: (t) => t.replace(/\s+([,.!?:;)])/g, '$1') },
+  { id: 'space-after-punct', fix: (t) => t.replace(/([,.!?;:])(?=\S)/g, '$1 ') },
+  {
+    id: 'sentence-capital',
+    fix: (t) => t.replace(/(^|[.!?]\s+)([a-z])/g, (m, pre, ch) => pre + ch.toUpperCase()),
+  },
+];
+export function proofreadSentences(sentences) {
+  const corrections = [];
+  const next = (sentences || []).map((s) => {
+    let text = s.text || '';
+    for (const r of PROOF_RULES) {
+      const fixed = r.fix(text);
+      if (fixed !== text) { corrections.push({ clipId: s.clipId, before: text, after: fixed, rule: r.id }); text = fixed; }
+    }
+    return text === s.text ? s : { ...s, text };
+  });
+  return { sentences: next, corrections };
+}
+
+// --- P1-32 — transcript labelling (speaker labels) -------------------------
+// A caption clip carries `speaker` (a free label, e.g. "Hamza" / "Speaker 1").
+// labelSpeakers applies a { clipId: speaker } map to sentence objects;
+// speakerSegments groups consecutive sentences with the same speaker so the
+// panel can render turn blocks. Diarization itself is NOT done here: labels
+// come from the user (or a future diarizer) — nothing is guessed.
+export function labelSpeakers(sentences, labels) {
+  if (!labels) return sentences;
+  return (sentences || []).map((s) => (labels[s.clipId] ? { ...s, speaker: labels[s.clipId] } : s));
+}
+export function speakerSegments(sentences) {
+  const out = [];
+  for (const s of sentences || []) {
+    const sp = s.speaker || null;
+    const last = out[out.length - 1];
+    if (last && last.speaker === sp) { last.sentences.push(s); last.end = s.end; }
+    else out.push({ speaker: sp, start: s.start, end: s.end, sentences: [s] });
+  }
+  return out;
+}
+
+// ---- AI-03: speaker ids + names ------------------------------------------
+// Speaker ids the panel offers. Names live on the project
+// (project.speakers: { S1: 'Hamza', … }); an id with no name shows as
+// "Speaker 1", "Speaker 2", …
+export const SPEAKER_IDS = ['S1', 'S2', 'S3', 'S4'];
+export function speakerName(project, id) {
+  if (!id) return '';
+  const named = project?.speakers?.[id];
+  if (named) return String(named);
+  const n = Number(String(id).replace(/^S/, ''));
+  return Number.isFinite(n) && n >= 1 ? `Speaker ${n}` : String(id);
+}
+
+// The distinct speakers used across the transcript, in first-appearance order.
+export function speakersUsed(sentences) {
+  const out = [];
+  (sentences || []).forEach((s) => { if (s.speaker && !out.includes(s.speaker)) out.push(s.speaker); });
+  return out;
+}
+

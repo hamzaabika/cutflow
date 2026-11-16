@@ -126,6 +126,24 @@ export function useLayout() {
     setLayout((l) => clampLayout({ ...l, [which]: defaults()[which] }));
   }, []);
 
+  // Apply a whole saved arrangement at once (workspaces, P2-37): sizes and
+  // collapsed flags together, clamped to the window like every other set.
+  const applySizes = useCallback((sizes, collapsed) => {
+    if (!sizes || ![sizes.left, sizes.right, sizes.bottom].every((n) => Number.isFinite(n))) return;
+    setStored((s) => ({
+      sizes: clampLayout({ left: sizes.left, right: sizes.right, bottom: sizes.bottom }),
+      collapsed: {
+        left: collapsed?.left === true,
+        right: collapsed?.right === true,
+      },
+    }));
+  }, []);
+
+  // Restore the shipped default arrangement in one click.
+  const resetAll = useCallback(() => {
+    setStored({ sizes: defaults(), collapsed: { left: false, right: false } });
+  }, []);
+
   // Arrow keys on a focused border move it by 16 px.
   const nudge = useCallback((which, e) => {
     const step = e.shiftKey ? 64 : 16;
@@ -139,5 +157,5 @@ export function useLayout() {
     }));
   }, []);
 
-  return { layout: clampLayout(layout), collapsed, toggle, startDrag, reset, nudge };
+  return { layout: clampLayout(layout), collapsed, toggle, startDrag, reset, nudge, applySizes, resetAll };
 }

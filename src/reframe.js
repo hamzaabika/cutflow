@@ -10,6 +10,7 @@
 import { sizeFor } from './effects.js';
 import { cropOf, transformOf } from './visual.js';
 import { keptFitFactors } from './pictureGeometry.js';
+import { videoLayout } from './store.js';
 
 export const REFRAME_RATIO = '9:16';
 
@@ -22,6 +23,15 @@ export function coverFor(shape, media, clip) {
   const { fx, fy } = keptFitFactors(shape, media, clip);
   if (!(fx > 0) || !(fy > 0)) return null;
   return { fx, fy, s: Math.max(1 / fx, 1 / fy) };
+}
+
+// The contain geometry (P2-42, text-safe fallback): the scale that fits the
+// whole picture inside the frame, bars included — nothing is ever cropped,
+// so burned-in text and on-screen graphics survive the reframe untouched.
+export function fitFor(shape, media, clip) {
+  const { fx, fy } = keptFitFactors(shape, media, clip);
+  if (!(fx > 0) || !(fy > 0)) return null;
+  return { fx, fy, s: Math.min(1 / fx, 1 / fy) };
 }
 
 // Face-centre samples -> a full-length series: frames without a face hold the last known centre
@@ -142,16 +152,31 @@ export function pathToMotion(points, clip, media, shape) {
 // its position is replaced by the tracked motion (a static offset or x/y keyframes in source
 // time, like every keyframe in the app). Previous scale/x/y keyframes are dropped — the reframe
 // owns position in the copy; rotation and opacity keyframes survive untouched.
-export function reframeClip(clip, media, shape, points) {
+//
+// opts (P2-42): mode 'face' (default — follow the detected face) or
+// 'center' (static centred crop, the manual alternative when tracking is
+// wrong); textSafe + hasText fits the whole picture instead of cropping
+// when no face was found on a clip that carries timeline text — burned-in
+// text and on-screen graphics survive, at the cost of bars.
+export function reframeClip(clip, media, shape, points, opts = {}) {
+  const mode = opts.mode === 'center' ? 'center' : 'face';
   const cover = coverFor(shape, media, clip);
   if (!cover) return clip;
   const t = transformOf(clip);
-  const out = { ...clip, transform: { ...t, scale: round((t.scale || 1) * cover.s), x: 0, y: 0 } };
   const keyframes = { ...(clip.keyframes || {}) };
   delete keyframes.scale;
   delete keyframes.x;
   delete keyframes.y;
-  const motion = points && points.length ? pathToMotion(points, clip, media, shape) : null;
+  const motion = mode === 'face' && points && points.length ? pathToMotion(points, clip, media, shape) : null;
+  if (!motion && opts.textSafe && opts.hasText) {
+    // No face to follow on a text-carrying clip: fit, don't crop.
+    const fit = fitFor(shape, media, clip);
+    const out = { ...clip, transform: { ...t, scale: round((t.scale || 1) * (fit ? fit.s : cover.s)), x: 0, y: 0 } };
+    if (Object.keys(keyframes).length) out.keyframes = keyframes;
+    else delete out.keyframes;
+    return { ...out, reframeFit: true };
+  }
+  const out = { ...clip, transform: { ...t, scale: round((t.scale || 1) * cover.s), x: 0, y: 0 } };
   if (motion && motion.keys) {
     if (motion.keys.x.length > 1) keyframes.x = motion.keys.x;
     else if (motion.keys.x.length === 1) out.transform.x = motion.keys.x[0].v;
@@ -166,25 +191,51 @@ export function reframeClip(clip, media, shape, points) {
   return out;
 }
 
-// The vertical copy of a whole project. paths: { [clipId]: points } from the face analysis
-// (clips without an entry — images, gaps, clips whose analysis found no face — are centred).
-// makeId mints the copy's project id (the store's uid, injected so tests stay deterministic).
-export function buildVerticalCopy(project, paths = {}, makeId) {
-  const size = sizeFor(REFRAME_RATIO, project.resolution || 720);
+// The reframed copy of a whole project at any ratio. paths: { [clipId]: points } from the face
+// analysis (clips without an entry — images, gaps, clips whose analysis found no face — are
+// centred). makeId mints the copy's project id (the store's uid, injected so tests stay
+// deterministic). A horizontal copy of a horizontal project is a plain geometry change;
+// a narrower frame (9:16, 1:1) gets the cover scale + tracked/centred window per clip.
+// opts (P2-42): { mode: 'face' | 'center', textSafe: boolean }. A clip
+// overlaps timeline text when any text clip's span intersects its span;
+// with textSafe on, such a faceless clip is fitted, not cropped. The copy
+// records what happened per clip in `reframeMeta`, so the choice is visible
+// and a later per-clip override can start from it — and because the copy is
+// an ordinary project, the user can always adjust any clip's transform by
+// hand afterwards (the manual override).
+// buildVerticalCopy is the 9:16 special case the reframe button has always used.
+export function buildReframedCopy(project, ratio, paths = {}, makeId, opts = {}) {
+  const size = sizeFor(ratio, project.resolution || 720);
   const shape = { width: size.width, height: size.height };
   const copy = JSON.parse(JSON.stringify(project));
   copy.id = makeId();
-  copy.name = /\(9:16\)\s*$/.test(copy.name || '') ? copy.name : `${copy.name || 'Untitled'} (9:16)`;
-  copy.ratio = REFRAME_RATIO;
+  copy.name = new RegExp(`\\(${ratio}\\)\\s*$`).test(copy.name || '') ? copy.name : `${copy.name || 'Untitled'} (${ratio})`;
+  copy.ratio = ratio;
   copy.width = size.width;
   copy.height = size.height;
   copy.ratioLocked = true;
   const mediaById = new Map((project.media || []).map((m) => [m.id, m]));
-  copy.videoClips = (copy.videoClips || []).map((clip) => {
+  const layout = videoLayout(copy.videoClips || []);
+  const textSpans = (project.textClips || []).map((c) => ({ start: c.start || 0, end: (c.start || 0) + (c.duration || 0) }));
+  const meta = { mode: opts.mode === 'center' ? 'center' : 'face', textSafe: opts.textSafe === true, tracked: [], fitted: [], centred: [] };
+  copy.videoClips = (copy.videoClips || []).map((clip, i) => {
     if (clip.gap) return clip;
     const media = mediaById.get(clip.mediaId);
     if (!media || !media.width || !media.height) return clip;
-    return reframeClip(clip, media, shape, paths[clip.id]);
+    const span = layout[i] || { start: 0, end: 0 };
+    const hasText = textSpans.some((s) => s.start < span.end && span.start < s.end);
+    // Same aspect: no crop needed — the engine's fit already fills the frame exactly.
+    if (media.width * size.height === media.height * size.width) { meta.centred.push(clip.id); return clip; }
+    const out = reframeClip(clip, media, shape, paths[clip.id], { mode: meta.mode, textSafe: meta.textSafe, hasText });
+    if (out.reframeFit) { meta.fitted.push(clip.id); delete out.reframeFit; }
+    else if (paths[clip.id] && paths[clip.id].some((p) => p && p.x !== null && p.x !== undefined) && meta.mode === 'face') meta.tracked.push(clip.id);
+    else meta.centred.push(clip.id);
+    return out;
   });
+  copy.reframeMeta = meta;
   return copy;
+}
+
+export function buildVerticalCopy(project, paths = {}, makeId, opts = {}) {
+  return buildReframedCopy(project, REFRAME_RATIO, paths, makeId, opts);
 }

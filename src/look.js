@@ -1,13 +1,35 @@
-// Look edits (filter, color adjustments) applied to every selected picture clip at once.
+// Look edits (filter, color adjustments, effects) applied to every selected picture clip at once.
 // An edit is made on one clip (the one the panel shows); only what changed is copied to the others, so each clip
 // keeps its own other settings (a brightness change does not overwrite another clip's saturation).
+// P2-6: the style is the whole look — filter + grade + adjust + the effect set (list, params,
+// strength, keyframes, regions, timing) — so an effect added or tuned on one selected clip lands
+// on all of them, and "Apply style" copies the source clip's full current style in one step.
+// What is NOT style (and never propagates): transform, crop, mask, transition, timing, speed.
 
 import { DEFAULT_ADJUST } from './effects.js';
 import { DEFAULT_GRADE } from './fx/grade.js';
+import { clipDuration } from './speedCurve.js';
 
 const LOOK_KEYS = ['filter', 'filterIntensity', 'adjust', 'grade'];
+// Effect keys are whole-value copies: the target ends up with exactly the
+// source's effect set (an effect the source does not have is removed from the
+// target, with its params). fxTiming windows are clamped to each target's own
+// span, since windows are clip-local seconds.
+const EFFECT_KEYS = ['effects', 'fxParams', 'fxStrength', 'fxKeys', 'fxRegions', 'fxTiming'];
+export const STYLE_KEYS = [...LOOK_KEYS, ...EFFECT_KEYS];
 const DEFAULTS = { adjust: DEFAULT_ADJUST, grade: DEFAULT_GRADE };
-export const isLookPatch = (patch) => Object.keys(patch).length > 0 && Object.keys(patch).every((k) => LOOK_KEYS.includes(k));
+export const isLookPatch = (patch) => Object.keys(patch).length > 0 && Object.keys(patch).every((k) => STYLE_KEYS.includes(k));
+
+const deep = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
+
+// A timing window clamped to a clip's own span (mirrors the clamp BoundFxCards
+// applies when a window is edited directly).
+function clampTiming(win, span) {
+  if (!win || typeof win !== 'object') return win;
+  const start = Math.min(Math.max(0, Number(win.start) || 0), Math.max(0, span - 0.1));
+  const duration = Math.min(Math.max(0.1, Number(win.duration) || 0.1), Math.max(0.1, span - start));
+  return { ...win, start, duration };
+}
 
 // The patch for `clip`, given the patch made on `base`.
 export function lookPatchFor(base, patch, clip) {
@@ -25,7 +47,35 @@ export function lookPatchFor(base, patch, clip) {
       out[key] = { ...(clip[key] || {}), ...Object.fromEntries(changed.map((k) => [k, next[k]])) };
     }
   }
+  for (const key of EFFECT_KEYS) {
+    if (!(key in patch)) continue;
+    if (key === 'fxTiming' && patch.fxTiming) {
+      const span = clipDuration(clip);
+      const next = {};
+      for (const [fx, win] of Object.entries(patch.fxTiming)) next[fx] = clampTiming(win, span);
+      out.fxTiming = next;
+    } else {
+      out[key] = deep(patch[key]);
+    }
+  }
   return out;
+}
+
+// The source clip's full current style, as a patch: every style key it
+// carries, deep-copied so targets never share objects with the source.
+export function fullStylePatch(clip) {
+  const out = {};
+  for (const key of STYLE_KEYS) {
+    if (clip[key] !== undefined) out[key] = deep(clip[key]);
+  }
+  return out;
+}
+
+// One undoable action that copies the source clip's full style onto every
+// target ([{ track, id }], the source itself excluded by the caller).
+export function applyStyleAction(items, sourceClip) {
+  const patch = fullStylePatch(sourceClip);
+  return { type: 'updateMany', updates: items.map((it) => ({ track: it.track, id: it.id, patch: deep(patch) })) };
 }
 
 // Selected picture clips (main and overlay), when several are selected; otherwise [].

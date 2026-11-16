@@ -1,7 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
-import en from './en.js';
-import fr from './fr.js';
-import ar from './ar.js';
+import { CATALOGS, ensureCatalog } from './catalogs.js';
 import { LANGS, isLang, isRtl, chooseLanguage, lookup } from './lang.js';
 import { setLibLang } from './libNames.js';
 
@@ -15,7 +13,7 @@ import { setLibLang } from './libNames.js';
 // module-level code (menus built at event time, toasts, agent tools) uses
 // the plain tr() below, which reads the same live language.
 
-export const CATALOGS = { en, fr, ar };
+export { CATALOGS } from './catalogs.js';
 export { LANGS };
 
 const state = { lang: 'en' };
@@ -39,6 +37,9 @@ export function LangProvider({ children }) {
   // the saved choice + OS locale (main process) and corrects it once.
   const [lang, setLangState] = useState(() => chooseLanguage(null, null, typeof navigator !== 'undefined' ? navigator.language : 'en'));
   const booted = useRef(false);
+  // A non-English catalog loads as its own chunk (catalogs.js): until it
+  // lands, lookup() falls back to English; bumping this re-renders with it.
+  const [, setCatalogTick] = useState(0);
 
   useEffect(() => { applyDocumentLang(lang); }, [lang]);
 
@@ -51,7 +52,9 @@ export function LangProvider({ children }) {
       try { os = await window.api?.appLocale?.(); } catch { /* navigator fallback */ }
       if (dead) return;
       booted.current = true;
-      setLangState(chooseLanguage(saved, os, typeof navigator !== 'undefined' ? navigator.language : 'en'));
+      const resolved = chooseLanguage(saved, os, typeof navigator !== 'undefined' ? navigator.language : 'en');
+      setLangState(resolved);
+      ensureCatalog(resolved).then(() => { if (!dead) setCatalogTick((v) => v + 1); });
     })();
     return () => { dead = true; };
   }, []);
@@ -60,6 +63,7 @@ export function LangProvider({ children }) {
     if (!isLang(next)) return;
     applyDocumentLang(next);
     setLangState(next);
+    ensureCatalog(next).then(() => setCatalogTick((v) => v + 1));
     // Persist through the normal settings channel; the returned public
     // settings are not needed here (the dialog keeps its own copy).
     try { window.api?.settingsSetLanguage?.(next); } catch { /* in-memory choice still applies */ }

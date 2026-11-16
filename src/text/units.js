@@ -19,7 +19,10 @@ export const isAnimUnit = (u) => ANIM_UNITS.includes(u);
 // Renderer ids that already animate per unit on their own (typewriter reveals per character, the word
 // presets stagger per word, the wave rides per character). A unit choice makes no sense for them — the
 // renderer ignores it and the browser disables the unit control while one is active.
-export const INHERENT_UNIT_ANIMS = new Set(['typewriter', 'wordPop', 'wordRise', 'waveIn', 'charSlideUp', 'charSlideDown', 'charFade', 'decode']);
+// CC-03 adds the scan reveal (wordscan) and the per-word flicker (wordflicker); gap-c adds the
+// masked-line, light-sweep and character-scatter reveals — all play per word/line in the word
+// loop, never per character, so Arabic shaping is untouched.
+export const INHERENT_UNIT_ANIMS = new Set(['typewriter', 'wordPop', 'wordRise', 'wordSpin', 'waveIn', 'charSlideUp', 'charSlideDown', 'charFade', 'decode', 'charFlicker', 'scan', 'wordFlicker', 'maskedLineReveal', 'lightSweepReveal', 'charScatter']);
 
 // Local progress of unit i (of n) at the slot's global progress p. `out` mirrors the offsets so the
 // first unit in reading order also leaves first while p runs 1 -> 0.

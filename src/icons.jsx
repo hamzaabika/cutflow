@@ -151,6 +151,10 @@ export const RectangleVertical = ic(<rect x="6.9" y="3.4" width="10.2" height="1
 export const Square = ic(<rect x="5.4" y="5.4" width="13.2" height="13.2" rx="1.6" />);
 export const SquareDashed = ic(<rect x="5.4" y="5.4" width="13.2" height="13.2" rx="1.6" strokeDasharray="3.8 3.2" />);
 export const StretchHorizontal = ic(<><path d="M3.4 12h5.2M20.6 12h-5.2" /><path d="M6.2 8.7 3.2 12l3 3.3M17.8 8.7l3 3.3-3 3.3" /><path d="M9.6 8.4v7.2M14.4 8.4v7.2" /></>);
+// Trim tools (P2-01): slip — the frame stays, the content slides inside it;
+// slide — the clip moves between two neighbours that absorb the move.
+export const SlipTool = ic(<><rect x="3.4" y="6.5" width="17.2" height="11" rx="1.5" /><path d="M8.5 12h7" /><path d="M13.2 9.8 15.5 12l-2.3 2.2" /></>);
+export const SlideTool = ic(<><path d="M4 6.5v11M20 6.5v11" /><rect x="8.6" y="8" width="6.8" height="8" rx="1" /><path d="M6.4 12h1M16.6 12h1" /></>);
 export const ListChecks = ic(<><path d="M3.3 6.4 4.8 7.9 7.4 5" /><path d="M3.3 15.2l1.5 1.5 2.6-2.9" /><path d="M11 6.9h9.6M11 15.7h9.6" /></>);
 export const LayoutGrid = ic(<><rect x="4" y="4" width="7" height="7" rx="1.6" /><rect x="13" y="4" width="7" height="7" rx="1.6" /><rect x="4" y="13" width="7" height="7" rx="1.6" /><rect x="13" y="13" width="7" height="7" rx="1.6" /></>);
 export const ListRows = ic(<><path d="M9.2 6.2h10.6M9.2 12h10.6M9.2 17.8h10.6" />{dot(4.4, 6.2)}{dot(4.4, 12)}{dot(4.4, 17.8)}</>);

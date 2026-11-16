@@ -7,6 +7,8 @@
 //   S(x, y)        sample the current channel of the source frame (geq: r/g/b(x,y), clamped)
 //   L(x, y)        luminance of the source frame at x, y
 //   A(x, y) B(x,y) sample the current channel of the outgoing / incoming clip (xfade: a0..a2 / b0..b2)
+//   LA(x, y) LB(x, y)  luminance (0-255) of the outgoing / incoming clip at x, y —
+//                      the luma-wipe metric (P2-04). In transitions only, like A()/B().
 //   C(r, g, b)     pick the value for the current channel (lets an expression tint in a color)
 //   PR(x, y) PG(x, y) PB(x, y)  red, green, blue of the source frame at x, y (whatever the current channel)
 //   hash(n)        deterministic pseudo random in [0,1) from a number
@@ -17,7 +19,7 @@ const FUNCS = {
   sin: 1, cos: 1, tan: 1, abs: 1, floor: 1, ceil: 1, round: 1, trunc: 1, sqrt: 1, exp: 1, log: 1, atan: 1, not: 1,
   min: 2, max: 2, mod: 2, hypot: 2, atan2: 2, lt: 2, lte: 2, gt: 2, gte: 2, eq: 2, pow: 2, st: 2, ld: 1,
   if: 3, ifnot: 3, clip: 3, between: 3,
-  S: 2, L: 2, A: 2, B: 2, C: 3, hash: 1, fract: 1, smooth: 3, PR: 2, PG: 2, PB: 2,
+  S: 2, L: 2, A: 2, B: 2, LA: 2, LB: 2, C: 3, hash: 1, fract: 1, smooth: 3, PR: 2, PG: 2, PB: 2,
 };
 const VARS = ['X', 'Y', 'W', 'H', 'T', 'P', 'PI', 'E'];
 
@@ -151,6 +153,8 @@ export function compile(ast) {
           case 'L': return (e) => e.L(a0(e), a1(e));
           case 'A': return (e) => e.A(a0(e), a1(e));
           case 'B': return (e) => e.B(a0(e), a1(e));
+          case 'LA': return (e) => e.LA(a0(e), a1(e));
+          case 'LB': return (e) => e.LB(a0(e), a1(e));
           case 'C': return (e) => (e.ch === 0 ? a0(e) : e.ch === 1 ? a1(e) : a2(e));
           case 'PR': return (e) => e.px(a0(e), a1(e))[0];
           case 'PG': return (e) => e.px(a0(e), a1(e))[1];

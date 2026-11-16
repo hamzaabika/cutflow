@@ -2,6 +2,7 @@
 // Effects and transitions built on pseudo-random noise differ in detail between GPU and CPU maths, so for them
 // only the average brightness is compared.
 import { FX_TRANSITIONS, PIXEL_EFFECTS } from './catalog.js';
+import { transitionExpr } from './params.js';
 import { fxGL } from './gl.js';
 import { runEffect, runTransition } from './run.js';
 
@@ -48,9 +49,10 @@ export function fxSelfTest() {
   const res = {};
   for (const t of FX_TRANSITIONS) {
     for (const P of [0.25, 0.5, 0.75]) {
-      gl.transition({ data: A }, { data: B }, W, H, P, t.expr);
-      const r = diff(gl.read(W, H), runTransition(A, B, new Uint8ClampedArray(A.length), W, H, P, t.expr));
-      res[`${t.id}@${P}`] = noisy(t.expr) ? { ...r, noisy: true } : r;
+      const expr = transitionExpr({ type: t.id });
+      gl.transition({ data: A }, { data: B }, W, H, P, expr);
+      const r = diff(gl.read(W, H), runTransition(A, B, new Uint8ClampedArray(A.length), W, H, P, expr));
+      res[`${t.id}@${P}`] = noisy(expr) ? { ...r, noisy: true } : r;
     }
   }
   for (const e of PIXEL_EFFECTS) {

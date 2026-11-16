@@ -75,6 +75,13 @@ const EXTRA = [
   ['Slide Down', 'fx_slidedown', 'implemented', 'slide'],
   ['Split Slide', 'fx_tiles', 'adapted', 'slide'],
   ['Diagonal Slide', 'slideleft', 'adapted', 'slide'],
+  // Gap-build C (CSV rows 61/62/77/79/100/109): true engine implementations.
+  ['Smooth Push Up', 'fx_pushsmoothup', 'implemented', 'slide'],
+  ['Smooth Push Down', 'fx_pushsmoothdown', 'implemented', 'slide'],
+  ['Parallax Zoom', 'fx_parallaxzoom', 'implemented', 'zoom'],
+  ['Perspective Push', 'fx_persppush', 'implemented', '3d'],
+  ['Motion Match Blur', 'fx_motionmatchblur', 'implemented', 'blur'],
+  ['Signal Line Cut', 'fx_signalline', 'implemented', 'glitch'],
   ['Cube', 'fx_spinout', 'adapted', '3d'],
   ['Spin', 'fx_spinout', 'adapted', '3d'],
   ['Flip', 'fx_spinout', 'adapted', '3d'],
@@ -174,6 +181,7 @@ export const DIRECTION_GROUPS = [
   { name: 'Slide', ids: { left: 'slideleft', right: 'slideright', up: 'fx_slideup', down: 'fx_slidedown' } },
   { name: 'Whip Pan', ids: { left: 'fx_whipleft', right: 'fx_whipright', up: 'fx_whipup', down: 'fx_whipdown' } },
   { name: 'Smooth Warp', ids: { left: 'fx_warpsmoothl', right: 'fx_warpsmoothr' } },
+  { name: 'Smooth Push', ids: { left: 'fx_pushsmooth', right: 'fx_pullsmooth', up: 'fx_pushsmoothup', down: 'fx_pushsmoothdown' } },
   { name: 'RGB Slide', ids: { left: 'fx_rgbslidel', right: 'fx_rgbslider' } },
 ];
 export function directionGroupFor(type) {
