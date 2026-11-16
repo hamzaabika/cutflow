@@ -12,6 +12,7 @@ jobs:
       - name: Download deb in a real browser and attach it
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: hamzaabika/cutflow
           LINK_UUID: 01a1e556-5073-702d-b9f8-d540ded5ae47
           EXPECTED_SHA: 8ceddf40e2f69416e7065e29b7703b04bdb4ff04b67fed0b485f0184cf8ac18d
           EXPECTED_SIZE: "311965020"
