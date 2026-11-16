@@ -16,9 +16,8 @@ for (const t of [0.13, 0.37, 0.5, 0.82]) assert.ok(Math.abs(easeValue('linear', 
 assert.strictEqual(easeValue(undefined, 0.3), 0.3, 'missing ease is linear (old projects)');
 assert.strictEqual(easeValue(null, 0.7), 0.7);
 
-// Monotonic progress for every preset except the recoil ones (Overshoot, Spring, Bounce —
-// each turns twice by design: rise, recoil, settle).
-for (const p of EASE_PRESETS.filter((x) => !['overshoot', 'spring', 'bounce'].includes(x.id))) {
+// Monotonic progress for every preset except Overshoot (which passes 1 and settles back).
+for (const p of EASE_PRESETS.filter((x) => x.id !== 'overshoot')) {
   let prev = -Infinity;
   for (let i = 0; i <= 40; i++) {
     const v = easeValue(p.id, i / 40);
@@ -29,21 +28,6 @@ for (const p of EASE_PRESETS.filter((x) => !['overshoot', 'spring', 'bounce'].in
 const over = Array.from({ length: 41 }, (_, i) => easeValue('overshoot', i / 40));
 assert.ok(Math.max(...over) > 1.05, `overshoot exceeds 1 (max ${Math.max(...over).toFixed(3)})`);
 assert.strictEqual(over[40], 1, 'overshoot settles exactly on 1');
-// Spring: one damped cycle — overshoots, undershoots, settles; bounded by construction.
-const spr = Array.from({ length: 41 }, (_, i) => easeValue('spring', i / 40));
-assert.ok(Math.max(...spr) > 1.05 && Math.max(...spr) < 1.15, `spring overshoot bounded (max ${Math.max(...spr).toFixed(3)})`);
-const sprPeak = spr.indexOf(Math.max(...spr));
-const sprTailMin = Math.min(...spr.slice(sprPeak));
-assert.ok(sprTailMin >= 0.95 && sprTailMin < 1, `spring undershoot bounded (tail min ${sprTailMin.toFixed(3)})`);
-assert.strictEqual(spr[40], 1, 'spring settles exactly on 1');
-assert.ok(spr[20] > spr[30] && spr[30] < spr[40], 'spring turns twice (rise, recoil, settle)');
-// Bounce: climbs, recoils, snaps to 1 — never leaves [0, 1], so it cannot push a transform out of bounds.
-const bnc = Array.from({ length: 41 }, (_, i) => easeValue('bounce', i / 40));
-assert.ok(Math.min(...bnc) >= 0 && Math.max(...bnc) <= 1, `bounce stays in [0, 1] (min ${Math.min(...bnc).toFixed(3)}, max ${Math.max(...bnc).toFixed(3)})`);
-const bMax = Math.max(...bnc.slice(0, 16));
-const bMin = Math.min(...bnc.slice(16, 32));
-assert.ok(bMax > 0.85 && bMin < 0.8 && bMax - bMin > 0.1, `bounce recoils (peak ${bMax.toFixed(3)} -> dip ${bMin.toFixed(3)})`);
-assert.strictEqual(bnc[40], 1, 'bounce lands exactly on 1');
 // Smooth is symmetric: half time = half progress.
 assert.ok(Math.abs(easeValue('smooth', 0.5) - 0.5) < 1e-6, 'smooth midpoint');
 // Ease In lags, Ease Out leads, Snap In leads hard at the start.

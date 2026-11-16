@@ -72,14 +72,8 @@ const T0 = 1_700_000_000_000;
   ok(main.includes("ipcMain.handle('versions:autoBackup'") && main.includes("source: 'auto-backup'"), 'main exposes the auto-backup IPC with the auto-backup source');
   ok(preload.includes('versionsAutoBackup'), 'preload bridges versionsAutoBackup');
   ok(app.includes('versionsAutoBackup') && app.includes('5 * 60 * 1000'), 'the renderer runs the five-minute cadence while editing');
-  // Wiring: labels moved into i18n (P0-07) — the dialog renders them via
-  // t('dlg.backupsTitle') / the dlg.src.* source map, and the TopBar button
-  // via t('topbar.backups'). Assert the wiring AND the resolved English text.
-  const en = fs.readFileSync(path.join(repo, 'src', 'i18n', 'en.js'), 'utf8');
-  const enVal = (k) => { const m = new RegExp(`"${k.replace(/\./g, '\\.')}": "((?:[^"\\\\]|\\\\.)*)"`).exec(en); return m ? m[1] : null; };
-  ok(dialog.includes("t('dlg.backupsTitle'") && dialog.includes("'auto-backup': 'dlg.src.autoBackup'"), 'the browser titles via dlg.backupsTitle and labels auto backups via dlg.src.autoBackup');
-  ok((enVal('dlg.backupsTitle') || '').includes('Project backups') && (enVal('dlg.src.autoBackup') || '').includes('Auto backup'), 'the resolved English title/labels read "Project backups" / "Auto backup"');
-  ok(topbar.includes("aria-label={t('topbar.backups')}") && (enVal('topbar.backups') || '') === 'Backups', 'the TopBar entry point is the Project backups button (t topbar.backups = "Backups")');
+  ok(dialog.includes('Project backups') && dialog.includes("'auto-backup': 'Auto backup'"), 'the browser is titled Project backups and labels auto backups');
+  ok(topbar.includes('aria-label="Project backups"'), 'the TopBar entry point is the Project backups button');
 }
 
 fs.rmSync(dir, { recursive: true, force: true });

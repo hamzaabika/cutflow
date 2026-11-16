@@ -124,17 +124,7 @@ for (const e of EFFECTS) {
 // ---- Transitions: engine expressions at the still's P; classics as buffers ----
 for (const t of FX_TRANSITIONS) {
   const P = /^fade(black|white)$/.test(t.id) ? 0.3 : 0.5;
-  if (t.morph) {
-    // P3-03: the morph still is the real warp over the sample pair (or the
-    // dissolve fallback when the two photos cannot morph — whichever the
-    // editor itself would render).
-    const { analyseMorph, renderMorphCPU } = await import('../src/fx/morph.js');
-    const analysis = analyseMorph(A, B, W, H);
-    if (analysis.fallback) runTransition(A, B, out, W, H, P, t.expr);
-    else renderMorphCPU(A, B, out, W, H, P, analysis.flow, analysis.gw, analysis.gh, 1);
-  } else {
-    runTransition(A, B, out, W, H, P, t.expr);
-  }
+  runTransition(A, B, out, W, H, P, t.expr);
   put(`transition:${t.id}`, `tr-${t.id}.jpg`, out);
 }
 const blendPx = (x, y, srcBuf, sx, sy) => {

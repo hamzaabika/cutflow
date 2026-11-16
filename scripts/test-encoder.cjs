@@ -47,8 +47,7 @@ const path = require('path');
   const { resolveExport, summaryRows } = await import('../src/exportQuality.js');
   const proj = { width: 1280, height: 720, fps: 30 };
   const eff = resolveExport(proj, { libx265: true, encoder: pick });
-  // Summary rows are keyed by i18n key now (P0-07): the encoder row is 'exp.encoder'.
-  const encRow = summaryRows(eff, proj).find(([k]) => k === 'exp.encoder');
+  const encRow = summaryRows(eff, proj).find(([k]) => k === 'Encoder');
   assert.ok(encRow && encRow[1].includes(pick), `summary row names the real pick (${pick})`);
 
   console.log(`ENCODER OK (pick on this machine: ${pick})`);

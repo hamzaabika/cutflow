@@ -66,35 +66,19 @@ const rec = (id, title, updatedAt, extra = {}) => ({
 {
   // Cap eviction: beyond CAP the oldest slots go; the just-written one always stays,
   // even when it is itself the oldest by timestamp (rewriting an old project).
-  // P0-04: an UNBOUND slot (file: null — never saved, its ONLY copy is the slot)
-  // is never hard-deleted. It moves to the trash instead (recoverable 30 days)
-  // and the write that evicted it reports it, so the UI can warn.
   const root = tmp();
-  const returns = [];
-  for (let i = 0; i < store.CAP + 3; i++) returns.push(store.writeSlot(root, rec(`c${i}`, `P${i}`, 1000 + i)));
+  for (let i = 0; i < store.CAP + 3; i++) store.writeSlot(root, rec(`c${i}`, `P${i}`, 1000 + i));
   let list = store.listSlots(root);
   assert.equal(list.length, store.CAP);
   assert.ok(!list.some((x) => x.id === 'c0'));
-  assert.ok(fs.existsSync(path.join(root, 'c0.json')), 'evicted unbound slot file must survive');
-  assert.ok(store.listTrashed(root).some((x) => x.id === 'c0'), 'evicted unbound slot must be in the trash');
-  assert.ok(returns.some((r) => (r.evicted || []).some((x) => x.id === 'c0')), 'the write that evicted c0 must report it');
-  // A BOUND slot (its .clipcraft file survives) is still hard-deleted on eviction.
-  const root2 = tmp();
-  for (let i = 0; i < store.CAP + 3; i++) store.writeSlot(root2, rec(`b${i}`, `B${i}`, 1000 + i, { file: `/work/b${i}.clipcraft.json` }));
-  list = store.listSlots(root2);
-  assert.equal(list.length, store.CAP);
-  assert.ok(!list.some((x) => x.id === 'b0'));
-  assert.ok(!fs.existsSync(path.join(root2, 'b0.json')), 'evicted bound slot file is deleted (its .clipcraft file survives)');
-  assert.ok(!store.listTrashed(root2).some((x) => x.id === 'b0'), 'evicted bound slot is not trashed');
+  assert.ok(!fs.existsSync(path.join(root, 'c0.json')));
+  assert.ok(list.some((x) => x.id === `c${store.CAP + 2}`));
   // Rewrite the current oldest survivor with an OLD timestamp: it must not evict itself.
   const oldest = list[list.length - 1].id;
-  store.writeSlot(root2, rec(oldest, 'Still here', 1, { file: `/work/${oldest}.clipcraft.json` }));
-  list = store.listSlots(root2);
+  store.writeSlot(root, rec(oldest, 'Still here', 1));
+  list = store.listSlots(root);
   assert.ok(list.some((x) => x.id === oldest));
   assert.equal(list.length, store.CAP);
-  // The trashed eviction survives an index loss: the slot file carries trashedAt.
-  fs.unlinkSync(path.join(root, 'index.json'));
-  assert.ok(store.listTrashed(root).some((x) => x.id === 'c0'), 'trashed eviction survives index rebuild');
 }
 
 console.log('AUTOSAVE OK');

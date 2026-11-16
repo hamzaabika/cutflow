@@ -44,7 +44,7 @@ assert.deepEqual(sanitizeBrand('junk'), emptyBrand());
 
 // Persistence round-trip through the injected storage.
 assert.deepEqual(loadBrand(store), emptyBrand());
-const kit = { logos: [{ path: '/b/l.png', name: 'l.png' }], colors: ['#825cfb'], font: 'anton', color: '#825cfb', intro: null, outro: null };
+const kit = { logos: [{ path: '/b/l.png', name: 'l.png' }], colors: ['#825cfb'], font: 'anton', color: '#825cfb' };
 saveBrand(store, kit);
 assert.deepEqual(loadBrand(store), kit);
 assert.ok(store.v[BRAND_KEY].includes('/b/l.png'));

@@ -62,7 +62,7 @@ assert.deepEqual(pickAttributes({ id: 'k', filter: 'bw', transform: { scale: 2 }
 // restores the per-track default; other keyframes survive.
 st = run(fresh(), { type: 'update', track: 'video', id: 'a', patch: { transform: { scale: 2, scaleX: 2, scaleY: 2, uniform: true, x: 30, y: -10, rot: 45 }, keyframes: { scale: [1], x: [1], opacity: [1] } } });
 st = run(st, { type: 'update', track: 'video', id: 'a', patch: resetTransformPatch(st.present.videoClips[0], 'video') });
-assert.deepEqual(st.present.videoClips[0].transform, { scale: 1, scaleX: 1, scaleY: 1, uniform: true, x: 0, y: 0, rot: 0, anchor: { x: 0.5, y: 0.5 } });
+assert.deepEqual(st.present.videoClips[0].transform, { scale: 1, scaleX: 1, scaleY: 1, uniform: true, x: 0, y: 0, rot: 0 });
 assert.deepEqual(st.present.videoClips[0].keyframes, { opacity: [1] });
 st = run(fresh(), { type: 'moveToOverlay', id: 'b', at: 1.5 });
 st = run(st, { type: 'update', track: 'overlay', id: 'b', patch: resetTransformPatch({ ...st.present.overlayClips[0], transform: { scale: 2, x: 5 }, keyframes: { rot: [1] } }, 'overlay') });

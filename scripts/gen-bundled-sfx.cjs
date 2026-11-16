@@ -6,12 +6,6 @@
 // segments). No samples, no downloads, no third-party audio. Re-running this script
 // reproduces the same files and registry (durations are probed from the output).
 //
-// One exception lives in the same folder but is NOT generated here and NOT in the
-// registry: shared/sfx/export-done.mp3 — Hamza's own timer-end sound, copied
-// verbatim as the export-finished chime (src/exportDoneSound.js). It is a UI
-// sound, not a timeline SFX, so it stays out of DEFS, the manifest and the
-// library panel; re-running this script never touches it.
-//
 // Usage: node scripts/gen-bundled-sfx.cjs
 // The bundled synthesized SFX were removed 2026-11-13 at Hamza's order: he does
 // not want AI-generated/synthesized sounds in the library. The 34 recipes, the
