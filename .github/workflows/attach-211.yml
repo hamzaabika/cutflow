@@ -34,7 +34,7 @@ jobs:
                     print('page status', status, 'len', len(page))
                     text = page.decode('utf-8', 'ignore')
                     hosts = sorted(set(re.findall(r'dl-[a-z0-9]+\.swisstransfer\.com', text)))
-                    uuids = sorted(set(re.findall(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', text))))
+                    uuids = sorted(set(re.findall(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', text)))
                     print('hosts:', hosts)
                     print('uuids:', uuids)
                     print('api paths:', sorted(set(re.findall(r'/api/[A-Za-z0-9/_.-]+', text)))[:60])
