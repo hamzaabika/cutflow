@@ -7,7 +7,9 @@ jobs:
   attach:
     runs-on: ubuntu-latest
     steps:
-      - name: Fetch and attach deb from SwissTransfer
+      - name: Install Playwright and Chromium
+        run: python3 -m pip install --quiet --break-system-packages playwright && python3 -m playwright install chromium && sudo python3 -m playwright install-deps chromium
+      - name: Download deb in a real browser and attach it
         env:
           GH_TOKEN: ${{ github.token }}
           LINK_UUID: 01a1e556-5073-702d-b9f8-d540ded5ae47
@@ -15,126 +17,49 @@ jobs:
           EXPECTED_SIZE: "311965020"
         run: |
                     python3 - <<'PY'
-                    import re, os, hashlib, subprocess, urllib.request, urllib.error, http.cookiejar, json
+                    import os, hashlib, subprocess
+                    from playwright.sync_api import sync_playwright
                     uuid = os.environ['LINK_UUID']
-                    file_uuid = '01a1e556-5076-7016-a86d-d98850dc1c5d'
-                    transfer_uuid = '01a1e556-5070-72e0-bf2a-5139c00b6b51'
                     exp_sha = os.environ['EXPECTED_SHA']
                     exp_size = int(os.environ['EXPECTED_SIZE'])
-                    cj = http.cookiejar.CookieJar()
-                    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
-                    base = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120 Safari/537.36', 'Accept': 'text/html,application/json', 'Referer': 'https://www.swisstransfer.com/dl/' + uuid}
-                    def fetch(url, data=None, ctype=None):
-                        h = dict(base)
-                        if ctype:
-                            h['Content-Type'] = ctype
-                        req = urllib.request.Request(url, headers=h, data=data)
+                    out = 'cutflow_2.1.0_amd64.deb'
+                    with sync_playwright() as p:
+                        browser = p.chromium.launch(headless=True)
+                        ctx = browser.new_context(accept_downloads=True)
+                        page = ctx.new_page()
+                        page.goto('https://www.swisstransfer.com/dl/' + uuid, timeout=60000)
+                        page.wait_for_timeout(8000)
+                        print('title:', page.title())
+                        print('buttons:', page.locator('button').all_inner_texts())
                         try:
-                            with opener.open(req, timeout=120) as r:
-                                return r.status, r.read()
-                        except urllib.error.HTTPError as e:
-                            return e.code, e.read()
+                            with page.expect_download(timeout=300000) as dl:
+                                page.get_by_role('button', name='Download', exact=True).click()
+                            download = dl.value
+                            print('download url:', download.url)
+                            print('download name:', download.suggested_filename)
+                            download.save_as(out)
                         except Exception as e:
-                            print('ERR', url, e)
-                            return None, b''
-                    def save_if_deb(body):
-                        if body[:8] != b'!<arch>\n':
-                            return False
-                        h = hashlib.sha256(body)
-                        print('  body is deb, size', len(body), 'sha256', h.hexdigest())
-                        if len(body) == exp_size and h.hexdigest() == exp_sha:
-                            with open('cutflow_2.1.0_amd64.deb', 'wb') as f:
-                                f.write(body)
-                            print('  VERIFIED')
-                            return True
-                        print('  mismatch')
-                        return False
-                    def stream(url):
-                        req = urllib.request.Request(url, headers=base)
-                        try:
-                            with opener.open(req, timeout=120) as r:
-                                print('  stream status', r.status, 'len', r.headers.get('Content-Length'), 'type', r.headers.get('Content-Type'))
-                                head = r.read(8)
-                                if head != b'!<arch>\n':
-                                    rest = r.read(400)
-                                    print('  not a deb, first bytes:', head, rest[:200])
-                                    return False
-                                h = hashlib.sha256()
-                                h.update(head)
-                                size = len(head)
-                                with open('cutflow_2.1.0_amd64.deb', 'wb') as f:
-                                    f.write(head)
-                                    while True:
-                                        chunk = r.read(1024 * 1024)
-                                        if not chunk:
-                                            break
-                                        h.update(chunk)
-                                        f.write(chunk)
-                                        size += len(chunk)
-                                print('  downloaded size', size, 'sha256', h.hexdigest())
-                                if size == exp_size and h.hexdigest() == exp_sha:
-                                    print('  VERIFIED')
-                                    return True
-                                print('  mismatch, removing')
-                                os.remove('cutflow_2.1.0_amd64.deb')
-                                return False
-                        except Exception as e:
-                            print('  ERR', e)
-                            return False
-                    status, page = fetch('https://www.swisstransfer.com/dl/' + uuid)
-                    print('page status', status, 'len', len(page))
-                    text = page.decode('utf-8', 'ignore')
-                    srcs = re.findall(r'<script[^>]+src="([^"]+)"', text)
-                    print('srcs:', srcs)
-                    for src in srcs:
-                        src = src.replace('&amp;', '&')
-                        if src.startswith('/'):
-                            src = 'https://www.swisstransfer.com' + src
-                        if 'swisstransfer.com' not in src:
-                            continue
-                        s, b = fetch(src)
-                        print('bundle', src, s, len(b))
-                        js = b.decode('utf-8', 'ignore')
-                        for pat in [r'/api/[A-Za-z0-9/_.-]+', r'https://[A-Za-z0-9._/-]*swisstransfer[A-Za-z0-9._/-]*']:
-                            hits = sorted(set(re.findall(pat, js)))
-                            print(' pattern', pat, '->', hits[:40])
-                        count = 0
-                        for m in re.finditer(r'download', js):
-                            seg = js[max(0, m.start()-100):m.start()+200]
-                            if 'api' in seg or 'http' in seg or 'fetch' in seg or 'href' in seg:
-                                print('  dlctx:', seg.replace('\n', ' ')[:300])
-                                count += 1
-                                if count >= 20:
-                                    break
-                    ok = False
-                    gets = []
-                    gets.append('https://www.swisstransfer.com/api/1/files/' + file_uuid)
-                    gets.append('https://www.swisstransfer.com/api/1/files/' + file_uuid + '/download')
-                    gets.append('https://www.swisstransfer.com/api/1/transfers/' + transfer_uuid)
-                    gets.append('https://www.swisstransfer.com/api/1/transfers/' + transfer_uuid + '/download')
-                    gets.append('https://www.swisstransfer.com/api/1/transfers/' + transfer_uuid + '/files/' + file_uuid)
-                    gets.append('https://download.swisstransfer.com/' + file_uuid)
-                    gets.append('https://www.swisstransfer.com/api/1/download/' + file_uuid)
-                    for url in gets:
-                        print('trying GET', url)
-                        if stream(url):
-                            ok = True
-                            break
-                    if not ok:
-                        for data in [json.dumps({'fileId': file_uuid}).encode(), json.dumps({'uuid': file_uuid}).encode()]:
-                            url = 'https://www.swisstransfer.com/api/1/transfers/' + transfer_uuid + '/download'
-                            print('trying POST', url, 'body', data[:80])
-                            s, b = fetch(url, data=data, ctype='application/json')
-                            print('  post status', s, 'len', len(b), 'head', b[:300])
-                            if save_if_deb(b):
-                                ok = True
+                            print('DOWNLOAD CLICK FAILED', e)
+                            print('page text:', page.locator('body').inner_text()[:2000])
+                            raise SystemExit(1)
+                        browser.close()
+                    h = hashlib.sha256()
+                    size = 0
+                    with open(out, 'rb') as f:
+                        while True:
+                            chunk = f.read(1024 * 1024)
+                            if not chunk:
                                 break
-                    if not ok:
-                        print('DOWNLOAD FAILED')
+                            h.update(chunk)
+                            size += len(chunk)
+                    print('downloaded size', size, 'sha256', h.hexdigest())
+                    if size != exp_size or h.hexdigest() != exp_sha:
+                        print('MISMATCH')
                         raise SystemExit(1)
+                    print('VERIFIED')
                     v = subprocess.run(['gh', 'release', 'view', 'v2.1.1', '--json', 'tagName,name,isDraft,assets'], capture_output=True, text=True)
                     print(v.stdout)
-                    r = subprocess.run(['gh', 'release', 'upload', 'v2.1.1', 'cutflow_2.1.0_amd64.deb', '--clobber'], capture_output=True, text=True)
+                    r = subprocess.run(['gh', 'release', 'upload', 'v2.1.1', out, '--clobber'], capture_output=True, text=True)
                     print('gh upload rc', r.returncode)
                     print(r.stdout)
                     print(r.stderr)
