@@ -72,11 +72,14 @@ const server = http.createServer((req, res) => {
   assert.equal(r.body.systemInstruction.parts[0].text, 'be brief');
   assert.equal(r.body.contents[0].parts[0].text, 'hi');
 
-  // Gemini with a Vertex express key (AQ.…): uses the Vertex endpoint with ?key=.
+  // Gemini with a Vertex express key (AQ.…): uses the Vertex endpoint, key in a header (P2-30:
+  // it used to ride in the URL query string, where proxies and logs can see it).
   out = await chat({ provider: 'gemini', model: 'm1', baseUrl: base, apiKey: 'AQ.fake-express-key' }, { messages: msg });
   assert.equal(out, 'OK');
   r = seen.at(-1);
-  assert.match(r.url, /^\/v1\/publishers\/google\/models\/m1:generateContent\?key=AQ\.fake-express-key$/);
+  assert.equal(r.url, '/v1/publishers/google/models/m1:generateContent');
+  assert.equal(r.headers['x-goog-api-key'], 'AQ.fake-express-key');
+  assert.ok(!r.url.includes('AQ.fake-express-key'), 'key leaked into the URL');
 
   assert.equal(await chat({ provider: 'ollama', model: 'q', baseUrl: base }, { messages: msg, system: 's' }), 'OK from ollama');
   assert.equal(seen.at(-1).body.messages[0].role, 'system');

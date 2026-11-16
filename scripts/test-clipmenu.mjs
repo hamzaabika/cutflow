@@ -1,6 +1,6 @@
 // Clip menu actions: move between main and overlay, extract audio, paste, deactivate. Usage: node scripts/test-clipmenu.mjs
 import assert from 'node:assert/strict';
-import { historyReducer, normalizeProject, pickAttributes, renderable, replaceClipPatch, videoLayout } from '../src/store.js';
+import { clipLen, historyReducer, normalizeProject, pickAttributes, renderable, replaceClipPatch, replaceCompatible, videoLayout } from '../src/store.js';
 import { resetTransformPatch } from '../src/visual.js';
 
 const run = (st, ...actions) => actions.reduce(historyReducer, st);
@@ -62,7 +62,7 @@ assert.deepEqual(pickAttributes({ id: 'k', filter: 'bw', transform: { scale: 2 }
 // restores the per-track default; other keyframes survive.
 st = run(fresh(), { type: 'update', track: 'video', id: 'a', patch: { transform: { scale: 2, scaleX: 2, scaleY: 2, uniform: true, x: 30, y: -10, rot: 45 }, keyframes: { scale: [1], x: [1], opacity: [1] } } });
 st = run(st, { type: 'update', track: 'video', id: 'a', patch: resetTransformPatch(st.present.videoClips[0], 'video') });
-assert.deepEqual(st.present.videoClips[0].transform, { scale: 1, scaleX: 1, scaleY: 1, uniform: true, x: 0, y: 0, rot: 0 });
+assert.deepEqual(st.present.videoClips[0].transform, { scale: 1, scaleX: 1, scaleY: 1, uniform: true, x: 0, y: 0, rot: 0, anchor: { x: 0.5, y: 0.5 } });
 assert.deepEqual(st.present.videoClips[0].keyframes, { opacity: [1] });
 st = run(fresh(), { type: 'moveToOverlay', id: 'b', at: 1.5 });
 st = run(st, { type: 'update', track: 'overlay', id: 'b', patch: resetTransformPatch({ ...st.present.overlayClips[0], transform: { scale: 2, x: 5 }, keyframes: { rot: [1] } }, 'overlay') });
@@ -88,14 +88,50 @@ st = run(fresh(), { type: 'update', track: 'video', id: 'a', patch: { filter: 'b
 st = run(st, { type: 'update', track: 'video', id: 'a', patch: { filter: 'none' } });
 assert.equal(st.present.videoClips[0].filter, 'none');
 
-// Replace clip (item 5): timing preserved, media-bound state dropped.
+// Replace clip (items 5 + 20): a pure media swap — the trim (in/out) is
+// kept, and the speed ramp survives via the reducer's curve slice; only
+// media-bound renders (reversed, enhance) are dropped. Note the patch
+// carries NO speedCurve key at all: its absence is what keeps the curve.
 const oldV = { id: 'v', type: 'video', duration: 10, hasAudio: true };
 const longV = { id: 'w', type: 'video', duration: 30, hasAudio: true };
 const shortV = { id: 'x', type: 'video', duration: 1, hasAudio: true };
+const midV = { id: 'y', type: 'video', duration: 2.5, hasAudio: true };
 const img = { id: 'i', type: 'image' };
 const clip = { ...mk('a', 'v', 2), in: 1, out: 3, speedCurve: { points: [] }, reversed: { mediaId: 'v' }, enhance: { path: 'e.wav', on: true }, filter: 'bw', transform: { scale: 1.5 } };
-assert.deepEqual(replaceClipPatch(clip, oldV, longV), { mediaId: 'w', in: 0, out: 2, speedCurve: undefined, reversed: null, enhance: undefined });
-assert.deepEqual(replaceClipPatch(clip, oldV, shortV), { mediaId: 'x', in: 0, out: 1, speedCurve: undefined, reversed: null, enhance: undefined });
-assert.equal(replaceClipPatch(clip, oldV, img).out, 2); // images hold the frame: span kept
+assert.deepEqual(replaceClipPatch(clip, oldV, longV), { mediaId: 'w', in: 1, out: 3, reversed: null, enhance: undefined });
+assert.deepEqual(replaceClipPatch(clip, oldV, midV), { mediaId: 'y', in: 1, out: 2.5, reversed: null, enhance: undefined }); // shorter file: trim kept, span shrinks
+assert.deepEqual(replaceClipPatch(clip, oldV, shortV), { mediaId: 'x', in: 0, out: 1, reversed: null, enhance: undefined }); // in-point past the end: fall back to the start, span kept
+assert.deepEqual(replaceClipPatch(clip, oldV, img), { mediaId: 'i', in: 1, out: 3, reversed: null, enhance: undefined }); // images hold the frame: trim kept
+// A ramped clip keeps its speed ramp through a replace (the patch omits
+// speedCurve, so applyClipPatch slices the curve to the kept window —
+// a no-op slice when in/out are unchanged).
+let stR = run(fresh(), { type: 'update', track: 'video', id: 'a', patch: { in: 1, out: 3, speedCurve: { points: [{ t: 0, speed: 0.5 }, { t: 2, speed: 2 }] } } });
+const beforeRamp = stR.present.videoClips[0];
+stR = run(stR, { type: 'update', track: 'video', id: 'a', patch: replaceClipPatch(beforeRamp, oldV, longV) });
+const afterRamp = stR.present.videoClips[0];
+assert.equal(afterRamp.mediaId, 'w');
+assert.equal(afterRamp.in, 1);
+assert.equal(afterRamp.out, 3);
+assert.deepEqual(afterRamp.speedCurve.points, [{ t: 0, speed: 0.5 }, { t: 2, speed: 2 }]);
+assert.equal(clipLen(afterRamp), clipLen(beforeRamp));
+
+// Replace compatibility (item 18): the Upload picker and the library list
+// share one predicate — what a file must be to replace a clip.
+const aud = { id: 'a', type: 'audio' };
+const vidNoAud = { id: 'n', type: 'video', duration: 5, hasAudio: false };
+const vidSilent = { id: 's', type: 'video', hasAudio: true }; // probed for audio but no duration: unprobed
+const missing = { id: 'm', type: 'video', duration: 5, hasAudio: true, missing: true };
+assert.equal(replaceCompatible(null, false, false), false);
+assert.equal(replaceCompatible(missing, false, false), false);
+assert.equal(replaceCompatible(longV, false, false), true); // plain video
+assert.equal(replaceCompatible(vidNoAud, false, false), true); // unlinked: silent video ok
+assert.equal(replaceCompatible(vidNoAud, true, false), false); // linked: needs audio
+assert.equal(replaceCompatible(vidSilent, false, false), false); // unprobed video
+assert.equal(replaceCompatible(img, false, false), true); // image, unlinked
+assert.equal(replaceCompatible(img, true, false), false); // image, linked: partner would go silent
+assert.equal(replaceCompatible(aud, false, true), true); // audio track takes audio
+assert.equal(replaceCompatible(longV, false, true), true); // audio track takes video with audio
+assert.equal(replaceCompatible(vidNoAud, false, true), false); // audio track: silent video no
+assert.equal(replaceCompatible(img, false, true), false); // audio track: no images
 
 console.log('CLIP MENU OK');

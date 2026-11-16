@@ -54,7 +54,12 @@ function probeFull(file) {
   // ---- Resolver rules -------------------------------------------------------
   check(resolveExport(mkProject(null), {}).format === 'mp4', 'no stored settings -> MP4 (the historical default)');
   const noVp9 = resolveExport(mkProject({ ...FAST, format: 'webm' }), { libx265: true, vp9: false });
-  check(noVp9.format === 'mp4' && noVp9.notes.some((n) => n.includes('WebM')), 'WebM without VP9 in the build falls back to MP4, with the note saying so');
+  // Notes are i18n-note objects now ({ k, p }), not plain strings (P0-07):
+  // the WebM fallback note is keyed exp.note.webmMissing, and its English
+  // text says WebM. Assert the key AND the resolved text.
+  const enText = fs.readFileSync(path.join(__dirname, '..', 'src', 'i18n', 'en.js'), 'utf8');
+  const webmNote = /"exp\.note\.webmMissing": "((?:[^"\\]|\\.)*)"/.exec(enText);
+  check(noVp9.format === 'mp4' && noVp9.notes.some((n) => n.k === 'exp.note.webmMissing') && !!(webmNote && webmNote[1].includes('WebM')), 'WebM without VP9 in the build falls back to MP4, with the note saying so');
   const big = { ...mkProject(null), width: 1280, height: 720 };
   const gifBig = resolveExport({ ...big, exportSettings: { ...FAST, format: 'gif', gifSize: 640, gifFps: 15 } }, {});
   check(gifBig.gifW === 640 && gifBig.gifH === 360, `GIF geometry: 1280x720 at the 640 preset -> 640x360 (got ${gifBig.gifW}x${gifBig.gifH})`);

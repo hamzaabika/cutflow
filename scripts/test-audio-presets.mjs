@@ -25,4 +25,11 @@ for (const p of AUDIO_PRESETS) {
 }
 assert.equal(activePreset(null), null);
 assert.equal(activePreset({ comp: true }), null, 'a lone compressor is not a preset');
+// P2 merge fix: normalisation is idempotent — a preset that was already
+// normalised (comp as a linear object, from a seed/capture) must come back
+// identical, not re-interpreted as dB (that used to return threshold 1 /
+// makeup 1.259 for Clear Voice). dB objects from the inspector still convert.
+for (const p of AUDIO_PRESETS) {
+  assert.deepEqual(normalizeAudioFx(normalizeAudioFx(p.fx)), normalizeAudioFx(p.fx), `${p.id} normalises idempotently`);
+}
 console.log('audio-presets ok (28 presets in 4 packs, mirror in sync, presets drive real filters and land their parameters)');
